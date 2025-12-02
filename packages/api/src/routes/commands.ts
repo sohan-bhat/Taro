@@ -1,6 +1,6 @@
 import { Router, type Router as RouterType } from 'express';
 import { ActionLogModel, MeetingModel } from '../db/models';
-import { SlackService, parseIntent, extractCommand } from '../services';
+import { SlackService, parseIntent } from '../services';
 import { INTENTS, TTS_RESPONSES } from '@taro/shared';
 import { asyncHandler } from '../middleware/errorHandler';
 import { NotFoundError, ValidationError } from '../lib/errors';

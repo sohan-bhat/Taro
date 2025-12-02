@@ -140,23 +140,3 @@ export async function parseIntent(command: string): Promise<ParsedIntent> {
   }
 }
 
-// Extract the command part after "Hey Taro"
-export function extractCommand(transcript: string): string | null {
-  const lowerTranscript = transcript.toLowerCase();
-  const wakeWordIndex = lowerTranscript.indexOf('hey taro');
-
-  if (wakeWordIndex === -1) {
-    return null;
-  }
-
-  // Get everything after "hey taro"
-  const afterWakeWord = transcript.substring(wakeWordIndex + 8).trim();
-
-  // Remove common filler words at the start
-  const cleaned = afterWakeWord
-    .replace(/^[,.]?\s*/g, '') // Remove leading punctuation/spaces
-    .replace(/^(please|can you|could you|would you)\s+/i, '') // Remove polite prefixes
-    .trim();
-
-  return cleaned || null;
-}

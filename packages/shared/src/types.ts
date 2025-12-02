@@ -71,22 +71,4 @@ export const AVAILABLE_INTEGRATIONS: IntegrationInfo[] = [
     description: 'Listen for meeting links in Slack channels',
     available: true,
   },
-  {
-    type: 'google_calendar',
-    name: 'Google Calendar',
-    description: 'Auto-join meetings from your calendar',
-    available: false, // Coming soon
-  },
-  {
-    type: 'microsoft_teams',
-    name: 'Microsoft Teams',
-    description: 'Listen for meeting links in Teams',
-    available: false,
-  },
-  {
-    type: 'zoom',
-    name: 'Zoom',
-    description: 'Auto-join Zoom meetings',
-    available: false,
-  },
 ];

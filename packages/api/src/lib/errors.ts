@@ -32,20 +32,6 @@ export class ValidationError extends AppError {
   }
 }
 
-export class UnauthorizedError extends AppError {
-  constructor(message = 'Unauthorized') {
-    super(401, 'UNAUTHORIZED', message);
-    this.name = 'UnauthorizedError';
-  }
-}
-
-export class ForbiddenError extends AppError {
-  constructor(message = 'Forbidden') {
-    super(403, 'FORBIDDEN', message);
-    this.name = 'ForbiddenError';
-  }
-}
-
 export class ConflictError extends AppError {
   constructor(message: string) {
     super(409, 'CONFLICT', message);
@@ -53,9 +39,3 @@ export class ConflictError extends AppError {
   }
 }
 
-export class ExternalServiceError extends AppError {
-  constructor(service: string, message: string, details?: unknown) {
-    super(502, 'EXTERNAL_SERVICE_ERROR', `${service}: ${message}`, details);
-    this.name = 'ExternalServiceError';
-  }
-}

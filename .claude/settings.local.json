@@ -34,7 +34,11 @@
       "Bash(docker build:*)",
       "WebFetch(domain:docs.meetingbaas.com)",
       "WebFetch(domain:auth.meetingbaas.com)",
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "WebFetch(domain:skribby.io)",
+      "WebFetch(domain:meetily.zackriya.com)",
+      "WebFetch(domain:meetily.ai)",
+      "WebFetch(domain:docs.skribby.io)"
     ],
     "deny": [],
     "ask": []

@@ -5,7 +5,7 @@
 
 import { Router, type Router as RouterType } from 'express';
 import { MeetingModel, ActionLogModel } from '../db/models';
-import { SlackService, parseIntent, extractCommand } from '../services';
+import { SlackService, parseIntent } from '../services';
 import { WAKE_WORD, INTENTS, TTS_RESPONSES, MEETING_STATUS } from '@taro/shared';
 import { asyncHandler } from '../middleware/errorHandler';
 
