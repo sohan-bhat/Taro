@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install:*)",
+      "Bash(pnpm --filter @taro/bot exec playwright install:*)",
+      "Bash(pnpm --filter @taro/api dev:*)",
+      "Bash(curl:*)",
+      "Bash(pnpm --filter @taro/web dev:*)",
+      "Bash(pnpm --filter @taro/api add @slack/socket-mode)",
+      "Bash(pnpm --filter @taro/shared build:*)",
+      "Bash(ngrok http:*)",
+      "Bash(pnpm --filter @taro/bot dev:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.recall.ai)",
+      "Bash(pnpm --filter @taro/web build:*)",
+      "Bash(pnpm --filter @taro/api build:*)",
+      "Bash(pnpm --filter @taro/bot build:*)",
+      "Bash(npx playwright:*)",
+      "Bash(node -e:*)",
+      "WebFetch(domain:docs.recall.ai)",
+      "WebFetch(domain:www.meetingbaas.com)",
+      "WebFetch(domain:screenapp.io)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(python3:*)",
+      "Bash(docker run:*)",
+      "Bash(taro-bot:latest)",
+      "Bash(docker logs:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker build:*)",
+      "WebFetch(domain:docs.meetingbaas.com)",
+      "WebFetch(domain:auth.meetingbaas.com)",
+      "Bash(xargs ls:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
