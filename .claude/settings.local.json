@@ -38,7 +38,8 @@
       "WebFetch(domain:skribby.io)",
       "WebFetch(domain:meetily.zackriya.com)",
       "WebFetch(domain:meetily.ai)",
-      "WebFetch(domain:docs.skribby.io)"
+      "WebFetch(domain:docs.skribby.io)",
+      "Bash(pnpm --version)"
     ],
     "deny": [],
     "ask": []

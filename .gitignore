@@ -13,6 +13,13 @@ dist/
 .env.local
 .env.*.local
 
+# ASR models (300MB+, downloaded per-machine - see README)
+packages/api/models/
+
+# Realtime diagnostics (written during live meetings)
+packages/api/realtime-debug.log
+packages/api/audio-probe-*.raw
+
 # IDE
 .vscode/
 .idea/
@@ -30,3 +37,5 @@ coverage/
 # Misc
 *.tg?z
 CLAUDE.md
+# TS build cache
+*.tsbuildinfo

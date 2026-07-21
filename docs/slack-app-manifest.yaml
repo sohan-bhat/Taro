@@ -1,0 +1,36 @@
+# Slack app manifest for Taro.
+# Usage: api.slack.com/apps → Create New App → "From an app manifest"
+#        → pick your workspace → paste this file.
+# ⚠️ Replace YOUR-NGROK-DOMAIN with your static ngrok domain first.
+# After creating: Basic Information → App-Level Tokens → create a token
+# with the connections:write scope (this is SLACK_APP_TOKEN).
+# If you later change scopes, you must REINSTALL the app to the workspace.
+
+display_information:
+  name: Taro
+  description: Voice-activated meeting assistant
+  background_color: "#0ea5e9"
+
+features:
+  bot_user:
+    display_name: taro
+    always_online: true
+
+oauth_config:
+  redirect_urls:
+    - https://YOUR-NGROK-DOMAIN.ngrok-free.app/api/slack/callback
+  scopes:
+    bot:
+      - chat:write
+      - channels:read
+      - channels:join
+      - channels:history
+      - users:read
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
