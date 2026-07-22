@@ -1,6 +1,22 @@
 // Wake word to trigger Taro
 export const WAKE_WORD = 'hey taro';
 
+// Common speech-to-text mishearings of the wake word.
+// Transcription providers frequently mangle "Taro" — match generously.
+export const WAKE_WORD_VARIATIONS = [
+  'hey taro',
+  'hey tarot',
+  'hey tara',
+  'hey tarro',
+  'hey taru',
+  'hey terra',
+  'a taro',
+  'hey tario',
+] as const;
+
+// Maximum words captured after the wake word as a single command
+export const MAX_COMMAND_WORDS = 30;
+
 // Supported intents
 export const INTENTS = {
   POST_MESSAGE: 'post_message',
@@ -17,16 +33,6 @@ export const MEETING_STATUS = {
   ERROR: 'error',
 } as const;
 
-// TTS response messages
-export const TTS_RESPONSES = {
-  COMMAND_RECEIVED: "Got it, let me do that for you.",
-  SUCCESS: "Done!",
-  CLARIFICATION: "I didn't quite catch that. Could you repeat?",
-  ERROR: "Sorry, something went wrong. Please try again.",
-  SLACK_SUCCESS: (channel: string) => `Done! I posted your message to ${channel}.`,
-  TASK_SUCCESS: (channel: string) => `Done! I created the task in ${channel}.`,
-} as const;
-
 // API endpoints
 export const API_ROUTES = {
   HEALTH: '/health',
@@ -34,5 +40,4 @@ export const API_ROUTES = {
   MEETINGS: '/api/meetings',
   SLACK_INSTALL: '/api/slack/install',
   SLACK_CALLBACK: '/api/slack/callback',
-  SLACK_WEBHOOK: '/api/slack/webhook',
 } as const;

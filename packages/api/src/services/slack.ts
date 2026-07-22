@@ -73,24 +73,4 @@ export class SlackService {
       return null;
     }
   }
-
-  // Get list of channels (for UI)
-  async getChannels(): Promise<Array<{ id: string; name: string }>> {
-    try {
-      const result = await this.client.conversations.list({
-        types: 'public_channel',
-        limit: 200,
-      });
-
-      return (
-        result.channels?.map((ch) => ({
-          id: ch.id!,
-          name: ch.name!,
-        })) || []
-      );
-    } catch (error) {
-      console.error('Error listing channels:', error);
-      return [];
-    }
-  }
 }

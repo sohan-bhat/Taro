@@ -1,7 +1,8 @@
 import type { ParsedIntent } from '@taro/shared';
 import { INTENTS } from '@taro/shared';
+import { env } from '../config/env';
 
-// Simple regex-based intent parser for MVP (no API key required)
+// Simple regex-based intent parser — fallback when Gemini is unavailable
 export function parseIntentSimple(command: string): ParsedIntent {
   const lower = command.toLowerCase().trim();
 
@@ -52,18 +53,21 @@ export function parseIntentSimple(command: string): ParsedIntent {
   };
 }
 
-// Gemini-based parser (requires GOOGLE_API_KEY)
-let genAI: any = null;
-try {
-  const { GoogleGenerativeAI } = require('@google/generative-ai');
-  if (process.env.GOOGLE_API_KEY) {
-    genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+// Gemini client via the unified @google/genai SDK (lazy init, optional)
+import { GoogleGenAI } from '@google/genai';
+
+let genAI: GoogleGenAI | null = null;
+function getGenAI(): GoogleGenAI | null {
+  if (!env.googleApiKey) return null;
+  if (!genAI) {
+    genAI = new GoogleGenAI({ apiKey: env.googleApiKey });
   }
-} catch {
-  // Google AI SDK not available, will use simple parser
+  return genAI;
 }
 
 const SYSTEM_PROMPT = `You are Taro, a voice-activated meeting assistant. Your job is to parse voice commands and extract the intent and parameters.
+
+The input comes from meeting speech-to-text, so it may contain transcription noise, filler words, or trailing conversation unrelated to the command. Extract only the command.
 
 You MUST respond with valid JSON in this exact format:
 {
@@ -96,30 +100,38 @@ Output: {"action":"post_message","confidence":0.9,"params":{"channel":"engineeri
 Input: "create a task in project-updates to review the PR"
 Output: {"action":"create_task","confidence":0.85,"params":{"channel":"project-updates","task":"review the PR"}}
 
+Input: "post meeting notes are ready to general okay so back to the roadmap"
+Output: {"action":"post_message","confidence":0.8,"params":{"channel":"general","message":"meeting notes are ready"}}
+
 Input: "what's the weather"
 Output: {"action":"unknown","confidence":0.1,"params":{"original":"what's the weather"}}
 
 ONLY respond with JSON, no other text.`;
 
 export async function parseIntent(command: string): Promise<ParsedIntent> {
+  const client = getGenAI();
+
   // If Gemini is not configured, use simple parser
-  if (!genAI) {
+  if (!client) {
     console.log('Using simple intent parser (no GOOGLE_API_KEY)');
     return parseIntentSimple(command);
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const response = await client.models.generateContent({
+      model: env.geminiModel,
+      contents: `Parse this command: "${command}"`,
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        temperature: 0,
+      },
+    });
 
-    const result = await model.generateContent([
-      { text: SYSTEM_PROMPT },
-      { text: `Parse this command: "${command}"` },
-    ]);
-
-    const response = result.response.text();
+    const text = response.text ?? '';
 
     // Extract JSON from response (handle potential markdown code blocks)
-    let jsonStr = response.trim();
+    let jsonStr = text.trim();
     if (jsonStr.startsWith('```')) {
       jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
     }
@@ -139,4 +151,3 @@ export async function parseIntent(command: string): Promise<ParsedIntent> {
     return parseIntentSimple(command);
   }
 }
-

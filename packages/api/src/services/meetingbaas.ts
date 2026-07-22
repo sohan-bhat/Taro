@@ -34,7 +34,7 @@ export class MeetingBaasService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-spoke-api-key': this.apiKey,
+        'x-meeting-baas-api-key': this.apiKey,
       },
       body: JSON.stringify({
         meeting_url: meetingUrl,
@@ -70,7 +70,7 @@ export class MeetingBaasService {
    */
   async getBotStatus(botId: string): Promise<MeetingBaasBot> {
     const response = await fetch(`${MEETINGBAAS_API}/bots/${botId}`, {
-      headers: { 'x-spoke-api-key': this.apiKey },
+      headers: { 'x-meeting-baas-api-key': this.apiKey },
     });
 
     if (!response.ok) {
@@ -88,7 +88,7 @@ export class MeetingBaasService {
 
     const response = await fetch(`${MEETINGBAAS_API}/bots/${botId}`, {
       method: 'DELETE',
-      headers: { 'x-spoke-api-key': this.apiKey },
+      headers: { 'x-meeting-baas-api-key': this.apiKey },
     });
 
     if (!response.ok) {

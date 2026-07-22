@@ -28,12 +28,12 @@ export const env = {
   // Slack
   slackClientId: getRequired('SLACK_CLIENT_ID'),
   slackClientSecret: getRequired('SLACK_CLIENT_SECRET'),
-  slackSigningSecret: getRequired('SLACK_SIGNING_SECRET'),
+  slackSigningSecret: getOptional('SLACK_SIGNING_SECRET', ''),
   slackAppToken: getOptional('SLACK_APP_TOKEN', ''),
 
-  // Google
-  googleApiKey: getRequired('GOOGLE_API_KEY'),
-  googleCredentials: getOptional('GOOGLE_APPLICATION_CREDENTIALS', ''),
+  // Google Gemini (optional — falls back to regex intent parser without it)
+  googleApiKey: getOptional('GOOGLE_API_KEY', ''),
+  geminiModel: getOptional('GEMINI_MODEL', 'gemini-3.5-flash'),
 
   // MeetingBaas
   meetingBaasApiKey: getRequired('MEETINGBAAS_API_KEY'),
@@ -53,6 +53,7 @@ console.log('Environment loaded:', {
   slackClientId: env.slackClientId,
   hasSlackAppToken: !!env.slackAppToken,
   hasGoogleApiKey: !!env.googleApiKey,
+  geminiModel: env.geminiModel,
   port: env.port,
   apiUrl: env.apiUrl,
   isDev: env.isDev,

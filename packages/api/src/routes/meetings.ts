@@ -21,20 +21,6 @@ function isValidMeetUrl(url: string): boolean {
   }
 }
 
-// Get pending meetings (for bot to poll) - must be before /:id route
-meetingsRouter.get(
-  '/pending/all',
-  asyncHandler(async (req, res) => {
-    const meetings = await MeetingModel.find({
-      status: MEETING_STATUS.PENDING,
-    })
-      .sort({ createdAt: 1 })
-      .limit(10);
-
-    res.json(meetings);
-  })
-);
-
 // Get all meetings for a company
 meetingsRouter.get(
   '/',

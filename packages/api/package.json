@@ -10,8 +10,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "@slack/bolt": "^3.18.0",
+    "@google/genai": "^1.0.0",
     "@slack/socket-mode": "^2.0.5",
     "@slack/web-api": "^7.0.0",
     "@taro/shared": "workspace:*",

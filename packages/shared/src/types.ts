@@ -28,6 +28,7 @@ export interface Meeting {
   startedAt?: Date;
   endedAt?: Date;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 // Log of actions taken by Taro

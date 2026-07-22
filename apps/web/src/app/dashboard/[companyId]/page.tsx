@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { AVAILABLE_INTEGRATIONS, IntegrationInfo } from '@taro/shared';
-import { api, Company, Meeting, ApiError } from '@/lib/api';
+import { api, Company, Meeting, ActionLog, ApiError } from '@/lib/api';
 
 interface IntegrationStatus {
   type: string;
@@ -19,9 +19,15 @@ export default function Dashboard() {
 
   const [company, setCompany] = useState<Company | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [actionLogs, setActionLogs] = useState<ActionLog[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+
+  // Manual "join a meeting" form
+  const [meetUrl, setMeetUrl] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState('');
 
   useEffect(() => {
     if (searchParams.get('slack') === 'connected') {
@@ -33,14 +39,16 @@ export default function Dashboard() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [companyData, meetingsData, slackStatus] = await Promise.all([
+        const [companyData, meetingsData, logsData, slackStatus] = await Promise.all([
           api.companies.get(companyId),
           api.meetings.list(companyId),
+          api.commands.logs(companyId),
           api.slack.status(companyId),
         ]);
 
         setCompany(companyData);
         setMeetings(meetingsData);
+        setActionLogs(logsData);
         setIntegrations([
           {
             type: 'slack',
@@ -64,6 +72,28 @@ export default function Dashboard() {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, [companyId]);
+
+  const joinMeeting = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setJoining(true);
+    setJoinError('');
+
+    try {
+      const meeting = await api.meetings.create({ companyId, meetUrl: meetUrl.trim() });
+      setMeetings(prev => [meeting, ...prev]);
+      setMeetUrl('');
+      setToast('Taro is joining the meeting');
+      setTimeout(() => setToast(''), 3000);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setJoinError(error.message);
+      } else {
+        setJoinError('Failed to join meeting');
+      }
+    } finally {
+      setJoining(false);
+    }
+  };
 
   const connectIntegration = (type: string) => {
     if (type === 'slack') {
@@ -103,6 +133,15 @@ export default function Dashboard() {
       error: 'bg-red-50 text-red-700 border-red-200',
     };
     return styles[status] || styles.pending;
+  };
+
+  const getActionStatusStyle = (status: string) => {
+    const styles: Record<string, string> = {
+      success: 'bg-green-50 text-green-700 border-green-200',
+      failed: 'bg-red-50 text-red-700 border-red-200',
+      clarification_needed: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+    return styles[status] || styles.clarification_needed;
   };
 
   if (loading) {
@@ -200,7 +239,32 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
+          <h2 className="text-sm font-medium text-gray-900 mb-4">Join a Meeting</h2>
+          <p className="text-gray-600 text-sm mb-4">
+            Paste a Google Meet link and Taro will join right away — no Slack message needed.
+          </p>
+          <form onSubmit={joinMeeting} className="flex gap-2">
+            <input
+              type="url"
+              value={meetUrl}
+              onChange={(e) => setMeetUrl(e.target.value)}
+              placeholder="https://meet.google.com/xxx-xxxx-xxx"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-taro-500 focus:border-transparent text-sm"
+              required
+            />
+            <button
+              type="submit"
+              disabled={joining}
+              className="text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 px-4 py-2 rounded-md transition"
+            >
+              {joining ? 'Joining...' : 'Join'}
+            </button>
+          </form>
+          {joinError && <div className="text-red-600 text-sm mt-2">{joinError}</div>}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
           <h2 className="text-sm font-medium text-gray-900 mb-4">Recent Meetings</h2>
           {meetings.length === 0 ? (
             <p className="text-gray-500 text-sm">
@@ -230,12 +294,49 @@ export default function Dashboard() {
           )}
         </div>
 
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h2 className="text-sm font-medium text-gray-900 mb-4">Recent Actions</h2>
+          {actionLogs.length === 0 ? (
+            <p className="text-gray-500 text-sm">
+              No actions yet. Say "Hey Taro, post hello to #general" in a meeting and the
+              result will show up here.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {actionLogs.map((log) => (
+                <div
+                  key={log._id}
+                  className="flex items-start justify-between p-3 border border-gray-100 rounded-md gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm text-gray-900">
+                      "{log.command}"
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {log.status === 'success' && log.result}
+                      {log.status === 'failed' && (log.errorMessage || 'Failed')}
+                      {log.status === 'clarification_needed' && "Couldn't understand the command"}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded border whitespace-nowrap ${getActionStatusStyle(log.status)}`}>
+                    {log.status.replace('_', ' ')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="mt-8 p-4 border border-gray-200 rounded-lg">
           <h3 className="text-sm font-medium text-gray-900 mb-2">How it works</h3>
           <ol className="text-sm text-gray-600 space-y-1">
-            <li>1. Connect your integrations above</li>
-            <li>2. Taro will automatically detect meeting links</li>
-            <li>3. In the meeting, say <span className="font-medium">"Hey Taro, post hello to #general"</span></li>
+            <li>1. Connect Slack above, or paste a Meet link directly</li>
+            <li>2. Taro joins the meeting and listens</li>
+            <li>3. Say <span className="font-medium">"Hey Taro, post hello to #general"</span></li>
+            <li>4. When the meeting ends, Taro executes your commands and logs them here</li>
           </ol>
         </div>
       </div>

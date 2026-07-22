@@ -6,12 +6,18 @@ import { env } from '../config/env';
 
 const MEET_LINK_REGEX = /https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/gi;
 
+// Cap on the processed-event dedup set before it gets pruned
+const MAX_PROCESSED_EVENTS = 500;
+
 export class SlackListener {
   private socketClient: SocketModeClient | null = null;
   private started = false;
+  // Slack can redeliver events (and SocketModeClient fires multiple hooks for
+  // the same envelope) — track processed message keys to handle each once.
+  private processedEvents = new Set<string>();
 
   async start() {
-    const appToken = process.env.SLACK_APP_TOKEN;
+    const appToken = env.slackAppToken;
 
     if (!appToken) {
       console.log('Slack listener: No SLACK_APP_TOKEN, skipping auto-join feature');
@@ -23,21 +29,15 @@ export class SlackListener {
     try {
       this.socketClient = new SocketModeClient({ appToken });
 
-      // Listen for all events and log them for debugging
-      this.socketClient.on('slack_event', async ({ event, body, ack }) => {
+      // Single handler: 'slack_event' fires for every event envelope.
+      // Do NOT also subscribe to the named 'message' event — that would
+      // process every message twice and deploy duplicate bots.
+      this.socketClient.on('slack_event', async ({ event, ack }) => {
         await ack();
-        console.log('Slack listener: Received event type:', event?.type);
 
         if (event?.type === 'message' && !event.subtype) {
           await this.handleMessage(event);
         }
-      });
-
-      // Also listen for message events directly
-      this.socketClient.on('message', async ({ event, ack }) => {
-        await ack();
-        console.log('Slack listener: Received message event');
-        await this.handleMessage(event);
       });
 
       await this.socketClient.start();
@@ -50,6 +50,15 @@ export class SlackListener {
 
   private async handleMessage(event: any) {
     if (!event.text || event.bot_id) return;
+
+    // Dedup by channel + message timestamp (unique per Slack message)
+    const eventKey = `${event.channel}:${event.ts}`;
+    if (this.processedEvents.has(eventKey)) {
+      console.log(`Slack listener: Skipping duplicate event ${eventKey}`);
+      return;
+    }
+    this.processedEvents.add(eventKey);
+    this.pruneProcessedEvents();
 
     const meetLinks = event.text.match(MEET_LINK_REGEX);
     if (!meetLinks || meetLinks.length === 0) return;
@@ -68,7 +77,7 @@ export class SlackListener {
       // Check if we already have this meeting
       const existing = await MeetingModel.findOne({
         meetUrl,
-        status: { $in: ['pending', 'joining', 'active'] }
+        status: { $in: ['pending', 'joining', 'active'] },
       });
 
       if (existing) {
@@ -84,6 +93,7 @@ export class SlackListener {
       });
 
       // Deploy bot via MeetingBaas
+      let deployed = false;
       try {
         const meetingBaas = getMeetingBaasService();
         const webhookUrl = `${env.apiUrl}/api/webhooks/meetingbaas`;
@@ -99,6 +109,7 @@ export class SlackListener {
         meeting.botId = bot.bot_id;
         meeting.status = 'joining';
         await meeting.save();
+        deployed = true;
 
         console.log(`Slack listener: Bot deployed: ${bot.bot_id}`);
       } catch (error) {
@@ -107,17 +118,25 @@ export class SlackListener {
         await meeting.save();
       }
 
-      // Post confirmation in Slack
+      // Post an honest confirmation in the thread
       const webClient = new WebClient(connection.accessToken);
       await webClient.chat.postMessage({
         channel: event.channel,
-        text: `Joining the meeting...`,
+        text: deployed
+          ? `:wave: Taro is joining the meeting. Say "Hey Taro, post <message> to #<channel>" during the call.`
+          : `:warning: Taro couldn't join the meeting. Check the dashboard for details.`,
         thread_ts: event.ts,
       });
-
     } catch (error) {
       console.error('Slack listener: Error handling Meet link', error);
     }
+  }
+
+  private pruneProcessedEvents() {
+    if (this.processedEvents.size <= MAX_PROCESSED_EVENTS) return;
+    // Set preserves insertion order — drop the oldest half
+    const keys = [...this.processedEvents].slice(0, MAX_PROCESSED_EVENTS / 2);
+    for (const key of keys) this.processedEvents.delete(key);
   }
 
   stop() {

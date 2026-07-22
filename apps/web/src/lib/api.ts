@@ -44,6 +44,22 @@ export interface SlackStatus {
   connectedAt?: string;
 }
 
+export interface ActionLog {
+  _id: string;
+  meetingId: string;
+  companyId: string;
+  command: string;
+  intent: {
+    action: 'post_message' | 'create_task' | 'unknown';
+    confidence: number;
+    params: Record<string, string>;
+  };
+  status: 'success' | 'failed' | 'clarification_needed';
+  result?: string;
+  errorMessage?: string;
+  createdAt: string;
+}
+
 // Generic request handler
 async function request<T>(
   endpoint: string,
@@ -114,6 +130,15 @@ export const meetings = {
     request(`/api/meetings/${id}/end`, { method: 'POST' }),
 };
 
+// Command / action log endpoints
+export const commands = {
+  logs: (companyId: string): Promise<ActionLog[]> =>
+    request(`/api/commands/logs?companyId=${companyId}`),
+
+  logsForMeeting: (meetingId: string): Promise<ActionLog[]> =>
+    request(`/api/commands/logs/${meetingId}`),
+};
+
 // Slack endpoints
 export const slack = {
   status: (companyId: string): Promise<SlackStatus> =>
@@ -130,5 +155,6 @@ export const slack = {
 export const api = {
   companies,
   meetings,
+  commands,
   slack,
 };

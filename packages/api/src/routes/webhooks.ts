@@ -1,12 +1,18 @@
 /**
  * Webhook endpoints for receiving data from external services.
  * Currently handles MeetingBaas transcription webhooks.
+ *
+ * Note on flow: MeetingBaas delivers `bot.status_change`, `failed`, and
+ * `complete` over webhooks. Per-utterance live transcripts require their
+ * WebSocket streaming setup, so commands are detected and executed from the
+ * full transcript when the meeting completes. The `transcript` case below is
+ * kept so live chunks are handled if streaming is ever wired up.
  */
 
 import { Router, type Router as RouterType } from 'express';
 import { MeetingModel, ActionLogModel } from '../db/models';
 import { SlackService, parseIntent } from '../services';
-import { WAKE_WORD, INTENTS, TTS_RESPONSES, MEETING_STATUS } from '@taro/shared';
+import { WAKE_WORD_VARIATIONS, MAX_COMMAND_WORDS, INTENTS, MEETING_STATUS } from '@taro/shared';
 import { asyncHandler } from '../middleware/errorHandler';
 
 export const webhooksRouter: RouterType = Router();
@@ -15,8 +21,63 @@ export const webhooksRouter: RouterType = Router();
 const transcriptBuffer: Map<string, string> = new Map();
 
 /**
+ * Lowercase, strip punctuation, and collapse whitespace so wake-word matching
+ * is resilient to transcription formatting ("Hey, Taro." → "hey taro").
+ */
+export function normalizeTranscript(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.,!?;:"""''`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Find every wake-word occurrence in a transcript and return the command
+ * text following each one. A command runs until the next wake word (or end
+ * of text) and is capped at MAX_COMMAND_WORDS so trailing meeting chatter
+ * doesn't swamp the intent parser.
+ */
+export function extractCommands(text: string): string[] {
+  const normalized = normalizeTranscript(text);
+  if (!normalized) return [];
+
+  const pattern = new RegExp(`\\b(?:${WAKE_WORD_VARIATIONS.join('|')})\\b`, 'g');
+  const matches = [...normalized.matchAll(pattern)];
+  if (matches.length === 0) return [];
+
+  const commands: string[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const start = (matches[i].index ?? 0) + matches[i][0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index : normalized.length;
+    let command = normalized.slice(start, end).trim();
+
+    const words = command.split(' ');
+    if (words.length > MAX_COMMAND_WORDS) {
+      command = words.slice(0, MAX_COMMAND_WORDS).join(' ');
+    }
+
+    if (command.length > 3) {
+      commands.push(command);
+    }
+  }
+  return commands;
+}
+
+/**
+ * Reassemble the full transcript text from MeetingBaas `complete` payload
+ * segments. Words are joined with spaces and re-normalized, which is safe
+ * whether or not the provider embeds spaces in each word token.
+ */
+function assembleTranscript(segments: Array<{ words?: Array<{ word: string }> }>): string {
+  return segments
+    .map((segment) => segment.words?.map((w) => w.word).join(' ') || '')
+    .join(' ');
+}
+
+/**
  * MeetingBaas webhook endpoint
- * Receives events: bot.status_change, transcript, complete
+ * Receives events: bot.status_change, transcript, complete, failed
  */
 webhooksRouter.post(
   '/meetingbaas',
@@ -65,37 +126,36 @@ webhooksRouter.post(
         break;
       }
 
+      case 'failed': {
+        console.error(`[Webhook] Bot failed to join:`, data?.error || data);
+        await MeetingModel.findByIdAndUpdate(meeting._id, {
+          status: MEETING_STATUS.ERROR,
+          endedAt: new Date(),
+        });
+        transcriptBuffer.delete(meeting._id.toString());
+        break;
+      }
+
       case 'transcript': {
-        // Handle real-time transcription
+        // Live transcription chunks (only delivered when streaming is configured)
         const transcript = data.transcript || data.text || '';
         const speaker = data.speaker || 'Unknown';
 
         console.log(`[Webhook] Transcript from ${speaker}: "${transcript}"`);
 
-        // Accumulate transcript in buffer
+        // Accumulate transcript in buffer (last ~500 chars)
         const meetingId = meeting._id.toString();
         const currentBuffer = transcriptBuffer.get(meetingId) || '';
-        const newBuffer = (currentBuffer + ' ' + transcript).toLowerCase().trim();
+        const newBuffer = normalizeTranscript(currentBuffer + ' ' + transcript).slice(-500);
+        transcriptBuffer.set(meetingId, newBuffer);
 
-        // Keep buffer size reasonable (last ~500 chars)
-        const trimmedBuffer = newBuffer.slice(-500);
-        transcriptBuffer.set(meetingId, trimmedBuffer);
-
-        // Check for wake word
-        if (trimmedBuffer.includes(WAKE_WORD)) {
-          // Extract command after wake word
-          const wakeWordIndex = trimmedBuffer.lastIndexOf(WAKE_WORD);
-          const commandText = trimmedBuffer.slice(wakeWordIndex + WAKE_WORD.length).trim();
-
-          if (commandText && commandText.length > 3) {
-            console.log(`[Webhook] Wake word detected! Command: "${commandText}"`);
-
-            // Clear buffer after wake word to prevent re-triggering
-            transcriptBuffer.set(meetingId, '');
-
-            // Execute the command
-            await executeCommand(meeting._id.toString(), meeting.companyId, commandText);
-          }
+        const commands = extractCommands(newBuffer);
+        if (commands.length > 0) {
+          // Execute the most recent command and clear the buffer to prevent re-triggering
+          const command = commands[commands.length - 1];
+          console.log(`[Webhook] Wake word detected! Command: "${command}"`);
+          transcriptBuffer.set(meetingId, '');
+          await executeCommand(meeting._id.toString(), meeting.companyId, command);
         }
         break;
       }
@@ -105,30 +165,14 @@ webhooksRouter.post(
 
         // Process full transcript for commands
         const transcriptSegments = data.transcript || [];
-        const fullText = transcriptSegments
-          .map((segment: { words?: Array<{ word: string }> }) =>
-            segment.words?.map((w) => w.word).join('') || ''
-          )
-          .join(' ')
-          .toLowerCase();
+        const fullText = assembleTranscript(transcriptSegments);
 
-        console.log(`[Webhook] Full transcript: "${fullText}"`);
+        console.log(`[Webhook] Full transcript: "${normalizeTranscript(fullText)}"`);
 
-        // Look for wake word variations (hey taro, hey tara, etc.)
-        const wakeWordVariations = ['hey taro', 'hey tara', 'hey tarro', 'a taro', 'a tara'];
-        let command = '';
+        const commands = extractCommands(fullText);
+        console.log(`[Webhook] Found ${commands.length} command(s) in transcript`);
 
-        for (const wakeWord of wakeWordVariations) {
-          if (fullText.includes(wakeWord)) {
-            const wakeWordIndex = fullText.lastIndexOf(wakeWord);
-            command = fullText.slice(wakeWordIndex + wakeWord.length).trim();
-            console.log(`[Webhook] Wake word "${wakeWord}" detected! Command: "${command}"`);
-            break;
-          }
-        }
-
-        // Execute command if found
-        if (command && command.length > 3) {
+        for (const command of commands) {
           await executeCommand(meeting._id.toString(), meeting.companyId, command);
         }
 
@@ -206,7 +250,7 @@ async function executeCommand(meetingId: string, companyId: string, command: str
           break;
         }
 
-        const taskMessage = `📋 **Task Created**\n${task}`;
+        const taskMessage = `:clipboard: *Task Created*\n${task}`;
         const slackResult = await slack.postMessage(channel, taskMessage);
 
         if (slackResult.success) {
