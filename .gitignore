@@ -30,3 +30,5 @@ coverage/
 # Misc
 *.tg?z
 CLAUDE.md
+# TypeScript incremental build info
+*.tsbuildinfo
