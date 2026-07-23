@@ -1,12 +1,103 @@
 // Wake word to trigger Taro
 export const WAKE_WORD = 'hey taro';
 
+// Common speech-to-text misrecognitions of the wake word.
+// Matched against normalized (lowercased, punctuation-stripped) transcript text.
+export const WAKE_WORD_VARIATIONS = [
+  'hey taro',
+  'hey tarot',
+  'hey tarro',
+  'hey taru',
+  'hey tara',
+  'hey tero', // observed from sherpa-onnx streaming zipformer
+  'hey terro',
+  'hey terror', // zipformer favors real English words
+  'hey toro',
+  'hey terra',
+  'hey tarrow',
+] as const;
+
 // Supported intents
 export const INTENTS = {
   POST_MESSAGE: 'post_message',
-  CREATE_TASK: 'create_task',
+  CREATE_TODO_LIST: 'create_todo_list',
+  CREATE_GITHUB_ISSUE: 'create_github_issue',
+  COMMENT_GITHUB: 'comment_github',
+  CLOSE_GITHUB_ISSUE: 'close_github_issue',
+  REOPEN_GITHUB_ISSUE: 'reopen_github_issue',
+  LABEL_GITHUB_ISSUE: 'label_github_issue',
+  ASSIGN_GITHUB_ISSUE: 'assign_github_issue',
+  CLOSE_PULL_REQUEST: 'close_pull_request',
+  MERGE_PULL_REQUEST: 'merge_pull_request',
+  REQUEST_GITHUB_REVIEW: 'request_github_review',
   UNKNOWN: 'unknown',
 } as const;
+
+// GitHub capabilities a company can turn on/off for Taro. These gate what Taro
+// will DO, independent of what the GitHub App is technically permitted to do:
+// the app grants the ceiling, these are the company's policy within it.
+// `action` matches the parsed intent; `permission` is the GitHub App scope it needs.
+export const GITHUB_CAPABILITIES = [
+  {
+    action: 'create_github_issue',
+    label: 'Create issues',
+    description: 'File new issues from voice commands',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'comment_github',
+    label: 'Comment on issues & pull requests',
+    description: 'Add a comment to an issue or PR by number',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'close_github_issue',
+    label: 'Close issues',
+    description: 'Close an issue by number',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'reopen_github_issue',
+    label: 'Reopen issues',
+    description: 'Reopen a closed issue by number',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'label_github_issue',
+    label: 'Label issues',
+    description: 'Add labels to an issue',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'assign_github_issue',
+    label: 'Assign issues',
+    description: 'Assign teammates to an issue',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'close_pull_request',
+    label: 'Close pull requests',
+    description: 'Close a PR by number',
+    permission: 'Pull requests: Read and write',
+  },
+  {
+    action: 'merge_pull_request',
+    label: 'Merge pull requests',
+    description: 'Merge a PR by number (powerful — off by default)',
+    permission: 'Pull requests + Contents: Read and write',
+  },
+  {
+    action: 'request_github_review',
+    label: 'Request PR reviews',
+    description: 'Request reviewers on a pull request',
+    permission: 'Pull requests: Read and write',
+  },
+] as const;
+
+export type GithubAction = (typeof GITHUB_CAPABILITIES)[number]['action'];
+
+// What a freshly connected workspace can do until it changes the settings.
+export const DEFAULT_GITHUB_ACTIONS: GithubAction[] = ['create_github_issue'];
 
 // Meeting status
 export const MEETING_STATUS = {
@@ -17,22 +108,9 @@ export const MEETING_STATUS = {
   ERROR: 'error',
 } as const;
 
-// TTS response messages
-export const TTS_RESPONSES = {
-  COMMAND_RECEIVED: "Got it, let me do that for you.",
-  SUCCESS: "Done!",
-  CLARIFICATION: "I didn't quite catch that. Could you repeat?",
-  ERROR: "Sorry, something went wrong. Please try again.",
-  SLACK_SUCCESS: (channel: string) => `Done! I posted your message to ${channel}.`,
-  TASK_SUCCESS: (channel: string) => `Done! I created the task in ${channel}.`,
-} as const;
-
 // API endpoints
 export const API_ROUTES = {
   HEALTH: '/health',
   COMPANIES: '/api/companies',
   MEETINGS: '/api/meetings',
-  SLACK_INSTALL: '/api/slack/install',
-  SLACK_CALLBACK: '/api/slack/callback',
-  SLACK_WEBHOOK: '/api/slack/webhook',
 } as const;
