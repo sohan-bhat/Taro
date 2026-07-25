@@ -5,7 +5,8 @@ const parsedIntentSchema = new Schema<ParsedIntent>(
   {
     action: { type: String, required: true },
     confidence: { type: Number, required: true },
-    params: { type: Map, of: String },
+    params: { type: Schema.Types.Mixed }, // channel/message/title/items[] - shape varies by intent
+    source: { type: String }, // 'gemini' | 'fallback_regex'
   },
   { _id: false }
 );
@@ -21,6 +22,7 @@ const actionLogSchema = new Schema<ActionLog>(
       enum: ['success', 'failed', 'clarification_needed'],
       required: true,
     },
+    mode: { type: String, enum: ['live', 'post_meeting'], default: 'post_meeting' },
     result: { type: String },
     errorMessage: { type: String },
   },
