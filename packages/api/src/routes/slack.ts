@@ -1,8 +1,10 @@
 import { Router, type Router as RouterType } from 'express';
 import { WebClient } from '@slack/web-api';
 import { SlackConnectionModel, CompanyModel } from '../db/models';
+import { SlackService } from '../services';
 import { asyncHandler } from '../middleware/errorHandler';
 import { env } from '../config/env';
+import { requireAuth, assertCompany, type AuthedRequest } from '../middleware/auth';
 
 export const slackRouter: RouterType = Router();
 
@@ -18,7 +20,8 @@ slackRouter.get('/install', (req, res) => {
     return res.status(400).json({ error: 'companyId is required' });
   }
 
-  const scopes = ['chat:write', 'channels:read', 'channels:join', 'users:read'].join(',');
+  // channels:history is required for the message.channels event (auto-join)
+  const scopes = ['chat:write', 'channels:read', 'channels:join', 'channels:history', 'users:read'].join(',');
   const redirectUri = getRedirectUri();
 
   const installUrl = `https://slack.com/oauth/v2/authorize?client_id=${env.slackClientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${companyId}`;
@@ -68,6 +71,13 @@ slackRouter.get('/callback', async (req, res) => {
       { upsert: true, new: true }
     );
 
+    // Join public channels in the background so message.channels events
+    // arrive without anyone having to /invite the bot
+    new SlackService(result.access_token, companyId as string)
+      .joinAllPublicChannels()
+      .then((n) => console.log(`[Slack] Auto-joined ${n} public channel(s)`))
+      .catch((err) => console.error('[Slack] Channel auto-join failed:', err));
+
     res.redirect(`${appUrl}/dashboard/${companyId}?slack=connected`);
   } catch (error) {
     console.error('Slack OAuth error:', error);
@@ -78,7 +88,9 @@ slackRouter.get('/callback', async (req, res) => {
 // Get Slack connection status for a company
 slackRouter.get(
   '/status/:companyId',
-  asyncHandler(async (req, res) => {
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    if (!assertCompany(req, res, req.params.companyId)) return;
     const connection = await SlackConnectionModel.findOne({
       companyId: req.params.companyId,
     });
@@ -98,7 +110,9 @@ slackRouter.get(
 // Disconnect Slack
 slackRouter.delete(
   '/disconnect/:companyId',
-  asyncHandler(async (req, res) => {
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    if (!assertCompany(req, res, req.params.companyId)) return;
     await SlackConnectionModel.deleteOne({ companyId: req.params.companyId });
     res.json({ message: 'Slack disconnected' });
   })

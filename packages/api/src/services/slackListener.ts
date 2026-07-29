@@ -23,21 +23,16 @@ export class SlackListener {
     try {
       this.socketClient = new SocketModeClient({ appToken });
 
-      // Listen for all events and log them for debugging
-      this.socketClient.on('slack_event', async ({ event, body, ack }) => {
-        await ack();
-        console.log('Slack listener: Received event type:', event?.type);
-
-        if (event?.type === 'message' && !event.subtype) {
-          await this.handleMessage(event);
+      // Socket Mode re-emits events_api envelopes under the inner event type.
+      // EventEmitter doesn't await async listeners, so an uncaught rejection
+      // here (e.g. ack() during a socket refresh) would crash the process.
+      this.socketClient.on('message', async ({ event, body, ack }) => {
+        try {
+          await ack();
+          await this.handleMessage(event, body);
+        } catch (error) {
+          console.error('Slack listener: Event handling error', error);
         }
-      });
-
-      // Also listen for message events directly
-      this.socketClient.on('message', async ({ event, ack }) => {
-        await ack();
-        console.log('Slack listener: Received message event');
-        await this.handleMessage(event);
       });
 
       await this.socketClient.start();
@@ -48,8 +43,9 @@ export class SlackListener {
     }
   }
 
-  private async handleMessage(event: any) {
-    if (!event.text || event.bot_id) return;
+  private async handleMessage(event: any, body: any) {
+    // Ignore bot messages (including our own confirmations) and non-text events
+    if (!event?.text || event.bot_id) return;
 
     const meetLinks = event.text.match(MEET_LINK_REGEX);
     if (!meetLinks || meetLinks.length === 0) return;
@@ -58,29 +54,71 @@ export class SlackListener {
     console.log(`Slack listener: Detected Meet link: ${meetUrl}`);
 
     try {
-      // Find which company this Slack team belongs to
-      const connection = await SlackConnectionModel.findOne({ teamId: event.team });
+      // event.team can be missing on some message shapes; body.team_id is the
+      // authoritative workspace ID for the envelope
+      const teamId = event.team || body?.team_id;
+      const connection = await SlackConnectionModel.findOne({ teamId });
       if (!connection) {
-        console.log('Slack listener: No company found for this Slack team');
+        console.log(`Slack listener: No company found for Slack team ${teamId}`);
         return;
       }
 
-      // Check if we already have this meeting
+      // Check if we already have this meeting. Meetings that never received a
+      // terminal webhook (server down, tunnel dropped) would otherwise block
+      // the same meet URL forever - personal Meet rooms get reused constantly.
       const existing = await MeetingModel.findOne({
         meetUrl,
-        status: { $in: ['pending', 'joining', 'active'] }
+        status: { $in: ['pending', 'joining', 'active'] },
       });
 
       if (existing) {
-        console.log('Slack listener: Meeting already exists');
-        return;
+        const STALE_MS = 3 * 60 * 60 * 1000; // 3 hours
+        const age = Date.now() - new Date(existing.createdAt).getTime();
+
+        if (age < STALE_MS) {
+          console.log('Slack listener: Meeting already exists');
+          const webClient = new WebClient(connection.accessToken);
+          await webClient.chat.postMessage({
+            channel: event.channel,
+            text: `🤖 I'm already in (or joining) this meeting.`,
+            thread_ts: event.ts,
+          });
+          return;
+        }
+
+        console.log('Slack listener: Reclaiming stale meeting record');
+        await MeetingModel.findByIdAndUpdate(existing._id, { status: 'error' });
       }
 
-      // Create meeting
+      // Create meeting, remembering where the link was posted so results
+      // can be threaded back after the meeting
+      const webClient = new WebClient(connection.accessToken);
+
+      // Resolve who posted the link, for the meeting history
+      let startedByName: string | undefined;
+      if (event.user) {
+        try {
+          const info = await webClient.users.info({ user: event.user });
+          startedByName =
+            info.user?.profile?.display_name ||
+            info.user?.real_name ||
+            info.user?.name ||
+            undefined;
+        } catch {
+          // users:read may be unavailable; leave the name blank
+        }
+      }
+
+      // Create meeting, remembering where the link was posted so results
+      // can be threaded back after the meeting
       const meeting = await MeetingModel.create({
         companyId: connection.companyId,
         meetUrl,
         status: 'pending',
+        slackChannelId: event.channel,
+        slackThreadTs: event.ts,
+        startedByUserId: event.user,
+        startedByName,
       });
 
       // Deploy bot via MeetingBaas
@@ -94,6 +132,8 @@ export class SlackListener {
           meetingUrl: meetUrl,
           botName: 'Taro Assistant',
           webhookUrl,
+          meetingId: meeting._id.toString(),
+          publicBaseUrl: env.apiUrl,
         });
 
         meeting.botId = bot.bot_id;
@@ -101,20 +141,23 @@ export class SlackListener {
         await meeting.save();
 
         console.log(`Slack listener: Bot deployed: ${bot.bot_id}`);
+
+        await webClient.chat.postMessage({
+          channel: event.channel,
+          text: `🤖 Taro is joining the meeting. Once I'm in, say *"Hey Taro, ..."* and I'll do it right away, mid-meeting. (You may need to admit me from the lobby.)`,
+          thread_ts: event.ts,
+        });
       } catch (error) {
         console.error('Slack listener: Failed to deploy bot:', error);
         meeting.status = 'error';
         await meeting.save();
+
+        await webClient.chat.postMessage({
+          channel: event.channel,
+          text: `⚠️ Taro couldn't join this meeting. Check the API server logs.`,
+          thread_ts: event.ts,
+        });
       }
-
-      // Post confirmation in Slack
-      const webClient = new WebClient(connection.accessToken);
-      await webClient.chat.postMessage({
-        channel: event.channel,
-        text: `Joining the meeting...`,
-        thread_ts: event.ts,
-      });
-
     } catch (error) {
       console.error('Slack listener: Error handling Meet link', error);
     }
