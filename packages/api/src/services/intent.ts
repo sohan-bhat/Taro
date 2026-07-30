@@ -1,9 +1,91 @@
+import { GoogleGenAI, Type } from '@google/genai';
 import type { ParsedIntent } from '@taro/shared';
 import { INTENTS } from '@taro/shared';
 
-// Simple regex-based intent parser for MVP (no API key required)
+// Fast, cheap, and safely past the Oct 2026 gemini-2.5 shutdown
+const DEFAULT_MODEL = 'gemini-3.6-flash';
+
+let client: GoogleGenAI | null = null;
+function getClient(): GoogleGenAI | null {
+  if (!process.env.GOOGLE_API_KEY) return null;
+  if (!client) {
+    client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+  }
+  return client;
+}
+
+// Simple regex-based intent parser - fallback when Gemini is unavailable
 export function parseIntentSimple(command: string): ParsedIntent {
   const lower = command.toLowerCase().trim();
+
+  // Pattern: "make/create a todo list in Y about X, X and X"
+  // ("total list" = common ASR misrecognition of "todo list")
+  const todoMatch = lower.match(
+    /(?:make|create|add)\s+(?:a\s+)?(?:to[- ]?do|total)\s*list\s+(?:in|to)\s+(?:the\s+)?#?([\w-]+)\s*(?:channel\s+)?about\s+(.+)/
+  );
+  if (todoMatch) {
+    const items = todoMatch[2]
+      .split(/,|\band\b|\bthen\b|\balso\b/)
+      .map((s) => s.replace(/[.?!]+$/, '').trim())
+      .filter(Boolean);
+    return {
+      action: INTENTS.CREATE_TODO_LIST,
+      confidence: 0.85,
+      params: { channel: todoMatch[1].trim(), items },
+      source: 'fallback_regex',
+    };
+  }
+
+  // Pattern: "comment on issue/PR N saying/that X"
+  const commentMatch = lower.match(
+    /comment\s+on\s+(?:issue|pull\s*request|pr)\s*#?\s*(\d+)\s+(?:saying|that|with)?\s*(.+)/
+  );
+  if (commentMatch) {
+    return {
+      action: INTENTS.COMMENT_GITHUB,
+      confidence: 0.8,
+      params: {
+        issueNumber: parseInt(commentMatch[1], 10),
+        body: commentMatch[2].replace(/[.?!]+$/, '').trim(),
+      },
+      source: 'fallback_regex',
+    };
+  }
+
+  // Pattern: "close/reopen issue N", "close/merge PR N"
+  const prMatch = lower.match(/(close|merge)\s+(?:pull\s*request|pr)\s*#?\s*(\d+)/);
+  if (prMatch) {
+    return {
+      action: prMatch[1] === 'merge' ? INTENTS.MERGE_PULL_REQUEST : INTENTS.CLOSE_PULL_REQUEST,
+      confidence: 0.85,
+      params: { issueNumber: parseInt(prMatch[2], 10) },
+      source: 'fallback_regex',
+    };
+  }
+  const stateMatch = lower.match(/(close|reopen)\s+(?:issue|ticket)\s*#?\s*(\d+)/);
+  if (stateMatch) {
+    return {
+      action: stateMatch[1] === 'reopen' ? INTENTS.REOPEN_GITHUB_ISSUE : INTENTS.CLOSE_GITHUB_ISSUE,
+      confidence: 0.85,
+      params: { issueNumber: parseInt(stateMatch[2], 10) },
+      source: 'fallback_regex',
+    };
+  }
+
+  // Pattern: "create/file/open an issue about X"
+  // ("get hub"/"good hub" = common ASR misrecognitions of "github")
+  const issueMatch = lower.match(
+    /(?:create|make|open|file|raise|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:github\s+|git\s*hub\s+|get\s*hub\s+|good\s*hub\s+)?issue\s+(?:about|for|saying|that|titled|called|regarding)?\s*(.+)/
+  );
+  if (issueMatch) {
+    const title = issueMatch[1].replace(/[.?!]+$/, '').trim();
+    return {
+      action: INTENTS.CREATE_GITHUB_ISSUE,
+      confidence: 0.85,
+      params: { title: title.charAt(0).toUpperCase() + title.slice(1) },
+      source: 'fallback_regex',
+    };
+  }
 
   // Pattern: "post X to Y" or "send X to Y"
   const postMatch = lower.match(/(?:post|send|say)\s+(.+?)\s+(?:to|in)\s+(?:the\s+)?#?(\w[\w-]*)/);
@@ -15,6 +97,7 @@ export function parseIntentSimple(command: string): ParsedIntent {
         message: postMatch[1].trim(),
         channel: postMatch[2].trim(),
       },
+      source: 'fallback_regex',
     };
   }
 
@@ -28,19 +111,7 @@ export function parseIntentSimple(command: string): ParsedIntent {
         channel: messageMatch[1].trim(),
         message: messageMatch[2].trim(),
       },
-    };
-  }
-
-  // Pattern: "create task X in Y" or "add task X to Y"
-  const taskMatch = lower.match(/(?:create|add)\s+(?:a\s+)?task\s+(.+?)\s+(?:to|in)\s+(?:the\s+)?#?(\w[\w-]*)/);
-  if (taskMatch) {
-    return {
-      action: INTENTS.CREATE_TASK,
-      confidence: 0.85,
-      params: {
-        task: taskMatch[1].trim(),
-        channel: taskMatch[2].trim(),
-      },
+      source: 'fallback_regex',
     };
   }
 
@@ -49,94 +120,191 @@ export function parseIntentSimple(command: string): ParsedIntent {
     action: INTENTS.UNKNOWN,
     confidence: 0,
     params: { original: command },
+    source: 'fallback_regex',
   };
 }
 
-// Gemini-based parser (requires GOOGLE_API_KEY)
-let genAI: any = null;
-try {
-  const { GoogleGenerativeAI } = require('@google/generative-ai');
-  if (process.env.GOOGLE_API_KEY) {
-    genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-  }
-} catch {
-  // Google AI SDK not available, will use simple parser
-}
+// Structured output schema - Gemini is forced to return exactly this shape
+const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    action: {
+      type: Type.STRING,
+      enum: [
+        'post_message',
+        'create_todo_list',
+        'create_github_issue',
+        'comment_github',
+        'close_github_issue',
+        'reopen_github_issue',
+        'label_github_issue',
+        'assign_github_issue',
+        'close_pull_request',
+        'merge_pull_request',
+        'request_github_review',
+        'unknown',
+      ],
+    },
+    confidence: { type: Type.NUMBER },
+    channel: { type: Type.STRING },
+    message: { type: Type.STRING },
+    title: { type: Type.STRING },
+    items: { type: Type.ARRAY, items: { type: Type.STRING } },
+    body: { type: Type.STRING },
+    issueNumber: { type: Type.NUMBER },
+    labels: { type: Type.ARRAY, items: { type: Type.STRING } },
+    assignees: { type: Type.ARRAY, items: { type: Type.STRING } },
+    reviewers: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ['action', 'confidence'],
+};
 
-const SYSTEM_PROMPT = `You are Taro, a voice-activated meeting assistant. Your job is to parse voice commands and extract the intent and parameters.
+const SYSTEM_PROMPT = `You are Taro, a voice-activated meeting assistant. You receive raw speech-to-text of a spoken command and extract the intent.
 
-You MUST respond with valid JSON in this exact format:
-{
-  "action": "post_message" | "create_task" | "unknown",
-  "confidence": 0.0-1.0,
-  "params": { ... }
-}
+The text comes from meeting audio transcription, so expect: missing punctuation, filler words ("um", "like"), misheard words, and trailing unrelated conversation. Extract only the command, ignore trailing chatter.
 
-For "post_message" action:
-- Extract the channel name (remove # if present)
-- Extract the message content
-- params: { "channel": "channel-name", "message": "the message" }
+Common misrecognitions to interpret correctly: "todo list" often appears as "total list", "to do list", or "to-do list"; "github" often appears as "git hub", "get hub", or "good hub"; channel names may be spelled out ("x y z" = "xyz") or split ("general chat" = "general-chat" if that reads as one channel name).
 
-For "create_task" action:
-- Extract the channel name
-- Extract the task description
-- params: { "channel": "channel-name", "task": "task description" }
+Actions:
+- "post_message": user wants a message posted to a Slack channel. Extract "channel" and "message".
+- "create_todo_list": user wants a todo list created in a Slack channel. Extract "channel", optional "title", and "items" (each distinct task as one item).
+- "create_github_issue": user wants a GitHub issue filed (words like "issue", "bug", "ticket"). Extract "title" (short imperative summary) and optional "body" (extra detail).
+- "comment_github": user wants to comment on an existing issue or pull request. Extract "issueNumber" (the number they reference, e.g. "issue 12", "PR number 5", "pull request 8") and "body" (the comment text).
+- "close_github_issue": user wants to close an issue. Extract "issueNumber".
+- "reopen_github_issue": user wants to reopen a closed issue. Extract "issueNumber".
+- "label_github_issue": user wants to add labels to an issue. Extract "issueNumber" and "labels" (array).
+- "assign_github_issue": user wants to assign teammates to an issue. Extract "issueNumber" and "assignees" (array of GitHub usernames as spoken).
+- "close_pull_request": user wants to close a pull request. Extract "issueNumber" (the PR number).
+- "merge_pull_request": user wants to merge a pull request. Extract "issueNumber" (the PR number).
+- "request_github_review": user wants to request reviewers on a PR. Extract "issueNumber" (PR number) and "reviewers" (array of usernames).
+There is one configured repo, so never extract a repo or channel for GitHub actions.
+- "unknown": the command is unclear or unsupported.
 
-For "unknown" action:
-- Use when the command is unclear or not supported
-- params: { "original": "the original command" }
+Channel rules:
+- Slack channel names are lowercase with hyphens. Normalize: "the Engineering channel" -> "engineering", "X Y Z channel" (spelled out letters) -> "xyz", "project updates" -> "project-updates" only if clearly one channel name.
+- Never include "#" or the word "channel" in the channel value.
 
 Examples:
-Input: "post a message to general saying hello everyone"
-Output: {"action":"post_message","confidence":0.95,"params":{"channel":"general","message":"hello everyone"}}
+Input: "post hello everyone to general"
+Output: {"action":"post_message","confidence":0.95,"channel":"general","message":"hello everyone"}
 
-Input: "send hello world to the engineering channel"
-Output: {"action":"post_message","confidence":0.9,"params":{"channel":"engineering","message":"hello world"}}
+Input: "make a todo list in the x y z channel about reviewing the pr fixing the deploy and emailing the client"
+Output: {"action":"create_todo_list","confidence":0.9,"channel":"xyz","items":["Review the PR","Fix the deploy","Email the client"]}
 
-Input: "create a task in project-updates to review the PR"
-Output: {"action":"create_task","confidence":0.85,"params":{"channel":"project-updates","task":"review the PR"}}
+Input: "um create a to-do list in engineering about uh testing the webhook and also updating the docs okay moving on"
+Output: {"action":"create_todo_list","confidence":0.85,"channel":"engineering","items":["Test the webhook","Update the docs"]}
 
-Input: "what's the weather"
-Output: {"action":"unknown","confidence":0.1,"params":{"original":"what's the weather"}}
+Input: "file a github issue about the login button being broken on safari it throws a 500 when you click it"
+Output: {"action":"create_github_issue","confidence":0.9,"title":"Login button broken on Safari","body":"Clicking the login button throws a 500 error on Safari."}
 
-ONLY respond with JSON, no other text.`;
+Input: "hey uh open an issue that we need dark mode on the dashboard"
+Output: {"action":"create_github_issue","confidence":0.85,"title":"Add dark mode to the dashboard"}
+
+Input: "comment on issue twelve saying we'll pick this up next sprint"
+Output: {"action":"comment_github","confidence":0.9,"issueNumber":12,"body":"We'll pick this up next sprint."}
+
+Input: "leave a comment on pull request 5 that the tests are passing now"
+Output: {"action":"comment_github","confidence":0.9,"issueNumber":5,"body":"The tests are passing now."}
+
+Input: "go ahead and close issue number 8"
+Output: {"action":"close_github_issue","confidence":0.92,"issueNumber":8}
+
+Input: "reopen issue 14 we're not done with it"
+Output: {"action":"reopen_github_issue","confidence":0.9,"issueNumber":14}
+
+Input: "add the bug and urgent labels to issue 9"
+Output: {"action":"label_github_issue","confidence":0.9,"issueNumber":9,"labels":["bug","urgent"]}
+
+Input: "assign sarah to issue 7"
+Output: {"action":"assign_github_issue","confidence":0.9,"issueNumber":7,"assignees":["sarah"]}
+
+Input: "merge pull request 21"
+Output: {"action":"merge_pull_request","confidence":0.92,"issueNumber":21}
+
+Input: "close pull request 3 we're abandoning that approach"
+Output: {"action":"close_pull_request","confidence":0.9,"issueNumber":3}
+
+Input: "request a review from alex on pr 15"
+Output: {"action":"request_github_review","confidence":0.9,"issueNumber":15,"reviewers":["alex"]}
+
+Input: "what's the weather like"
+Output: {"action":"unknown","confidence":0.1}`;
 
 export async function parseIntent(command: string): Promise<ParsedIntent> {
-  // If Gemini is not configured, use simple parser
-  if (!genAI) {
-    console.log('Using simple intent parser (no GOOGLE_API_KEY)');
+  const ai = getClient();
+
+  if (!ai) {
+    console.warn(
+      '[Intent] ⚠️  No GOOGLE_API_KEY - using regex fallback parser. ' +
+        'Complex commands will not parse correctly.'
+    );
     return parseIntentSimple(command);
   }
 
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const response = await ai.models.generateContent({
+      model,
+      contents: `${SYSTEM_PROMPT}\n\nInput: "${command}"`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: RESPONSE_SCHEMA,
+        temperature: 0,
+      },
+    });
 
-    const result = await model.generateContent([
-      { text: SYSTEM_PROMPT },
-      { text: `Parse this command: "${command}"` },
-    ]);
-
-    const response = result.response.text();
-
-    // Extract JSON from response (handle potential markdown code blocks)
-    let jsonStr = response.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    const raw = response.text;
+    if (!raw) {
+      throw new Error('Empty response from Gemini');
     }
 
-    const parsed = JSON.parse(jsonStr) as ParsedIntent;
+    const parsed = JSON.parse(raw) as {
+      action?: string;
+      confidence?: number;
+      channel?: string;
+      message?: string;
+      title?: string;
+      items?: string[];
+      body?: string;
+      issueNumber?: number;
+      labels?: string[];
+      assignees?: string[];
+      reviewers?: string[];
+    };
 
-    // Validate the response
-    if (!parsed.action || typeof parsed.confidence !== 'number' || !parsed.params) {
-      throw new Error('Invalid response format');
+    if (
+      !parsed.action ||
+      !Object.values(INTENTS).includes(parsed.action as (typeof INTENTS)[keyof typeof INTENTS]) ||
+      typeof parsed.confidence !== 'number'
+    ) {
+      throw new Error(`Invalid response shape: ${raw.slice(0, 200)}`);
     }
 
-    return parsed;
+    return {
+      action: parsed.action as ParsedIntent['action'],
+      confidence: parsed.confidence,
+      params: {
+        channel: parsed.channel,
+        message: parsed.message,
+        title: parsed.title,
+        items: parsed.items,
+        body: parsed.body,
+        issueNumber: parsed.issueNumber,
+        labels: parsed.labels,
+        assignees: parsed.assignees,
+        reviewers: parsed.reviewers,
+        ...(parsed.action === 'unknown' ? { original: command } : {}),
+      },
+      source: 'gemini',
+    };
   } catch (error) {
-    console.error('Gemini parsing error, falling back to simple parser:', error);
-
-    // Fallback to simple parser on error
+    // LOUD failure: a silent fallback here hid a dead Gemini integration for 8 months.
+    console.error('═'.repeat(60));
+    console.error(`[Intent] ❌ GEMINI PARSING FAILED (model: ${model}) - falling back to regex.`);
+    console.error('[Intent] This should NOT happen in normal operation. Investigate:');
+    console.error('[Intent]', error instanceof Error ? error.message : error);
+    console.error('═'.repeat(60));
     return parseIntentSimple(command);
   }
 }
-
