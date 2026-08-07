@@ -15,6 +15,13 @@ function getOptional(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue;
 }
 
+/** PEM as-is, PEM with literal \\n, or base64 of the PEM file */
+function decodePrivateKey(raw: string): string {
+  if (!raw) return '';
+  if (raw.includes('BEGIN')) return raw.replace(/\\n/g, '\n');
+  return Buffer.from(raw, 'base64').toString('utf8');
+}
+
 // Load dotenv before validation
 import dotenv from 'dotenv';
 import path from 'path';
@@ -28,15 +35,22 @@ export const env = {
   // Slack
   slackClientId: getRequired('SLACK_CLIENT_ID'),
   slackClientSecret: getRequired('SLACK_CLIENT_SECRET'),
-  slackSigningSecret: getRequired('SLACK_SIGNING_SECRET'),
   slackAppToken: getOptional('SLACK_APP_TOKEN', ''),
 
-  // Google
+  // Google Gemini (intent parsing)
   googleApiKey: getRequired('GOOGLE_API_KEY'),
-  googleCredentials: getOptional('GOOGLE_APPLICATION_CREDENTIALS', ''),
+  geminiModel: getOptional('GEMINI_MODEL', 'gemini-3.6-flash'),
 
   // MeetingBaas
   meetingBaasApiKey: getRequired('MEETINGBAAS_API_KEY'),
+  // 'v1' (default) or 'v2'. v2 is required for realtime audio streaming and
+  // needs a v2-platform API key from MeetingBaas.
+  meetingBaasApiVersion: getOptional('MEETINGBAAS_API_VERSION', 'v1'),
+
+  // GitHub App: the Taro bot identity for the GitHub connector
+  githubAppId: getOptional('GITHUB_APP_ID', ''),
+  githubAppSlug: getOptional('GITHUB_APP_SLUG', ''),
+  githubAppPrivateKey: decodePrivateKey(getOptional('GITHUB_APP_PRIVATE_KEY', '')),
 
   // Server
   port: getOptional('PORT', '4000'),
@@ -53,6 +67,7 @@ console.log('Environment loaded:', {
   slackClientId: env.slackClientId,
   hasSlackAppToken: !!env.slackAppToken,
   hasGoogleApiKey: !!env.googleApiKey,
+  hasGithubApp: !!(env.githubAppId && env.githubAppSlug && env.githubAppPrivateKey),
   port: env.port,
   apiUrl: env.apiUrl,
   isDev: env.isDev,

@@ -1,249 +1,208 @@
 /**
  * Webhook endpoints for receiving data from external services.
- * Currently handles MeetingBaas transcription webhooks.
+ * Currently handles MeetingBaas webhooks (v1 API).
+ *
+ * Realtime commands are handled by services/realtime.ts as audio streams in.
+ * This webhook is the POST-MEETING path: status tracking, transcript
+ * persistence, and a fallback command sweep for anything the live pipeline
+ * missed (it is skipped entirely when live commands already executed).
  */
 
 import { Router, type Router as RouterType } from 'express';
 import { MeetingModel, ActionLogModel } from '../db/models';
-import { SlackService, parseIntent } from '../services';
-import { WAKE_WORD, INTENTS, TTS_RESPONSES, MEETING_STATUS } from '@taro/shared';
-import { asyncHandler } from '../middleware/errorHandler';
+import { SlackService } from '../services';
+import { executeCommand } from '../services/executor';
+import { flattenTranscript, extractCommands, type TranscriptSegment } from '../services/transcript';
+import { MEETING_STATUS } from '@taro/shared';
 
 export const webhooksRouter: RouterType = Router();
 
-// Buffer to accumulate transcript text per meeting (for wake word detection across chunks)
-const transcriptBuffer: Map<string, string> = new Map();
+// Bot status codes -> our meeting statuses
+const JOINING_CODES = ['joining_call', 'in_waiting_room'];
+const ACTIVE_CODES = [
+  'in_call_not_recording',
+  'in_call_recording',
+  'recording_paused',
+  'recording_resumed',
+];
+const ERROR_CODES = [
+  'bot_rejected',
+  'bot_removed',
+  'waiting_room_timeout',
+  'invalid_meeting_url',
+  'meeting_error',
+];
 
 /**
- * MeetingBaas webhook endpoint
- * Receives events: bot.status_change, transcript, complete
+ * MeetingBaas webhook endpoint.
+ * Acknowledge immediately, then process async - command execution can take
+ * seconds (Gemini + Slack calls) and a slow response triggers webhook retries,
+ * which would mean duplicate Slack posts.
  */
-webhooksRouter.post(
-  '/meetingbaas',
-  asyncHandler(async (req, res) => {
-    // Log full payload for debugging
-    console.log(`[Webhook] Full payload:`, JSON.stringify(req.body, null, 2));
+webhooksRouter.post('/meetingbaas', (req, res) => {
+  res.sendStatus(200);
+  processEvent(req.body).catch((error) => {
+    console.error('[Webhook] Unhandled processing error:', error);
+  });
+});
 
-    const { event, data } = req.body;
+async function processEvent(payload: { event?: string; data?: Record<string, unknown> }): Promise<void> {
+  const { event, data } = payload ?? {};
+  console.log(`[Webhook] MeetingBaas event: ${event}`);
 
-    console.log(`[Webhook] MeetingBaas event: ${event}`);
+  const botId = data?.bot_id;
+  if (!botId || typeof botId !== 'string') {
+    console.log('[Webhook] No bot_id in payload:', JSON.stringify(payload).slice(0, 500));
+    return;
+  }
 
-    // Find meeting by botId
-    const botId = data?.bot_id;
-    if (!botId) {
-      console.log('[Webhook] No bot_id in payload');
-      return res.sendStatus(200);
-    }
+  const meeting = await MeetingModel.findOne({ botId });
+  if (!meeting) {
+    console.log(`[Webhook] No meeting found for bot: ${botId}`);
+    return;
+  }
 
-    const meeting = await MeetingModel.findOne({ botId });
-    if (!meeting) {
-      console.log(`[Webhook] No meeting found for bot: ${botId}`);
-      return res.sendStatus(200);
-    }
+  switch (event) {
+    case 'bot.status_change': {
+      const status = (data as { status?: { code?: string } }).status?.code;
+      console.log(`[Webhook] Bot status: ${status}`);
 
-    switch (event) {
-      case 'bot.status_change': {
-        const status = data.status?.code;
-        console.log(`[Webhook] Bot status: ${status}`);
-
-        // Map MeetingBaas statuses to our statuses
-        if (status === 'joining_call' || status === 'in_waiting_room') {
-          await MeetingModel.findByIdAndUpdate(meeting._id, { status: MEETING_STATUS.JOINING });
-        } else if (status === 'in_call_not_recording' || status === 'in_call_recording') {
-          await MeetingModel.findByIdAndUpdate(meeting._id, {
-            status: MEETING_STATUS.ACTIVE,
-            startedAt: new Date(),
-          });
-        } else if (status === 'call_ended' || status === 'fatal') {
-          await MeetingModel.findByIdAndUpdate(meeting._id, {
-            status: MEETING_STATUS.ENDED,
-            endedAt: new Date(),
-          });
-          // Clear transcript buffer
-          transcriptBuffer.delete(meeting._id.toString());
-        }
-        break;
-      }
-
-      case 'transcript': {
-        // Handle real-time transcription
-        const transcript = data.transcript || data.text || '';
-        const speaker = data.speaker || 'Unknown';
-
-        console.log(`[Webhook] Transcript from ${speaker}: "${transcript}"`);
-
-        // Accumulate transcript in buffer
-        const meetingId = meeting._id.toString();
-        const currentBuffer = transcriptBuffer.get(meetingId) || '';
-        const newBuffer = (currentBuffer + ' ' + transcript).toLowerCase().trim();
-
-        // Keep buffer size reasonable (last ~500 chars)
-        const trimmedBuffer = newBuffer.slice(-500);
-        transcriptBuffer.set(meetingId, trimmedBuffer);
-
-        // Check for wake word
-        if (trimmedBuffer.includes(WAKE_WORD)) {
-          // Extract command after wake word
-          const wakeWordIndex = trimmedBuffer.lastIndexOf(WAKE_WORD);
-          const commandText = trimmedBuffer.slice(wakeWordIndex + WAKE_WORD.length).trim();
-
-          if (commandText && commandText.length > 3) {
-            console.log(`[Webhook] Wake word detected! Command: "${commandText}"`);
-
-            // Clear buffer after wake word to prevent re-triggering
-            transcriptBuffer.set(meetingId, '');
-
-            // Execute the command
-            await executeCommand(meeting._id.toString(), meeting.companyId, commandText);
-          }
-        }
-        break;
-      }
-
-      case 'complete': {
-        console.log('[Webhook] Meeting complete');
-
-        // Process full transcript for commands
-        const transcriptSegments = data.transcript || [];
-        const fullText = transcriptSegments
-          .map((segment: { words?: Array<{ word: string }> }) =>
-            segment.words?.map((w) => w.word).join('') || ''
-          )
-          .join(' ')
-          .toLowerCase();
-
-        console.log(`[Webhook] Full transcript: "${fullText}"`);
-
-        // Look for wake word variations (hey taro, hey tara, etc.)
-        const wakeWordVariations = ['hey taro', 'hey tara', 'hey tarro', 'a taro', 'a tara'];
-        let command = '';
-
-        for (const wakeWord of wakeWordVariations) {
-          if (fullText.includes(wakeWord)) {
-            const wakeWordIndex = fullText.lastIndexOf(wakeWord);
-            command = fullText.slice(wakeWordIndex + wakeWord.length).trim();
-            console.log(`[Webhook] Wake word "${wakeWord}" detected! Command: "${command}"`);
-            break;
-          }
-        }
-
-        // Execute command if found
-        if (command && command.length > 3) {
-          await executeCommand(meeting._id.toString(), meeting.companyId, command);
-        }
-
+      if (status && JOINING_CODES.includes(status)) {
+        await MeetingModel.findByIdAndUpdate(meeting._id, { status: MEETING_STATUS.JOINING });
+      } else if (status && ACTIVE_CODES.includes(status)) {
+        await MeetingModel.findByIdAndUpdate(meeting._id, {
+          status: MEETING_STATUS.ACTIVE,
+          startedAt: meeting.startedAt ?? new Date(),
+        });
+      } else if (status === 'call_ended') {
         await MeetingModel.findByIdAndUpdate(meeting._id, {
           status: MEETING_STATUS.ENDED,
           endedAt: new Date(),
         });
-        transcriptBuffer.delete(meeting._id.toString());
-        break;
+      } else if (status && ERROR_CODES.includes(status)) {
+        await MeetingModel.findByIdAndUpdate(meeting._id, { status: MEETING_STATUS.ERROR });
+      } else {
+        console.log(`[Webhook] Unmapped bot status: ${status}`);
       }
-
-      default:
-        console.log(`[Webhook] Unhandled event: ${event}`);
+      break;
     }
 
-    res.sendStatus(200);
-  })
-);
+    // v1 uses `complete`/`transcription_complete`; v2 uses `bot.completed`.
+    case 'complete':
+    case 'transcription_complete':
+    case 'bot.completed': {
+      const segments = (data.transcript ?? []) as TranscriptSegment[];
+      let fullText = flattenTranscript(segments);
+      // We opt out of MeetingBaas transcription (to get the raw audio stream),
+      // so `complete` usually carries no transcript. Fall back to the transcript
+      // our own live ASR accumulated during the call.
+      if (fullText.length === 0 && meeting.liveTranscript) {
+        fullText = meeting.liveTranscript;
+        console.log(`[Webhook] Using live ASR transcript for fallback (${fullText.length} chars)`);
+      }
+      console.log(`[Webhook] ${event}: transcript ${fullText.length} chars, ${segments.length} segments`);
+
+      const liveAlready = await ActionLogModel.countDocuments({ meetingId: meeting._id.toString(), mode: 'live' });
+      // Nothing to act on yet and nothing ran live: record the end state and
+      // wait for a later event (or the session close) that has words.
+      if (fullText.length === 0 && liveAlready === 0) {
+        console.log(`[Webhook] ${event} carried no transcript yet - waiting`);
+        await MeetingModel.updateOne(
+          { _id: meeting._id, status: { $ne: MEETING_STATUS.ENDED } },
+          { status: MEETING_STATUS.ENDED, endedAt: meeting.endedAt ?? new Date() }
+        );
+        return;
+      }
+
+      // Atomically claim post-meeting processing. Webhook retries and the
+      // complete/transcription_complete pair would otherwise double-execute.
+      const claimed = await MeetingModel.findOneAndUpdate(
+        { _id: meeting._id, commandsProcessedAt: { $exists: false } },
+        {
+          $set: {
+            commandsProcessedAt: new Date(),
+            transcript: fullText,
+            status: MEETING_STATUS.ENDED,
+            endedAt: meeting.endedAt ?? new Date(),
+          },
+        },
+        { new: true }
+      );
+
+      if (!claimed) {
+        console.log('[Webhook] Post-meeting processing already claimed, skipping');
+        return;
+      }
+
+      const meetingId = claimed._id.toString();
+
+      // If the realtime pipeline already executed commands during the call,
+      // don't re-run extraction on the final transcript - the live ASR text
+      // and the provider transcript never match verbatim, so re-running
+      // would double-post every action.
+      const liveActions = await ActionLogModel.find({ meetingId, mode: 'live' }).sort({ createdAt: 1 });
+
+      let summaries: string[];
+      if (liveActions.length > 0) {
+        console.log(`[Webhook] ${liveActions.length} live command(s) already executed - skipping fallback sweep`);
+        summaries = liveActions.map((a) =>
+          a.status === 'success' ? `✅ ${a.result}` : `❌ "${a.command.slice(0, 60)}" (${a.status})`
+        );
+      } else {
+        const commands = extractCommands(fullText);
+        console.log(`[Webhook] Fallback sweep found ${commands.length} command(s):`, commands);
+        summaries = [];
+        for (const command of commands) {
+          const result = await executeCommand(meetingId, claimed.companyId, command, 'post_meeting', fullText);
+          summaries.push(result.summary);
+        }
+      }
+
+      await postSummaryToSlack(claimed.companyId, claimed.slackChannelId, claimed.slackThreadTs, summaries);
+      break;
+    }
+
+    // v1 `failed`; v2 `bot.failed`
+    case 'failed':
+    case 'bot.failed': {
+      console.error('[Webhook] Bot failed:', JSON.stringify(data).slice(0, 500));
+      await MeetingModel.findByIdAndUpdate(meeting._id, {
+        status: MEETING_STATUS.ERROR,
+        endedAt: new Date(),
+      });
+      await postSummaryToSlack(meeting.companyId, meeting.slackChannelId, meeting.slackThreadTs, [
+        '⚠️ Taro could not record this meeting.',
+      ]);
+      break;
+    }
+
+    default:
+      console.log(`[Webhook] Unhandled event: ${event}`);
+  }
+}
 
 /**
- * Execute a voice command
+ * Report results back to the Slack thread where the meeting link was posted.
  */
-async function executeCommand(meetingId: string, companyId: string, command: string): Promise<void> {
+async function postSummaryToSlack(
+  companyId: string,
+  channelId: string | undefined,
+  threadTs: string | undefined,
+  summaries: string[]
+): Promise<void> {
+  if (!channelId) return;
+
   try {
-    // Parse the intent
-    const intent = await parseIntent(command);
-    console.log('[Webhook] Parsed intent:', intent);
+    const slack = await SlackService.fromCompanyId(companyId);
+    if (!slack) return;
 
-    let actionStatus: 'success' | 'failed' | 'clarification_needed' = 'failed';
-    let result: string | undefined;
-    let errorMessage: string | undefined;
+    const text =
+      summaries.length > 0
+        ? `Meeting ended. Here's what I did:\n${summaries.join('\n')}`
+        : `Meeting ended. No "Hey Taro" commands were detected.`;
 
-    // Execute based on intent
-    switch (intent.action) {
-      case INTENTS.POST_MESSAGE: {
-        const { channel, message } = intent.params;
-
-        if (!channel || !message) {
-          actionStatus = 'clarification_needed';
-          break;
-        }
-
-        const slack = await SlackService.fromCompanyId(companyId);
-        if (!slack) {
-          actionStatus = 'failed';
-          errorMessage = 'Slack not connected';
-          break;
-        }
-
-        const slackResult = await slack.postMessage(channel, message);
-
-        if (slackResult.success) {
-          actionStatus = 'success';
-          result = `Posted "${message}" to #${channel}`;
-          console.log(`[Webhook] ${result}`);
-        } else {
-          actionStatus = 'failed';
-          errorMessage = slackResult.error;
-        }
-        break;
-      }
-
-      case INTENTS.CREATE_TASK: {
-        const { channel, task } = intent.params;
-
-        if (!channel || !task) {
-          actionStatus = 'clarification_needed';
-          break;
-        }
-
-        const slack = await SlackService.fromCompanyId(companyId);
-        if (!slack) {
-          actionStatus = 'failed';
-          errorMessage = 'Slack not connected';
-          break;
-        }
-
-        const taskMessage = `📋 **Task Created**\n${task}`;
-        const slackResult = await slack.postMessage(channel, taskMessage);
-
-        if (slackResult.success) {
-          actionStatus = 'success';
-          result = `Created task in #${channel}: ${task}`;
-          console.log(`[Webhook] ${result}`);
-        } else {
-          actionStatus = 'failed';
-          errorMessage = slackResult.error;
-        }
-        break;
-      }
-
-      default:
-        actionStatus = 'clarification_needed';
-    }
-
-    // Log the action
-    await ActionLogModel.create({
-      meetingId,
-      companyId,
-      command,
-      intent,
-      status: actionStatus,
-      result,
-      errorMessage,
-    });
+    await slack.postToChannelId(channelId, text, threadTs);
   } catch (error) {
-    console.error('[Webhook] Command execution error:', error);
-
-    await ActionLogModel.create({
-      meetingId,
-      companyId,
-      command,
-      intent: { action: INTENTS.UNKNOWN, confidence: 0, params: {} },
-      status: 'failed',
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
-    });
+    console.error('[Webhook] Failed to post summary to Slack:', error);
   }
 }
