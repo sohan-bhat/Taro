@@ -2,6 +2,7 @@ import { Router, type Router as RouterType } from 'express';
 import { MeetingModel, ActionLogModel, CompanyModel } from '../db/models';
 import { MEETING_STATUS } from '@taro/shared';
 import { asyncHandler } from '../middleware/errorHandler';
+import { requireAuth, assertCompany, type AuthedRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors';
 import { getMeetingBaasService } from '../services';
 import { env } from '../config/env';
@@ -21,45 +22,50 @@ function isValidMeetUrl(url: string): boolean {
   }
 }
 
-// Get pending meetings (for bot to poll) - must be before /:id route
+// Get all meetings for a company
 meetingsRouter.get(
-  '/pending/all',
-  asyncHandler(async (req, res) => {
-    const meetings = await MeetingModel.find({
-      status: MEETING_STATUS.PENDING,
-    })
-      .sort({ createdAt: 1 })
-      .limit(10);
+  '/',
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { status, archived } = req.query;
 
+    // Always scoped to the authenticated workspace
+    const filter: Record<string, unknown> = { companyId: req.companyId };
+    if (status) filter.status = status;
+    // Main history hides archived meetings; the archive view asks for them.
+    filter.archivedAt = archived === '1' ? { $exists: true } : { $exists: false };
+
+    const meetings = await MeetingModel.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(200);
     res.json(meetings);
   })
 );
 
-// Get all meetings for a company
-meetingsRouter.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    const { companyId, status } = req.query;
-
-    const filter: Record<string, unknown> = {};
-    if (companyId) filter.companyId = companyId;
-    if (status) filter.status = status;
-
-    const meetings = await MeetingModel.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(100);
-    res.json(meetings);
+// Clear the main history: archive every non-archived meeting for the
+// workspace. Nothing is deleted; archived meetings stay in the archive view.
+meetingsRouter.post(
+  '/clear-history',
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const result = await MeetingModel.updateMany(
+      { companyId: req.companyId, archivedAt: { $exists: false } },
+      { archivedAt: new Date() }
+    );
+    res.json({ archived: result.modifiedCount });
   })
 );
 
 // Get meeting by ID with action logs
 meetingsRouter.get(
   '/:id',
-  asyncHandler(async (req, res) => {
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
     const meeting = await MeetingModel.findById(req.params.id);
     if (!meeting) {
       throw new NotFoundError('Meeting', req.params.id);
     }
+    if (!assertCompany(req, res, meeting.companyId.toString())) return;
 
     const actionLogs = await ActionLogModel.find({ meetingId: meeting._id })
       .sort({ createdAt: -1 })
@@ -130,6 +136,8 @@ meetingsRouter.post(
         meetingUrl: meetUrl,
         botName: 'Taro Assistant',
         webhookUrl,
+        meetingId: meeting._id.toString(),
+        publicBaseUrl: env.apiUrl,
       });
 
       // Update meeting with bot ID
@@ -185,12 +193,14 @@ meetingsRouter.patch(
 // End meeting
 meetingsRouter.post(
   '/:id/end',
-  asyncHandler(async (req, res) => {
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
     const meeting = await MeetingModel.findById(req.params.id);
 
     if (!meeting) {
       throw new NotFoundError('Meeting', req.params.id);
     }
+    if (!assertCompany(req, res, meeting.companyId.toString())) return;
 
     // Remove bot from meeting via MeetingBaas
     if (meeting.botId) {
