@@ -29,7 +29,26 @@ const RECONNECT_GRACE_MS = 60_000;
 const HEARTBEAT_MS = 30_000;
 // After a wake phrase is heard, wait for speech to settle before executing so
 // a command spoken across several finalized utterances assembles into one.
-const COMMAND_DEBOUNCE_MS = 1_800;
+// Generous, because people pause mid-sentence; noise no longer resets it.
+const COMMAND_DEBOUNCE_MS = 2_800;
+
+// Peak int16 amplitude an utterance must reach to count as real speech.
+// Silence / a muted mic still makes the recognizer hallucinate ("and", "oh"),
+// so anything quieter than this is dropped before it pollutes the buffer.
+const SPEECH_PEAK_MIN = 900;
+
+// Utterances that are ONLY these words are recognizer noise, not speech.
+// Greetings (hey/he/hi) are deliberately excluded so the wake phrase survives.
+const FILLER_WORDS = new Set([
+  'and', 'oh', 'yes', 'yeah', 'um', 'uh', 'er', 'ah', 'mm', 'hmm', 'mhm', 'huh',
+  'so', 'the', 'a', 'i', 'you', 'it', 'is', 'to', 'of', 'ok', 'okay', 'right', 'like',
+]);
+
+function isNoiseUtterance(text: string): boolean {
+  const words = text.toLowerCase().match(/[a-z']+/g);
+  if (!words || words.length === 0) return true;
+  return words.every((w) => FILLER_WORDS.has(w));
+}
 
 const DING_PCM = makeDingPcm();
 
@@ -59,6 +78,7 @@ class RealtimeSession {
   private frames = 0;
   private bytes = 0;
   private markedActive = false;
+  private uttPeak = 0; // peak amplitude accumulated for the current utterance
   private graceTimer: NodeJS.Timeout | null = null;
   private heartbeat: NodeJS.Timeout | null = null;
   private lastLivenessWrite = 0;
@@ -179,11 +199,29 @@ class RealtimeSession {
       });
     }
 
+    // Track the loudest sample this utterance has seen, so we can tell real
+    // speech from silence the recognizer hallucinated over.
+    for (let i = 0; i + 1 < chunk.length; i += 2) {
+      const v = Math.abs(chunk.readInt16LE(i));
+      if (v > this.uttPeak) this.uttPeak = v;
+    }
+
     const finalized = this.asr.accept(pcmToFloat32(chunk));
     if (!finalized) return;
 
+    const peak = this.uttPeak;
+    this.uttPeak = 0; // reset for the next utterance
+
+    // Drop hallucinations: too quiet to be speech (muted mic / silence), or
+    // nothing but filler words. These never reach the buffer, so they can't
+    // pollute a command or reset its debounce timer.
+    if (peak < SPEECH_PEAK_MIN || isNoiseUtterance(finalized)) {
+      debugLog({ event: 'utterance_dropped', meetingId: this.meetingId, text: finalized, peak });
+      return;
+    }
+
     console.log(`[Realtime] Utterance: "${finalized}"`);
-    debugLog({ event: 'utterance', meetingId: this.meetingId, text: finalized });
+    debugLog({ event: 'utterance', meetingId: this.meetingId, text: finalized, peak });
     this.liveTranscript = `${this.liveTranscript} ${finalized}`.trim();
     this.rollingText = `${this.rollingText} ${finalized}`.trim().slice(-MAX_ROLLING_CHARS);
     MeetingModel.updateOne(
