@@ -79,9 +79,13 @@ PY
 If the model is missing the server still runs: it logs `Realtime ASR: UNAVAILABLE`
 and falls back to post-meeting command processing.
 
-For much higher live-transcription accuracy (still 100% local and free), run the
-optional faster-whisper server in `packages/api/stt-server` and set
-`STT_WS_URL=ws://localhost:8012` in the API `.env`. See that folder's README.
+For higher live-transcription accuracy, set one of these in the API `.env`
+(first match wins, falls back to the built-in model if unset):
+- `GROQ_API_KEY` — scalable cloud Whisper on Groq's free tier (recommended;
+  get a key at [console.groq.com](https://console.groq.com)). Nothing runs on
+  your machine.
+- `STT_WS_URL=ws://localhost:8012` — the local faster-whisper server in
+  `packages/api/stt-server` (fully offline). See that folder's README.
 
 ### 2. Set up external services
 

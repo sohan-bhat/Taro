@@ -47,8 +47,11 @@ export const env = {
   // needs a v2-platform API key from MeetingBaas.
   meetingBaasApiVersion: getOptional('MEETINGBAAS_API_VERSION', 'v1'),
 
-  // Optional local faster-whisper STT server (see packages/api/stt-server).
-  // When set, realtime transcription uses it instead of local sherpa-onnx.
+  // Realtime transcription backend (first match wins):
+  //   GROQ_API_KEY  -> Groq Whisper cloud (scalable, free tier)
+  //   STT_WS_URL    -> local faster-whisper server (packages/api/stt-server)
+  //   neither       -> in-process sherpa-onnx (free, lower accuracy)
+  groqApiKey: getOptional('GROQ_API_KEY', ''),
   sttWsUrl: getOptional('STT_WS_URL', ''),
 
   // GitHub App: the Taro bot identity for the GitHub connector
@@ -72,6 +75,7 @@ console.log('Environment loaded:', {
   hasSlackAppToken: !!env.slackAppToken,
   hasGoogleApiKey: !!env.googleApiKey,
   hasGithubApp: !!(env.githubAppId && env.githubAppSlug && env.githubAppPrivateKey),
+  hasGroqStt: !!env.groqApiKey,
   sttWsUrl: env.sttWsUrl || '(local sherpa-onnx)',
   port: env.port,
   apiUrl: env.apiUrl,
