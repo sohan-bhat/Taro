@@ -109,6 +109,7 @@ export default function Dashboard() {
   const [removeTarget, setRemoveTarget] = useState<{ type: string; name: string } | null>(null);
   const [removeInput, setRemoveInput] = useState('');
   const [removing, setRemoving] = useState(false);
+  const [showPerms, setShowPerms] = useState(false);
 
   useEffect(() => {
     if (searchParams.get('slack') === 'connected') showToast('Slack connected');
@@ -480,6 +481,18 @@ export default function Dashboard() {
     );
   }
 
+  const setAllCapabilities = async (all: boolean) => {
+    const next = all ? GITHUB_CAPABILITIES.map((c) => c.action as string) : [];
+    setIntegrations((prev) =>
+      prev.map((i) => (i.type === 'github' ? { ...i, enabledActions: next } : i))
+    );
+    try {
+      await api.github.setCapabilities({ companyId, actions: next });
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : 'Could not update permissions', 'error');
+    }
+  };
+
   const toggleCapability = async (action: string) => {
     const current = github?.enabledActions ?? [];
     const next = current.includes(action)
@@ -502,42 +515,16 @@ export default function Dashboard() {
       </div>
     ) : null;
 
+  const enabledCount = (github?.enabledActions ?? []).length;
   const githubCapabilities = githubConnected ? (
-    <div className="mt-4">
-      <p className="text-xs font-medium text-fog-500 mb-2">
-        What Taro may do in GitHub
-        <span className="font-normal text-fog-400"> · off actions are refused even if spoken</span>
-      </p>
-      <div className="space-y-1.5">
-        {GITHUB_CAPABILITIES.map((cap) => {
-          const on = (github?.enabledActions ?? []).includes(cap.action);
-          return (
-            <button
-              key={cap.action}
-              onClick={() => toggleCapability(cap.action)}
-              className="flex w-full items-start gap-2.5 rounded-lg border border-fog-200 bg-white px-3 py-2 text-left transition hover:border-fog-300"
-            >
-              <span
-                className={cn(
-                  'mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full transition-colors',
-                  on ? 'bg-taro-600' : 'bg-fog-300'
-                )}
-              >
-                <span
-                  className={cn(
-                    'h-3 w-3 rounded-full bg-white transition-transform mx-0.5',
-                    on ? 'translate-x-3' : 'translate-x-0'
-                  )}
-                />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-xs font-medium text-fog-800">{cap.label}</span>
-                <span className="block text-[11px] text-fog-500">{cap.description}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+    <div className="mt-3">
+      <Button variant="outline" size="sm" onClick={() => setShowPerms(true)}>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-3.5 w-3.5">
+          <path d="M10 2l6 2.5v4.5c0 3.6-2.5 6.4-6 7.5-3.5-1.1-6-3.9-6-7.5V4.5L10 2z" strokeLinejoin="round" />
+        </svg>
+        Permissions
+        <span className="text-fog-400">· {enabledCount}/{GITHUB_CAPABILITIES.length} on</span>
+      </Button>
     </div>
   ) : null;
 
@@ -845,6 +832,64 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <Dialog open={showPerms} onClose={() => setShowPerms(false)} labelledBy="perms-title">
+        <DialogBody>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 id="perms-title" className="font-display font-semibold text-lg text-fog-900">
+                GitHub permissions
+              </h2>
+              <p className="mt-1 text-sm text-fog-500">
+                What Taro may do. Off actions are refused even if spoken.
+              </p>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
+              <Button variant="ghost" size="sm" onClick={() => setAllCapabilities(true)}>
+                All on
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setAllCapabilities(false)}>
+                All off
+              </Button>
+            </div>
+          </div>
+          <div className="mt-1 max-h-[52vh] overflow-y-auto -mx-1 px-1">
+            {GITHUB_CAPABILITIES.map((cap) => {
+              const on = (github?.enabledActions ?? []).includes(cap.action);
+              return (
+                <button
+                  key={cap.action}
+                  onClick={() => toggleCapability(cap.action)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-fog-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-fog-800">{cap.label}</span>
+                    <span className="block text-xs text-fog-500 truncate">{cap.description}</span>
+                  </span>
+                  <span
+                    className={cn(
+                      'flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+                      on ? 'bg-taro-600' : 'bg-fog-300'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'h-4 w-4 rounded-full bg-white shadow-sm transition-transform mx-0.5',
+                        on ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => setShowPerms(false)}>
+            Done
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       <Dialog open={!!removeTarget} onClose={closeRemove} labelledBy="remove-title">
         {removeTarget && (
