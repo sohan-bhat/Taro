@@ -1,180 +1,220 @@
 # Taro - Voice-Activated Meeting Assistant
 
-Taro is a voice-activated meeting assistant that joins Google Meet calls, listens for commands ("Hey Taro..."), and executes actions via Slack.
+Taro is a voice-activated meeting assistant that joins Google Meet calls, listens for commands ("Hey Taro..."), and executes actions in Slack.
 
-## Features
+## How it works
 
-- **Voice Commands**: Say "Hey Taro, post hello to #general" during a meeting
-- **Slack Integration**: Posts messages, creates tasks in connected Slack workspaces
-- **Auto-Join**: Automatically detects meeting links in Slack and joins them
-- **Meeting Transcription**: Uses MeetingBaas API for meeting bot infrastructure
+1. Someone posts a Google Meet link in a public Slack channel
+2. Taro detects it and joins the meeting as a bot (via MeetingBaas)
+3. During the meeting, anyone says **"Hey Taro, make a todo list in the project channel about X, Y and Z"**
+4. When the meeting ends, MeetingBaas delivers the transcript, Taro extracts the command, parses intent with Gemini, and executes it in Slack
+5. Taro reports what it did in the thread where the meeting link was posted
+
+Commands execute **live, mid-meeting**: MeetingBaas streams the call audio (16kHz PCM over WebSocket) to the API server, which transcribes it locally with sherpa-onnx, detects "Hey Taro" as you speak, executes the action immediately, and plays a **ding** into the call as confirmation. A post-meeting sweep of the official transcript acts as a fallback for anything the live path missed.
+
+## Voice Commands
+
+| Command | Example |
+|---------|---------|
+| Post message | "Hey Taro, post hello world to general" |
+| Create todo list | "Hey Taro, make a todo list in the project channel about reviewing the PR, fixing the deploy and emailing the client" |
+| File GitHub issue | "Hey Taro, create an issue about the login button being broken on Safari" |
 
 ## Project Structure
 
 ```
 taro/
 ├── apps/
-│   └── web/          # Next.js dashboard
+│   └── web/          # Next.js dashboard (onboarding + meeting/command log)
 ├── packages/
-│   ├── api/          # Express API server
+│   ├── api/          # Express API server (Slack listener, MeetingBaas webhooks, intent parsing)
 │   └── shared/       # Shared types & constants
+└── docs/
+    └── slack-app-manifest.yaml   # Paste into api.slack.com/apps to create the Slack app
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - pnpm 9+
 - MongoDB Atlas account (free tier)
-- Google Cloud account (for Gemini API)
-- Slack workspace (to create an app)
-- MeetingBaas API key
+- Google AI Studio API key (free, for Gemini intent parsing)
+- Slack workspace where you can install apps
+- MeetingBaas API key (free tier: 75 bots/day)
+- ngrok account with a static domain (free)
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 2. Set Up Environment Variables
+### 1b. Download the local speech model (realtime commands)
+
+Realtime transcription runs locally via sherpa-onnx. No API key, no cost.
+The model (~300MB) is not committed; download it once per machine:
+
+```bash
+mkdir -p packages/api/models && cd packages/api/models
+curl -sL -O "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2"
+tar xjf sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2 && rm *.tar.bz2
+cd ../../..
+```
+
+For the most accurate transcription, Taro uses hotword biasing, which needs a
+`bpe.vocab` generated once from the model's `bpe.model`:
+
+```bash
+pip3 install sentencepiece
+python3 - <<'PY'
+import sentencepiece as spm
+d = "packages/api/models/sherpa-onnx-streaming-zipformer-en-2023-06-26"
+sp = spm.SentencePieceProcessor(model_file=f"{d}/bpe.model")
+open(f"{d}/bpe.vocab","w").write("".join(f"{sp.id_to_piece(i)} {sp.get_score(i)}\n" for i in range(sp.vocab_size())))
+PY
+```
+
+If the model is missing the server still runs: it logs `Realtime ASR: UNAVAILABLE`
+and falls back to post-meeting command processing.
+
+### 2. Set up external services
+
+#### ngrok (do this first, Slack config needs the domain)
+1. Sign up at [ngrok.com](https://ngrok.com), claim your free static domain
+2. Run: `ngrok http 4000 --domain=<your-domain>.ngrok-free.app`
+
+#### Slack app
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → **From an app manifest**
+2. Paste `docs/slack-app-manifest.yaml` (replace `YOUR-NGROK-DOMAIN` first)
+3. Basic Information → App-Level Tokens → create a token with `connections:write` scope → this is `SLACK_APP_TOKEN`
+4. Copy the Client ID and Client Secret
+
+#### MongoDB Atlas
+1. Create a free cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas)
+2. Create a database user, allow your IP, copy the connection string
+
+#### Google Gemini
+1. Get a free API key at [aistudio.google.com](https://aistudio.google.com)
+
+#### MeetingBaas
+1. Sign up at [meetingbaas.com](https://meetingbaas.com), copy your API key
+
+#### GitHub App (optional, for voice-filed issues)
+Taro files issues as its own bot identity (`<app-name>[bot]`), never through a person's account. Create the app once per deployment:
+1. Go to [github.com/settings/apps/new](https://github.com/settings/apps/new)
+2. **GitHub App name**: e.g. `Taro Meeting Assistant` (must be globally unique). **Homepage URL**: your dashboard URL
+3. **Setup URL**: `https://<your-ngrok-domain>/api/github/callback`, and tick **Redirect on update**
+4. **Webhook**: untick **Active**
+5. **Repository permissions**: **Issues: Read and write** (Metadata becomes read-only automatically). Add **Pull requests: Read and write** if you want PR features later
+6. **Where can this GitHub App be installed?**: Any account. Click **Create GitHub App**
+7. Copy the **App ID** from the top of the settings page, and the slug from the public link (`github.com/apps/<slug>`)
+8. Scroll down and **Generate a private key** (downloads a `.pem`). Put all three in `.env`: `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, and `GITHUB_APP_PRIVATE_KEY` as the output of `base64 -i <file>.pem | tr -d '\n'`
+
+Restart the API after editing `.env`. Companies then install the app from the dashboard (Integrations → GitHub → Install), grant it the repos they want, and pick the default repo issues go to.
+
+### 3. Configure environment
 
 ```bash
 cp .env.example .env
+# fill in every value (see comments in the file)
 ```
 
-Edit `.env` with your credentials:
-
-```env
-# MongoDB (create free cluster at mongodb.com/atlas)
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/taro
-
-# Slack App (create at api.slack.com/apps)
-SLACK_CLIENT_ID=your-client-id
-SLACK_CLIENT_SECRET=your-client-secret
-SLACK_SIGNING_SECRET=your-signing-secret
-SLACK_APP_TOKEN=xapp-... # App-level token for Socket Mode
-
-# Google (for Gemini intent parsing)
-GOOGLE_API_KEY=your-gemini-api-key
-
-# MeetingBaas API
-MEETINGBAAS_API_KEY=your-meetingbaas-api-key
-
-# URLs
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_API_URL=http://localhost:4000
-API_URL=http://localhost:4000
-```
-
-### 3. Set Up External Services
-
-#### MongoDB Atlas
-1. Go to [mongodb.com/atlas](https://www.mongodb.com/atlas)
-2. Create a free cluster
-3. Create database user and get connection string
-
-#### Slack App
-1. Go to [api.slack.com/apps](https://api.slack.com/apps)
-2. Create New App → From scratch
-3. Add OAuth Scopes: `chat:write`, `channels:read`, `channels:join`, `users:read`
-4. Enable Socket Mode and create App-Level Token with `connections:write` scope
-5. Enable Event Subscriptions and subscribe to `message.channels` event
-6. Install to workspace
-7. Copy Client ID, Client Secret, Signing Secret, and App Token
-
-#### Google Cloud
-1. Enable Gemini API at [ai.google.dev](https://ai.google.dev)
-2. Create API key
-
-#### MeetingBaas
-1. Sign up at [meetingbaas.com](https://meetingbaas.com)
-2. Get your API key
-
-### 4. Run Development Servers
+### 4. Run
 
 ```bash
-# Terminal 1: API Server (handles webhooks from MeetingBaas)
+# Terminal 1: ngrok tunnel (webhooks + OAuth callback)
+ngrok http 4000 --domain=<your-domain>.ngrok-free.app
+
+# Terminal 2: API server
 pnpm --filter @taro/api dev
 
-# Terminal 2: Web Dashboard
+# Terminal 3: Web dashboard
 pnpm --filter @taro/web dev
 ```
 
-For local development with webhooks, use ngrok:
+### 5. Test the flow
+
+1. Issue a license key (this stands in for the purchase): `pnpm --filter @taro/api issue-license` prints a fresh `TARO-XXXX-XXXX-XXXX` key
+2. Open http://localhost:3000, enter the key, and activate your workspace (company name + email domain). Licensing follows the industry model (Adobe-style redemption): the key is redeemed once, the browser holds a workspace access token from then on, and the key doubles as proof of purchase to sign back in from a new browser. `pnpm --filter @taro/api revoke-license <key>` kills a workspace's access instantly
+3. Follow the first-run onboarding: connect Slack (Taro auto-joins all public channels; for channels created later, `/invite @taro`)
+   - Optionally install the Taro GitHub app on your repo from the dashboard (needs the GitHub App env vars above) and pick the repo issues go to
+4. Post a Google Meet URL in any **public** Slack channel the bot is in
+5. Taro replies in-thread and joins the meeting. **Admit it from the Meet lobby**
+6. Say: *"Hey Taro, make a todo list in the general channel about testing the demo and recording the video"* or, with GitHub connected: *"Hey Taro, file an issue about the signup page crashing"*
+7. Watch the command execute live, mid-meeting, with a ding in the call
+8. When the meeting ends, Taro reports everything it did back in the original thread
+
+### Tests
+
 ```bash
-ngrok http 4000
-# Update API_URL and NEXT_PUBLIC_API_URL in .env with ngrok URL
+pnpm --filter @taro/api test   # wake-word extraction & transcript parsing
 ```
 
-### 5. Test the Flow
+## Deploy the dashboard to Vercel
 
-1. Open http://localhost:3000
-2. Register a company
-3. Connect Slack
-4. Post a Google Meet URL in any Slack channel
-5. Taro bot will automatically join the meeting
-6. In the meeting, say "Hey Taro, post hello to #general"
-7. After the meeting ends, the command will be executed
+The dashboard (Next.js) deploys to Vercel's free tier; the API keeps running on
+your machine behind ngrok.
 
-## Voice Commands
+1. Push the repo to GitHub, then at [vercel.com/new](https://vercel.com/new) import it.
+2. Leave **Root Directory** as the repo root. The included `vercel.json` builds
+   `@taro/web` from the pnpm workspace. (If Vercel ignores it, set Root Directory
+   to `apps/web` instead.)
+3. Add one **Environment Variable** before deploying (it is inlined at build time):
+   - `NEXT_PUBLIC_API_URL` = your ngrok URL, e.g. `https://elementary-maverick-mindlessly.ngrok-free.dev`
+4. Deploy. Your dashboard is now at `https://<project>.vercel.app`.
 
-| Command | Example |
-|---------|---------|
-| Post message | "Hey Taro, post hello world to #general" |
-| Create task | "Hey Taro, create a task in #project to review the PR" |
+Then point the API back at the deployed dashboard so OAuth redirects land there.
+In the API's `.env`, set `NEXT_PUBLIC_APP_URL=https://<project>.vercel.app` and
+restart the API. Also update the Slack app's redirect URL and the GitHub App's
+setup URL only if you move the API off ngrok; while the API stays on ngrok they
+are unchanged.
+
+Later, to run the API on an always-on box (that old laptop), install Node + pnpm
+there, `pnpm --filter @taro/api dev` (or `build` + `start`), and run ngrok on it
+with your static domain so `API_URL` never changes.
 
 ## Architecture
 
 ```
-Slack Message → SlackListener (Socket Mode)
-                    ↓
-              Detect Meet Link
-                    ↓
-         MeetingBaas API (bot joins)
-                    ↓
-         Webhooks → API Server
-                    ↓
-         Intent Parser (Gemini Flash)
-                    ↓
-            Slack (execute action)
+Slack message ──▶ SlackListener (Socket Mode)
+                        │  detects meet.google.com link
+                        ▼
+                MeetingBaas API (bot joins call, records)
+                        │  meeting ends
+                        ▼
+                Webhook: complete ──▶ transcript flattened
+                        │              "hey taro" commands extracted
+                        ▼
+                Gemini (structured JSON intent) ──▶ Slack Web API
+                        │                             post message / todo list
+                        ▼
+                Results threaded back to the original Slack message
 ```
-
-## Deployment
-
-### Recommended Hosting
-
-- **API + Web**: Railway, Render, or Vercel
-- **Database**: MongoDB Atlas (free tier)
-
-Note: API server must be publicly accessible to receive MeetingBaas webhooks.
-
-## Cost Estimate
-
-| Service | Cost |
-|---------|------|
-| MongoDB Atlas | Free (512MB) |
-| Gemini API | ~$1/month |
-| MeetingBaas | Pay per meeting |
-| Slack | Free |
-| **Total** | **~$5-20/month** |
 
 ## Troubleshooting
 
-### Bot doesn't join meeting
-- Check MeetingBaas API key is valid
-- Ensure webhook URL is publicly accessible
-- Check API server logs for errors
+### Bot doesn't join the meeting
+- **Is the Taro bot a member of the channel?** Slack only delivers channel messages to apps that are members. Channels are auto-joined when you connect Slack; for channels created after that, run `/invite @taro`.
+- Is `ngrok` running with the domain in `API_URL`?
+- Is `SLACK_APP_TOKEN` set? (Socket Mode listener logs "Connected to Slack" on boot)
+- Is the channel **public** and the message a plain `meet.google.com/xxx-xxxx-xxx` link?
+- Check the API server logs for `[MeetingBaas] Join failed`
 
 ### Commands not executing
-- Commands are processed when the meeting ends
-- Check that the transcript contains "Hey Taro" followed by a command
-- Verify Slack OAuth tokens are valid
+- Live commands need the local ASR model (step 1b). Without it, commands run when the meeting **ends**, so leave the meeting fully
+- Expand the meeting in the dashboard: the transcript shows exactly what was heard
+- Look for `⚠️ regex fallback` in the command log. That means Gemini failed and the API logs have the error
 
 ### Slack posting fails
-- Verify OAuth tokens are valid
-- Check channel name spelling
-- Ensure bot is in the channel
+- The target channel must be **public** (the bot auto-joins public channels only)
+- Check the channel name matches what was spoken
+
+### GitHub issue creation fails
+- "No repository selected": pick the default repo in the dashboard's GitHub card
+- 403 or 404 at execution: the app was uninstalled from that repo, or lost **Issues: Read and write**. Reinstall from the dashboard
+- Installation tokens are minted automatically (valid 1 hour, cached). Nothing expires on your side
 
 ## License
 
