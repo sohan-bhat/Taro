@@ -39,3 +39,7 @@ coverage/
 CLAUDE.md
 # TS build cache
 *.tsbuildinfo
+
+# faster-whisper STT server (local)
+packages/api/stt-server/.venv/
+packages/api/stt-server/models/

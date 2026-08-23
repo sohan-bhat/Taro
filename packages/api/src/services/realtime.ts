@@ -15,8 +15,8 @@
 
 import type { WebSocket } from 'ws';
 import { MeetingModel } from '../db/models';
-import { createAsrStream, type AsrStream } from './asr';
-import { pcmToFloat32, makeDingPcm } from './audio';
+import { createAsrBackend, asrBackendLabel, type AsrBackend } from './asrBackend';
+import { makeDingPcm } from './audio';
 import { extractCommands } from './transcript';
 import { executeCommand } from './executor';
 import { SlackService } from './slack';
@@ -32,24 +32,6 @@ const HEARTBEAT_MS = 30_000;
 // Generous, because people pause mid-sentence; noise no longer resets it.
 const COMMAND_DEBOUNCE_MS = 2_800;
 
-// Peak int16 amplitude an utterance must reach to count as real speech.
-// Silence / a muted mic still makes the recognizer hallucinate ("and", "oh"),
-// so anything quieter than this is dropped before it pollutes the buffer.
-const SPEECH_PEAK_MIN = 900;
-
-// Utterances that are ONLY these words are recognizer noise, not speech.
-// Greetings (hey/he/hi) are deliberately excluded so the wake phrase survives.
-const FILLER_WORDS = new Set([
-  'and', 'oh', 'yes', 'yeah', 'um', 'uh', 'er', 'ah', 'mm', 'hmm', 'mhm', 'huh',
-  'so', 'the', 'a', 'i', 'you', 'it', 'is', 'to', 'of', 'ok', 'okay', 'right', 'like',
-]);
-
-function isNoiseUtterance(text: string): boolean {
-  const words = text.toLowerCase().match(/[a-z']+/g);
-  if (!words || words.length === 0) return true;
-  return words.every((w) => FILLER_WORDS.has(w));
-}
-
 const DING_PCM = makeDingPcm();
 
 export type Direction = 'in' | 'out' | 'shared';
@@ -64,7 +46,7 @@ class RealtimeSession {
   private companyId: string | null = null;
   private slackChannelId?: string;
   private slackThreadTs?: string;
-  private asr: AsrStream | null = null;
+  private backend: AsrBackend | null = null;
   private rollingText = '';
   private liveTranscript = '';
   private executed = new Set<string>();
@@ -78,7 +60,6 @@ class RealtimeSession {
   private frames = 0;
   private bytes = 0;
   private markedActive = false;
-  private uttPeak = 0; // peak amplitude accumulated for the current utterance
   private graceTimer: NodeJS.Timeout | null = null;
   private heartbeat: NodeJS.Timeout | null = null;
   private lastLivenessWrite = 0;
@@ -99,12 +80,12 @@ class RealtimeSession {
     this.companyId = meeting.companyId;
     this.slackChannelId = meeting.slackChannelId ?? undefined;
     this.slackThreadTs = meeting.slackThreadTs ?? undefined;
-    this.asr = createAsrStream();
-    if (!this.asr) {
+    this.backend = createAsrBackend((text) => this.handleUtterance(text));
+    if (!this.backend) {
       console.warn('[Realtime] ASR unavailable - live commands disabled for this meeting');
       return false;
     }
-    console.log(`[Realtime] Session started for meeting ${this.meetingId}`);
+    console.log(`[Realtime] Session started for meeting ${this.meetingId} (ASR: ${asrBackendLabel()})`);
     debugLog({ event: 'session_start', meetingId: this.meetingId });
     this.heartbeat = setInterval(() => {
       debugLog({
@@ -163,7 +144,7 @@ class RealtimeSession {
   }
 
   private onAudio(chunk: Buffer) {
-    if (this.closed || !this.asr) return;
+    if (this.closed || !this.backend) return;
 
     this.frames += 1;
     this.bytes += chunk.length;
@@ -199,29 +180,17 @@ class RealtimeSession {
       });
     }
 
-    // Track the loudest sample this utterance has seen, so we can tell real
-    // speech from silence the recognizer hallucinated over.
-    for (let i = 0; i + 1 < chunk.length; i += 2) {
-      const v = Math.abs(chunk.readInt16LE(i));
-      if (v > this.uttPeak) this.uttPeak = v;
-    }
+    // Hand the raw audio to whichever STT backend is active. Finalized
+    // utterances come back through handleUtterance (sync for local sherpa,
+    // async over a websocket for the faster-whisper server).
+    this.backend.push(chunk);
+  }
 
-    const finalized = this.asr.accept(pcmToFloat32(chunk));
-    if (!finalized) return;
-
-    const peak = this.uttPeak;
-    this.uttPeak = 0; // reset for the next utterance
-
-    // Drop hallucinations: too quiet to be speech (muted mic / silence), or
-    // nothing but filler words. These never reach the buffer, so they can't
-    // pollute a command or reset its debounce timer.
-    if (peak < SPEECH_PEAK_MIN || isNoiseUtterance(finalized)) {
-      debugLog({ event: 'utterance_dropped', meetingId: this.meetingId, text: finalized, peak });
-      return;
-    }
+  private handleUtterance(finalized: string) {
+    if (this.closed) return;
 
     console.log(`[Realtime] Utterance: "${finalized}"`);
-    debugLog({ event: 'utterance', meetingId: this.meetingId, text: finalized, peak });
+    debugLog({ event: 'utterance', meetingId: this.meetingId, text: finalized });
     this.liveTranscript = `${this.liveTranscript} ${finalized}`.trim();
     this.rollingText = `${this.rollingText} ${finalized}`.trim().slice(-MAX_ROLLING_CHARS);
     MeetingModel.updateOne(
@@ -327,7 +296,7 @@ class RealtimeSession {
       clearTimeout(this.commandTimer);
       this.flushCommand();
     }
-    this.asr?.destroy();
+    this.backend?.destroy();
     console.log(
       `[Realtime] Session closed for meeting ${this.meetingId} ` +
         `(${this.executed.size} live command(s), ${this.liveTranscript.length} chars heard)`

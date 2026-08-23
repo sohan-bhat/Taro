@@ -16,7 +16,7 @@ import { authRouter } from './routes/auth';
 import { API_ROUTES } from '@taro/shared';
 import { slackListener } from './services/slackListener';
 import { realtimeSessions, type Direction } from './services/realtime';
-import { asrAvailable } from './services/asr';
+import { asrBackendAvailable, asrBackendLabel } from './services/asrBackend';
 import { errorHandler } from './middleware/errorHandler';
 import { CompanyModel, LicenseModel, GithubConnectionModel } from './db/models';
 import { generateLicenseKey } from './lib/licenseKey';
@@ -113,8 +113,8 @@ async function start() {
     server.listen(env.port, () => {
       console.log(`Taro API server running on port ${env.port}`);
       console.log(
-        asrAvailable()
-          ? 'Realtime ASR: ready (sherpa-onnx loaded)'
+        asrBackendAvailable()
+          ? `Realtime ASR: ready (${asrBackendLabel()})`
           : 'Realtime ASR: UNAVAILABLE - post-meeting fallback only'
       );
     });

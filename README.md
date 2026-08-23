@@ -79,6 +79,10 @@ PY
 If the model is missing the server still runs: it logs `Realtime ASR: UNAVAILABLE`
 and falls back to post-meeting command processing.
 
+For much higher live-transcription accuracy (still 100% local and free), run the
+optional faster-whisper server in `packages/api/stt-server` and set
+`STT_WS_URL=ws://localhost:8012` in the API `.env`. See that folder's README.
+
 ### 2. Set up external services
 
 #### ngrok (do this first, Slack config needs the domain)
@@ -158,9 +162,9 @@ The dashboard (Next.js) deploys to Vercel's free tier; the API keeps running on
 your machine behind ngrok.
 
 1. Push the repo to GitHub, then at [vercel.com/new](https://vercel.com/new) import it.
-2. Leave **Root Directory** as the repo root. The included `vercel.json` builds
-   `@taro/web` from the pnpm workspace. (If Vercel ignores it, set Root Directory
-   to `apps/web` instead.)
+2. Set **Root Directory** to `apps/web` (Settings → General → Root Directory).
+   Vercel auto-detects Next.js and installs the pnpm workspace (which links
+   `@taro/shared`) from there. Leave the build/output settings on their defaults.
 3. Add one **Environment Variable** before deploying (it is inlined at build time):
    - `NEXT_PUBLIC_API_URL` = your ngrok URL, e.g. `https://elementary-maverick-mindlessly.ngrok-free.dev`
 4. Deploy. Your dashboard is now at `https://<project>.vercel.app`.
