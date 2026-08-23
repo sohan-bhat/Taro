@@ -101,6 +101,9 @@ async function request<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      // ngrok's free tier serves an HTML interstitial to browser requests
+      // without this header, which would break JSON parsing. Harmless elsewhere.
+      'ngrok-skip-browser-warning': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
