@@ -8,6 +8,7 @@ const githubConnectionSchema = new Schema<GithubConnection>(
     accountLogin: { type: String },
     repo: { type: String }, // "owner/name"
     enabledActions: { type: [String], default: undefined },
+    disconnectedAt: { type: Date },
   },
   { timestamps: true }
 );

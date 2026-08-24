@@ -42,6 +42,7 @@ export interface GithubConnection {
   // Which GitHub actions the company has allowed Taro to perform (subset of
   // GITHUB_CAPABILITIES). Empty/undefined falls back to DEFAULT_GITHUB_ACTIONS.
   enabledActions?: string[];
+  disconnectedAt?: Date; // soft-disconnected: keep the installation for one-click reconnect
   createdAt: Date;
 }
 

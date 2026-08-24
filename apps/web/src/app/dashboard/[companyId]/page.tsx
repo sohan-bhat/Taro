@@ -25,6 +25,7 @@ interface IntegrationStatus {
   repo?: string;
   needsRepo?: boolean;
   enabledActions?: string[];
+  reconnectable?: boolean;
   connectedAt?: string;
 }
 
@@ -157,6 +158,7 @@ export default function Dashboard() {
             repo: githubStatus.repo,
             needsRepo: githubStatus.needsRepo,
             enabledActions: githubStatus.enabledActions,
+            reconnectable: githubStatus.reconnectable,
             connectedAt: githubStatus.connectedAt,
           },
         ]);
@@ -235,6 +237,30 @@ export default function Dashboard() {
     if (type === 'github') {
       if (github?.configured === false) {
         showToast('The Taro GitHub app is not configured on this server yet.', 'error');
+        return;
+      }
+      // If the app is still installed on GitHub, reconnect in one click
+      // instead of bouncing through the install flow again.
+      if (github?.reconnectable) {
+        api.github
+          .reconnect(companyId)
+          .then((r) => {
+            setIntegrations((prev) =>
+              prev.map((i) =>
+                i.type === 'github'
+                  ? { ...i, connected: true, reconnectable: false, repo: r.repo, accountLogin: r.accountLogin }
+                  : i
+              )
+            );
+            showToast('GitHub reconnected');
+          })
+          .catch((error) => {
+            if (error instanceof ApiError && error.code === 'INSTALL_NEEDED') {
+              window.location.href = api.github.getInstallUrl(companyId);
+            } else {
+              showToast(error instanceof ApiError ? error.message : 'Could not reconnect', 'error');
+            }
+          });
         return;
       }
       window.location.href = api.github.getInstallUrl(companyId);

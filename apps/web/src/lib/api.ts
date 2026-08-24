@@ -83,6 +83,8 @@ export interface GithubStatus {
   repo?: string;
   needsRepo?: boolean;
   enabledActions?: string[];
+  /** True when a prior installation exists and can be reconnected in one click */
+  reconnectable?: boolean;
   connectedAt?: string;
 }
 
@@ -223,6 +225,12 @@ export const github = {
 
   getInstallUrl: (companyId: string): string =>
     `${API_URL}/api/github/install?companyId=${companyId}`,
+
+  reconnect: (companyId: string): Promise<{ connected: boolean; repo?: string; accountLogin?: string }> =>
+    request('/api/github/reconnect', {
+      method: 'POST',
+      body: JSON.stringify({ companyId }),
+    }),
 
   repos: (companyId: string): Promise<{ repos: string[] }> =>
     request(`/api/github/repos/${companyId}`),

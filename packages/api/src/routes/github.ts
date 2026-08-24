@@ -93,8 +93,14 @@ githubRouter.get(
     if (!assertCompany(req, res, req.params.companyId)) return;
 
     const connection = await GithubConnectionModel.findOne({ companyId: req.params.companyId });
-    if (!connection?.installationId) {
-      return res.json({ connected: false, configured: githubAppConfigured() });
+    // Soft-disconnected connections keep their installationId so we can
+    // reconnect in one click without another GitHub round-trip.
+    if (!connection?.installationId || connection.disconnectedAt) {
+      return res.json({
+        connected: false,
+        configured: githubAppConfigured(),
+        reconnectable: !!connection?.installationId,
+      });
     }
 
     res.json({
@@ -175,13 +181,49 @@ githubRouter.post(
   })
 );
 
-// Forget the installation on our side (uninstalling on GitHub fully revokes it)
+// Reconnect a soft-disconnected workspace using its existing installation,
+// no GitHub round-trip. Revalidates the installation still exists first.
+githubRouter.post(
+  '/reconnect',
+  requireAuth,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { companyId } = req.body as { companyId?: string };
+    if (!companyId) throw new ValidationError('companyId is required');
+    if (!assertCompany(req, res, companyId)) return;
+
+    const connection = await GithubConnectionModel.findOne({ companyId });
+    if (!connection?.installationId) {
+      return res.status(409).json({ error: 'Install the Taro GitHub app first.', code: 'INSTALL_NEEDED' });
+    }
+
+    // If the app was actually uninstalled on GitHub, the installation is gone.
+    const installation = await getInstallation(connection.installationId);
+    if (!installation.ok) {
+      await GithubConnectionModel.deleteOne({ companyId });
+      return res.status(409).json({
+        error: 'The Taro app is no longer installed on GitHub. Install it again.',
+        code: 'INSTALL_NEEDED',
+      });
+    }
+
+    connection.disconnectedAt = undefined;
+    if (installation.accountLogin) connection.accountLogin = installation.accountLogin;
+    await connection.save();
+    res.json({ connected: true, repo: connection.repo, accountLogin: connection.accountLogin });
+  })
+);
+
+// Soft-disconnect: keep the installation so reconnecting is one click. To fully
+// revoke, the user uninstalls the Taro app from their GitHub settings.
 githubRouter.delete(
   '/disconnect/:companyId',
   requireAuth,
   asyncHandler(async (req: AuthedRequest, res) => {
     if (!assertCompany(req, res, req.params.companyId)) return;
-    await GithubConnectionModel.deleteOne({ companyId: req.params.companyId });
-    res.json({ message: 'GitHub disconnected. To fully remove the Taro app, uninstall it from your GitHub settings.' });
+    await GithubConnectionModel.updateOne(
+      { companyId: req.params.companyId },
+      { disconnectedAt: new Date() }
+    );
+    res.json({ message: 'GitHub disconnected. Reconnect any time, or uninstall the Taro app from GitHub to fully revoke it.' });
   })
 );
