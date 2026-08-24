@@ -162,7 +162,11 @@ const RESPONSE_SCHEMA = {
 
 const SYSTEM_PROMPT = `You are Taro, a voice-activated meeting assistant. You receive raw speech-to-text of a spoken command and extract the intent.
 
-The text comes from meeting audio transcription, so expect: missing punctuation, filler words ("um", "like"), misheard words, and trailing unrelated conversation. Extract only the command, ignore trailing chatter.
+You are given the recent MEETING TRANSCRIPT plus the specific COMMAND the user spoke after saying "Hey Taro". Reason over the whole conversation like a smart teammate would, not just the command words in isolation.
+
+The text comes from meeting audio transcription, so expect: missing punctuation, filler words ("um", "like"), misheard words, and trailing unrelated conversation.
+
+Use the transcript to resolve references. If the command says "that", "it", "the issue we discussed", "what I mentioned earlier", "the bug from before", or is otherwise underspecified, look back through the transcript and fill in the specifics yourself (the real bug, the real topic, the actual issue/PR number if it was said). Compose real content grounded in what was actually discussed; never echo the raw transcript and never invent facts that were not said.
 
 Common misrecognitions to interpret correctly: "todo list" often appears as "total list", "to do list", or "to-do list"; "github" often appears as "git hub", "get hub", or "good hub"; channel names may be spelled out ("x y z" = "xyz") or split ("general chat" = "general-chat" if that reads as one channel name).
 
@@ -179,7 +183,7 @@ Actions:
 - "merge_pull_request": user wants to merge a pull request. Extract "issueNumber" (the PR number).
 - "request_github_review": user wants to request reviewers on a PR. Extract "issueNumber" (PR number) and "reviewers" (array of usernames).
 There is one configured repo, so never extract a repo or channel for GitHub actions.
-- "unknown": the command is unclear or unsupported. When the user clearly asked for a GitHub or Slack action that isn't in the list above, still return "unknown" but set "reason" to one short sentence explaining what you can't do and the closest thing you can. In particular, Taro CANNOT create pull requests (a PR needs an existing code branch with changes; it can't be made from a title), but it CAN create/comment/close/reopen/label/assign issues and comment/close/merge/request-review on existing PRs.
+- "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. In particular, Taro CANNOT create pull requests (a PR needs an existing code branch with changes; it cannot be made from a title alone), but it CAN create/comment/close/reopen/label/assign issues and comment/close/merge/request-review on existing PRs. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
 Channel rules:
 - Slack channel names are lowercase with hyphens. Normalize: "the Engineering channel" -> "engineering", "X Y Z channel" (spelled out letters) -> "xyz", "project updates" -> "project-updates" only if clearly one channel name.
@@ -231,10 +235,13 @@ Output: {"action":"request_github_review","confidence":0.9,"issueNumber":15,"rev
 Input: "make a pull request titled mobile update changes"
 Output: {"action":"unknown","confidence":0.6,"reason":"I can't open pull requests from a title, a PR needs an existing branch with code changes. I can create a GitHub issue for that instead."}
 
-Input: "what's the weather like"
-Output: {"action":"unknown","confidence":0.1}`;
+Input (transcript mentions: "Sarah: the export keeps timing out on large accounts, it 500s after 30 seconds") COMMAND: "hey taro make an issue about that"
+Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"The export request 500s after about 30 seconds for large accounts. Raised during the meeting."}
 
-export async function parseIntent(command: string): Promise<ParsedIntent> {
+Input: "what's the weather like"
+Output: {"action":"unknown","confidence":0.2,"reason":"That is not something I can do, I can post to Slack, manage GitHub issues and PRs, or make a todo list."}`;
+
+export async function parseIntent(command: string, context?: string): Promise<ParsedIntent> {
   const ai = getClient();
 
   if (!ai) {
@@ -248,9 +255,13 @@ export async function parseIntent(command: string): Promise<ParsedIntent> {
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 
   try {
+    const transcript = (context || '').slice(-3500).trim();
+    const contents = transcript
+      ? `${SYSTEM_PROMPT}\n\nMEETING TRANSCRIPT (context, may contain unrelated chatter):\n${transcript}\n\nCOMMAND: "${command}"`
+      : `${SYSTEM_PROMPT}\n\nCOMMAND: "${command}"`;
     const response = await ai.models.generateContent({
       model,
-      contents: `${SYSTEM_PROMPT}\n\nInput: "${command}"`,
+      contents,
       config: {
         responseMimeType: 'application/json',
         responseSchema: RESPONSE_SCHEMA,
@@ -286,20 +297,26 @@ export async function parseIntent(command: string): Promise<ParsedIntent> {
       throw new Error(`Invalid response shape: ${raw.slice(0, 200)}`);
     }
 
+    // Defensive clamp: gemini-3.6-flash occasionally degenerates into a long
+    // looping string on very vague input. Cap lengths so nothing absurd ever
+    // reaches Slack/GitHub even if the composer pass is skipped.
+    const clip = (v: string | undefined, n: number) =>
+      typeof v === 'string' ? v.slice(0, n) : v;
+
     return {
       action: parsed.action as ParsedIntent['action'],
       confidence: parsed.confidence,
       params: {
-        channel: parsed.channel,
-        message: parsed.message,
-        title: parsed.title,
+        channel: clip(parsed.channel, 80),
+        message: clip(parsed.message, 2000),
+        title: clip(parsed.title, 200),
         items: parsed.items,
-        body: parsed.body,
+        body: clip(parsed.body, 4000),
         issueNumber: parsed.issueNumber,
         labels: parsed.labels,
         assignees: parsed.assignees,
         reviewers: parsed.reviewers,
-        reason: parsed.reason,
+        reason: clip(parsed.reason, 300),
         ...(parsed.action === 'unknown' ? { original: command } : {}),
       },
       source: 'gemini',

@@ -28,7 +28,7 @@ export async function executeCommand(
   meetingContext?: string
 ): Promise<ExecutionResult> {
   try {
-    const intent = await parseIntent(command);
+    const intent = await parseIntent(command, meetingContext);
     console.log(`[Executor:${mode}] Parsed intent:`, JSON.stringify(intent));
 
     // Second pass: turn the raw extraction into publishable content
