@@ -188,6 +188,12 @@ Actions:
 There is one configured repo, so never extract a repo or channel for GitHub actions.
 - "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
+WRITING CONTENT (produce final, publishable content, never placeholders or raw transcript):
+- create_github_issue / create_pull_request: "title" is a short imperative summary. "body" is GitHub-flavored markdown: a "## Summary" (2-3 sentences describing the problem or request from the discussion) and, when specifics were mentioned, a "## Details" section (browsers, errors, pages, people). For a PR use "## Changes" as a short checklist. Never paste the raw transcript; write it up properly. Never invent facts that were not said.
+- comment_github: "body" is a clean, professional comment.
+- post_message: if the user dictated a message, clean it up; if they asked you to WRITE something (an opinion, statement, announcement, summary), actually author it well for a workplace Slack channel.
+- create_todo_list: "items" are clean, deduplicated imperative tasks.
+
 Channel rules:
 - Slack channel names are lowercase with hyphens. Normalize: "the Engineering channel" -> "engineering", "X Y Z channel" (spelled out letters) -> "xyz", "project updates" -> "project-updates" only if clearly one channel name.
 - Never include "#" or the word "channel" in the channel value.
@@ -244,95 +250,123 @@ Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times 
 Input: "what's the weather like"
 Output: {"action":"unknown","confidence":0.2,"reason":"That is not something I can do, I can post to Slack, manage GitHub issues and PRs, or make a todo list."}`;
 
-export async function parseIntent(command: string, context?: string): Promise<ParsedIntent> {
+const GROQ_LLM_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_LLM_MODEL = process.env.GROQ_LLM_MODEL || 'openai/gpt-oss-120b';
+
+interface RawParsed {
+  action?: string;
+  confidence?: number;
+  channel?: string;
+  message?: string;
+  title?: string;
+  items?: string[];
+  body?: string;
+  issueNumber?: number;
+  labels?: string[];
+  assignees?: string[];
+  reviewers?: string[];
+  branch?: string;
+  reason?: string;
+}
+
+function buildIntent(parsed: RawParsed, command: string, source: 'groq' | 'gemini'): ParsedIntent {
+  if (
+    !parsed.action ||
+    !Object.values(INTENTS).includes(parsed.action as (typeof INTENTS)[keyof typeof INTENTS]) ||
+    typeof parsed.confidence !== 'number'
+  ) {
+    throw new Error(`Invalid response shape: ${JSON.stringify(parsed).slice(0, 200)}`);
+  }
+  const clip = (v: string | undefined, n: number) => (typeof v === 'string' ? v.slice(0, n) : v);
+  return {
+    action: parsed.action as ParsedIntent['action'],
+    confidence: parsed.confidence,
+    params: {
+      channel: clip(parsed.channel, 80),
+      message: clip(parsed.message, 2000),
+      title: clip(parsed.title, 200),
+      items: parsed.items,
+      body: clip(parsed.body, 4000),
+      issueNumber: parsed.issueNumber,
+      labels: parsed.labels,
+      assignees: parsed.assignees,
+      reviewers: parsed.reviewers,
+      branch: clip(parsed.branch, 60),
+      reason: clip(parsed.reason, 300),
+      ...(parsed.action === 'unknown' ? { original: command } : {}),
+    },
+    source,
+  };
+}
+
+function buildUserPrompt(command: string, context?: string): string {
+  const transcript = (context || '').slice(-3500).trim();
+  return transcript
+    ? `MEETING TRANSCRIPT (context, may contain unrelated chatter):\n${transcript}\n\nCOMMAND: "${command}"`
+    : `COMMAND: "${command}"`;
+}
+
+// Primary path: Groq's Llama (generous free tier, shares the STT key).
+async function parseWithGroq(command: string, context?: string): Promise<ParsedIntent> {
+  const res = await fetch(GROQ_LLM_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: GROQ_LLM_MODEL,
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${SYSTEM_PROMPT}\n\nRespond with ONLY a single JSON object.` },
+        { role: 'user', content: buildUserPrompt(command, context) },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq LLM ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const raw = data.choices?.[0]?.message?.content;
+  if (!raw) throw new Error('Empty Groq response');
+  return buildIntent(JSON.parse(raw) as RawParsed, command, 'groq');
+}
+
+// Fallback path: Gemini structured output.
+async function parseWithGemini(command: string, context?: string): Promise<ParsedIntent> {
   const ai = getClient();
-
-  if (!ai) {
-    console.warn(
-      '[Intent] ⚠️  No GOOGLE_API_KEY - using regex fallback parser. ' +
-        'Complex commands will not parse correctly.'
-    );
-    return parseIntentSimple(command);
-  }
-
+  if (!ai) throw new Error('No Gemini client');
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const response = await ai.models.generateContent({
+    model,
+    contents: `${SYSTEM_PROMPT}\n\n${buildUserPrompt(command, context)}`,
+    config: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0 },
+  });
+  const raw = response.text;
+  if (!raw) throw new Error('Empty response from Gemini');
+  return buildIntent(JSON.parse(raw) as RawParsed, command, 'gemini');
+}
 
-  try {
-    const transcript = (context || '').slice(-3500).trim();
-    const contents = transcript
-      ? `${SYSTEM_PROMPT}\n\nMEETING TRANSCRIPT (context, may contain unrelated chatter):\n${transcript}\n\nCOMMAND: "${command}"`
-      : `${SYSTEM_PROMPT}\n\nCOMMAND: "${command}"`;
-    const response = await ai.models.generateContent({
-      model,
-      contents,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
-        temperature: 0,
-      },
-    });
-
-    const raw = response.text;
-    if (!raw) {
-      throw new Error('Empty response from Gemini');
+export async function parseIntent(command: string, context?: string): Promise<ParsedIntent> {
+  // Groq first (generous free tier), Gemini next, regex last. One LLM call
+  // now both classifies the intent AND writes the final content.
+  if (process.env.GROQ_API_KEY) {
+    try {
+      return await parseWithGroq(command, context);
+    } catch (error) {
+      console.error('[Intent] Groq LLM failed, trying Gemini:', error instanceof Error ? error.message : error);
     }
-
-    const parsed = JSON.parse(raw) as {
-      action?: string;
-      confidence?: number;
-      channel?: string;
-      message?: string;
-      title?: string;
-      items?: string[];
-      body?: string;
-      issueNumber?: number;
-      labels?: string[];
-      assignees?: string[];
-      reviewers?: string[];
-      branch?: string;
-      reason?: string;
-    };
-
-    if (
-      !parsed.action ||
-      !Object.values(INTENTS).includes(parsed.action as (typeof INTENTS)[keyof typeof INTENTS]) ||
-      typeof parsed.confidence !== 'number'
-    ) {
-      throw new Error(`Invalid response shape: ${raw.slice(0, 200)}`);
-    }
-
-    // Defensive clamp: gemini-3.6-flash occasionally degenerates into a long
-    // looping string on very vague input. Cap lengths so nothing absurd ever
-    // reaches Slack/GitHub even if the composer pass is skipped.
-    const clip = (v: string | undefined, n: number) =>
-      typeof v === 'string' ? v.slice(0, n) : v;
-
-    return {
-      action: parsed.action as ParsedIntent['action'],
-      confidence: parsed.confidence,
-      params: {
-        channel: clip(parsed.channel, 80),
-        message: clip(parsed.message, 2000),
-        title: clip(parsed.title, 200),
-        items: parsed.items,
-        body: clip(parsed.body, 4000),
-        issueNumber: parsed.issueNumber,
-        labels: parsed.labels,
-        assignees: parsed.assignees,
-        reviewers: parsed.reviewers,
-        branch: clip(parsed.branch, 60),
-        reason: clip(parsed.reason, 300),
-        ...(parsed.action === 'unknown' ? { original: command } : {}),
-      },
-      source: 'gemini',
-    };
-  } catch (error) {
-    // LOUD failure: a silent fallback here hid a dead Gemini integration for 8 months.
-    console.error('═'.repeat(60));
-    console.error(`[Intent] ❌ GEMINI PARSING FAILED (model: ${model}) - falling back to regex.`);
-    console.error('[Intent] This should NOT happen in normal operation. Investigate:');
-    console.error('[Intent]', error instanceof Error ? error.message : error);
-    console.error('═'.repeat(60));
-    return parseIntentSimple(command);
   }
+  if (process.env.GOOGLE_API_KEY) {
+    try {
+      return await parseWithGemini(command, context);
+    } catch (error) {
+      console.error('═'.repeat(60));
+      console.error('[Intent] ❌ LLM parsing failed - falling back to regex (no body/PR support).');
+      console.error('[Intent]', error instanceof Error ? error.message : error);
+      console.error('═'.repeat(60));
+    }
+  } else {
+    console.warn('[Intent] ⚠️  No LLM key configured - using regex fallback.');
+  }
+  return parseIntentSimple(command);
 }

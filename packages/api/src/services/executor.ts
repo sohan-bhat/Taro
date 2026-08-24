@@ -8,7 +8,6 @@ import { ActionLogModel } from '../db/models';
 import { SlackService } from './slack';
 import { GithubService } from './github';
 import { parseIntent } from './intent';
-import { composeContent } from './composer';
 import { INTENTS, DEFAULT_GITHUB_ACTIONS, GITHUB_CAPABILITIES } from '@taro/shared';
 
 const GITHUB_ACTIONS = new Set(GITHUB_CAPABILITIES.map((c) => c.action));
@@ -30,12 +29,6 @@ export async function executeCommand(
   try {
     const intent = await parseIntent(command, meetingContext);
     console.log(`[Executor:${mode}] Parsed intent:`, JSON.stringify(intent));
-
-    // Second pass: turn the raw extraction into publishable content
-    // (proper issue markdown, cleaned messages, deduped todo items)
-    if (intent.action !== INTENTS.UNKNOWN) {
-      intent.params = await composeContent(intent.action, intent.params, command, meetingContext);
-    }
 
     let status: ExecutionResult['status'] = 'failed';
     let result: string | undefined;

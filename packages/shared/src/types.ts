@@ -125,7 +125,7 @@ export interface ParsedIntent {
   confidence: number;
   params: IntentParams;
   // Which parser produced this - 'fallback_regex' means Gemini failed and should be investigated
-  source?: 'gemini' | 'fallback_regex';
+  source?: 'groq' | 'gemini' | 'fallback_regex';
 }
 
 // Available integration types
