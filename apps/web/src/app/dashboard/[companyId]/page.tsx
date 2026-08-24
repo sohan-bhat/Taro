@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AVAILABLE_INTEGRATIONS, IntegrationInfo, GITHUB_CAPABILITIES } from '@taro/shared';
 import { api, Company, Meeting, MeetingDetail, ApiError, TOKEN_STORAGE_KEY, LICENSE_STORAGE_KEY } from '@/lib/api';
@@ -111,12 +111,24 @@ export default function Dashboard() {
   const [removing, setRemoving] = useState(false);
   const [showPerms, setShowPerms] = useState(false);
 
+  // Show the post-OAuth toast exactly once. Effects can re-run (React dev
+  // double-invoke, re-renders), so a ref guards against a duplicate, and we
+  // strip the one-time query params so a refresh can't replay it either.
+  const handledParams = useRef('');
   useEffect(() => {
-    if (searchParams.get('slack') === 'connected') showToast('Slack connected');
-    if (searchParams.get('github') === 'connected') showToast('Taro GitHub app installed');
+    const key = searchParams.toString();
+    if (!key || handledParams.current === key) return;
+    handledParams.current = key;
+
+    const slack = searchParams.get('slack') === 'connected';
+    const github = searchParams.get('github') === 'connected';
     const error = searchParams.get('error');
+    if (slack) showToast('Slack connected');
+    if (github) showToast('Taro GitHub app installed');
     if (error?.startsWith('github')) showToast('GitHub installation did not complete. Try again.', 'error');
-  }, [searchParams]);
+
+    if (slack || github || error) router.replace(`/dashboard/${companyId}`);
+  }, [searchParams, router, companyId]);
 
   useEffect(() => {
     async function fetchData() {
