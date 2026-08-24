@@ -24,9 +24,12 @@ export function pcmToFloat32(pcm: Buffer): Float32Array {
  * MeetingBaas output stream when a command completes.
  */
 export function makeDingPcm(): Buffer {
-  const toneDuration = 0.18; // seconds per tone
-  const gap = 0.02;
-  const tones = [880, 1318.5];
+  // A clear, bright two-note chime (C6 -> E6), louder and longer so it's
+  // unmistakable when played into the meeting. A little vibrato + a soft
+  // harmonic make it read as a "notification" rather than a flat sine beep.
+  const toneDuration = 0.24; // seconds per tone
+  const gap = 0.03;
+  const tones = [1046.5, 1318.5];
   const totalSamples = Math.floor(SAMPLE_RATE * (tones.length * (toneDuration + gap)));
   const buf = Buffer.alloc(totalSamples * 2);
 
@@ -35,9 +38,15 @@ export function makeDingPcm(): Buffer {
     const n = Math.floor(SAMPLE_RATE * toneDuration);
     for (let i = 0; i < n; i++) {
       const t = i / SAMPLE_RATE;
-      const envelope = Math.exp(-6 * t) * (i < 80 ? i / 80 : 1); // decay + declick
-      const sample = Math.sin(2 * Math.PI * freq * t) * envelope * 0.4;
-      buf.writeInt16LE(Math.round(sample * 32767), (offset + i) * 2);
+      // Slower decay = the note sustains and is easy to hear; declick edges.
+      const attack = i < 120 ? i / 120 : 1;
+      const release = i > n - 200 ? (n - i) / 200 : 1;
+      const envelope = Math.exp(-3 * t) * attack * release;
+      const wave =
+        Math.sin(2 * Math.PI * freq * t) + 0.25 * Math.sin(2 * Math.PI * freq * 2 * t);
+      const sample = wave * envelope * 0.7; // louder than before (was 0.4)
+      const clamped = Math.max(-1, Math.min(1, sample));
+      buf.writeInt16LE(Math.round(clamped * 32767), (offset + i) * 2);
     }
     offset += n + Math.floor(SAMPLE_RATE * gap);
   }

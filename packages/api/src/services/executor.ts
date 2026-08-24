@@ -246,7 +246,9 @@ export async function executeCommand(
 
       default: {
         status = 'clarification_needed';
-        summary = `❓ Heard "${command.slice(0, 80)}" but didn't understand what to do.`;
+        summary = intent.params.reason
+          ? `❓ ${intent.params.reason}`
+          : `❓ Heard "${command.slice(0, 80)}" but didn't understand what to do.`;
       }
     }
 

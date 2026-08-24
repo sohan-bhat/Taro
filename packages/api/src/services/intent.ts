@@ -155,6 +155,7 @@ const RESPONSE_SCHEMA = {
     labels: { type: Type.ARRAY, items: { type: Type.STRING } },
     assignees: { type: Type.ARRAY, items: { type: Type.STRING } },
     reviewers: { type: Type.ARRAY, items: { type: Type.STRING } },
+    reason: { type: Type.STRING },
   },
   required: ['action', 'confidence'],
 };
@@ -178,7 +179,7 @@ Actions:
 - "merge_pull_request": user wants to merge a pull request. Extract "issueNumber" (the PR number).
 - "request_github_review": user wants to request reviewers on a PR. Extract "issueNumber" (PR number) and "reviewers" (array of usernames).
 There is one configured repo, so never extract a repo or channel for GitHub actions.
-- "unknown": the command is unclear or unsupported.
+- "unknown": the command is unclear or unsupported. When the user clearly asked for a GitHub or Slack action that isn't in the list above, still return "unknown" but set "reason" to one short sentence explaining what you can't do and the closest thing you can. In particular, Taro CANNOT create pull requests (a PR needs an existing code branch with changes; it can't be made from a title), but it CAN create/comment/close/reopen/label/assign issues and comment/close/merge/request-review on existing PRs.
 
 Channel rules:
 - Slack channel names are lowercase with hyphens. Normalize: "the Engineering channel" -> "engineering", "X Y Z channel" (spelled out letters) -> "xyz", "project updates" -> "project-updates" only if clearly one channel name.
@@ -227,6 +228,9 @@ Output: {"action":"close_pull_request","confidence":0.9,"issueNumber":3}
 Input: "request a review from alex on pr 15"
 Output: {"action":"request_github_review","confidence":0.9,"issueNumber":15,"reviewers":["alex"]}
 
+Input: "make a pull request titled mobile update changes"
+Output: {"action":"unknown","confidence":0.6,"reason":"I can't open pull requests from a title, a PR needs an existing branch with code changes. I can create a GitHub issue for that instead."}
+
 Input: "what's the weather like"
 Output: {"action":"unknown","confidence":0.1}`;
 
@@ -271,6 +275,7 @@ export async function parseIntent(command: string): Promise<ParsedIntent> {
       labels?: string[];
       assignees?: string[];
       reviewers?: string[];
+      reason?: string;
     };
 
     if (
@@ -294,6 +299,7 @@ export async function parseIntent(command: string): Promise<ParsedIntent> {
         labels: parsed.labels,
         assignees: parsed.assignees,
         reviewers: parsed.reviewers,
+        reason: parsed.reason,
         ...(parsed.action === 'unknown' ? { original: command } : {}),
       },
       source: 'gemini',

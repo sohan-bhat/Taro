@@ -235,7 +235,8 @@ class GroqBackend implements AsrBackend {
       form.append('model', GROQ_MODEL);
       form.append('language', 'en');
       form.append('temperature', '0');
-      form.append('prompt', 'Hey Taro. Post to Slack, create a GitHub issue.'); // bias the name/vocab
+      // No prompt: Whisper echoes the prompt text into near-silent segments
+      // (it leaked as a fake "post to Slack, create a GitHub" command).
       form.append('response_format', 'json');
 
       const res = await fetch(GROQ_URL, {

@@ -100,6 +100,7 @@ export interface IntentParams {
   labels?: string[]; // labels to add
   assignees?: string[]; // GitHub logins to assign
   reviewers?: string[]; // GitHub logins to request review from
+  reason?: string; // for 'unknown': why Taro can't do it / what it can do instead
   original?: string;
 }
 
