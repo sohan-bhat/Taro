@@ -21,19 +21,27 @@ export function Dialog({
 }) {
   const panelRef = React.useRef<HTMLDivElement>(null);
 
+  // Focus the panel and lock scroll ONLY when the dialog opens. This must not
+  // depend on onClose (a new function each render) or it would re-focus the
+  // panel on every keystroke and steal focus from inputs inside the dialog.
+  React.useEffect(() => {
+    if (!open) return;
+    panelRef.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  // Escape-to-close listener, rebound when onClose changes (no focus effects).
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    panelRef.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open) return null;
