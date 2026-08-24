@@ -62,6 +62,14 @@ Use the meeting transcript context for anything the speaker referenced ("about w
       required: ['body'],
     },
   },
+  [INTENTS.CREATE_PULL_REQUEST]: {
+    instructions: `Write a real pull request. "title": short imperative summary (like a commit subject). "body": GitHub-flavored markdown describing what the PR proposes and why, grounded in the meeting discussion, with a "## Summary" section and, if next steps were mentioned, a "## Changes" checklist. Never paste raw transcript; write it properly. Never invent specifics not said.`,
+    schema: {
+      type: Type.OBJECT,
+      properties: { title: { type: Type.STRING }, body: { type: Type.STRING } },
+      required: ['title', 'body'],
+    },
+  },
   [INTENTS.CREATE_TODO_LIST]: {
     instructions: `Produce "title" (short, specific to what was discussed) and "items": each a clean imperative task ("Fix the deploy pipeline"), deduplicated, expanded with concrete detail from the meeting context when it was actually said. Never invent tasks that were not mentioned.`,
     schema: {

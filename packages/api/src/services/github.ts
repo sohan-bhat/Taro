@@ -257,6 +257,75 @@ export class GithubService {
     }
   }
 
+  /**
+   * Open a new branch and a pull request off it. A PR needs the branch to
+   * differ from the base, so Taro commits a small proposal file (the request,
+   * written up from the meeting) onto the new branch, then opens the PR.
+   */
+  async openPullRequest(title: string, body: string, branchHint?: string): Promise<GithubResult> {
+    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    try {
+      // 1. Default branch + its head SHA (the base)
+      const repoRes = await this.request('GET', `/repos/${this.repo}`);
+      if (!repoRes.ok) return { success: false, error: await githubErrorMessage(repoRes) };
+      const base = ((await repoRes.json()) as { default_branch: string }).default_branch;
+
+      const refRes = await this.request('GET', `/repos/${this.repo}/git/ref/heads/${base}`);
+      if (!refRes.ok) return { success: false, error: await githubErrorMessage(refRes) };
+      const baseSha = ((await refRes.json()) as { object: { sha: string } }).object.sha;
+
+      // 2. Create the branch (retry with a suffix if the name is taken)
+      const slug = (branchHint || title)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'taro';
+      let branch = `taro/${slug}`;
+      let made = false;
+      for (let attempt = 0; attempt < 3 && !made; attempt++) {
+        const name = attempt === 0 ? branch : `${branch}-${Math.floor(Math.random() * 9000 + 1000)}`;
+        const res = await this.request('POST', `/repos/${this.repo}/git/refs`, {
+          ref: `refs/heads/${name}`,
+          sha: baseSha,
+        });
+        if (res.ok) {
+          branch = name;
+          made = true;
+        } else if (res.status !== 422) {
+          return { success: false, error: `${await githubErrorMessage(res)}${this.permHint(res.status)}` };
+        }
+      }
+      if (!made) return { success: false, error: 'Could not create a unique branch name.' };
+
+      // 3. Commit a proposal file so the branch has a diff to open a PR against
+      const path = `.taro/proposals/${slug || 'proposal'}.md`;
+      const content = `# ${title}\n\n${body || '_(no additional detail)_'}\n\n---\nOpened by Taro from a meeting.\n`;
+      const putRes = await this.request('PUT', `/repos/${this.repo}/contents/${path}`, {
+        message: `Taro: ${title}`.slice(0, 72),
+        content: Buffer.from(content, 'utf8').toString('base64'),
+        branch,
+      });
+      if (!putRes.ok) {
+        return { success: false, error: `${await githubErrorMessage(putRes)}${this.permHint(putRes.status)}` };
+      }
+
+      // 4. Open the pull request
+      const prRes = await this.request('POST', `/repos/${this.repo}/pulls`, {
+        title,
+        body: `${body || ''}\n\n_Opened by Taro during a meeting._`.trim(),
+        head: branch,
+        base,
+      });
+      if (!prRes.ok) {
+        return { success: false, error: `${await githubErrorMessage(prRes)}${this.permHint(prRes.status)}` };
+      }
+      const pr = (await prRes.json()) as { html_url: string; number: number };
+      return { success: true, url: pr.html_url, number: pr.number };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+    }
+  }
+
   async createIssue(title: string, body?: string): Promise<GithubResult> {
     if (!this.repo) {
       return { success: false, error: 'No repository selected. Choose one in the dashboard.' };

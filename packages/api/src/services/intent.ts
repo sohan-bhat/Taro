@@ -142,6 +142,7 @@ const RESPONSE_SCHEMA = {
         'close_pull_request',
         'merge_pull_request',
         'request_github_review',
+        'create_pull_request',
         'unknown',
       ],
     },
@@ -155,6 +156,7 @@ const RESPONSE_SCHEMA = {
     labels: { type: Type.ARRAY, items: { type: Type.STRING } },
     assignees: { type: Type.ARRAY, items: { type: Type.STRING } },
     reviewers: { type: Type.ARRAY, items: { type: Type.STRING } },
+    branch: { type: Type.STRING },
     reason: { type: Type.STRING },
   },
   required: ['action', 'confidence'],
@@ -182,8 +184,9 @@ Actions:
 - "close_pull_request": user wants to close a pull request. Extract "issueNumber" (the PR number).
 - "merge_pull_request": user wants to merge a pull request. Extract "issueNumber" (the PR number).
 - "request_github_review": user wants to request reviewers on a PR. Extract "issueNumber" (PR number) and "reviewers" (array of usernames).
+- "create_pull_request": user wants to open a NEW pull request (often phrased as "make a branch and a pull request", "open a PR for..."). Extract "title" (short imperative summary) and optional "body" (detail from the meeting) and optional "branch" (a branch name if they said one). Taro creates the branch and PR itself.
 There is one configured repo, so never extract a repo or channel for GitHub actions.
-- "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. In particular, Taro CANNOT create pull requests (a PR needs an existing code branch with changes; it cannot be made from a title alone), but it CAN create/comment/close/reopen/label/assign issues and comment/close/merge/request-review on existing PRs. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
+- "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
 Channel rules:
 - Slack channel names are lowercase with hyphens. Normalize: "the Engineering channel" -> "engineering", "X Y Z channel" (spelled out letters) -> "xyz", "project updates" -> "project-updates" only if clearly one channel name.
@@ -232,8 +235,8 @@ Output: {"action":"close_pull_request","confidence":0.9,"issueNumber":3}
 Input: "request a review from alex on pr 15"
 Output: {"action":"request_github_review","confidence":0.9,"issueNumber":15,"reviewers":["alex"]}
 
-Input: "make a pull request titled mobile update changes"
-Output: {"action":"unknown","confidence":0.6,"reason":"I can't open pull requests from a title, a PR needs an existing branch with code changes. I can create a GitHub issue for that instead."}
+Input: "make a new branch and open a pull request titled mobile update changes"
+Output: {"action":"create_pull_request","confidence":0.9,"title":"Mobile update changes"}
 
 Input (transcript mentions: "Sarah: the export keeps timing out on large accounts, it 500s after 30 seconds") COMMAND: "hey taro make an issue about that"
 Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"The export request 500s after about 30 seconds for large accounts. Raised during the meeting."}
@@ -286,6 +289,7 @@ export async function parseIntent(command: string, context?: string): Promise<Pa
       labels?: string[];
       assignees?: string[];
       reviewers?: string[];
+      branch?: string;
       reason?: string;
     };
 
@@ -316,6 +320,7 @@ export async function parseIntent(command: string, context?: string): Promise<Pa
         labels: parsed.labels,
         assignees: parsed.assignees,
         reviewers: parsed.reviewers,
+        branch: clip(parsed.branch, 60),
         reason: clip(parsed.reason, 300),
         ...(parsed.action === 'unknown' ? { original: command } : {}),
       },

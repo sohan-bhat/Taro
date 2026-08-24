@@ -100,6 +100,7 @@ export interface IntentParams {
   labels?: string[]; // labels to add
   assignees?: string[]; // GitHub logins to assign
   reviewers?: string[]; // GitHub logins to request review from
+  branch?: string; // new branch name for a pull request
   reason?: string; // for 'unknown': why Taro can't do it / what it can do instead
   original?: string;
 }
@@ -118,6 +119,7 @@ export interface ParsedIntent {
     | 'close_pull_request'
     | 'merge_pull_request'
     | 'request_github_review'
+    | 'create_pull_request'
     | 'unknown';
   confidence: number;
   params: IntentParams;

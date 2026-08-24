@@ -30,6 +30,7 @@ export const INTENTS = {
   CLOSE_PULL_REQUEST: 'close_pull_request',
   MERGE_PULL_REQUEST: 'merge_pull_request',
   REQUEST_GITHUB_REVIEW: 'request_github_review',
+  CREATE_PULL_REQUEST: 'create_pull_request',
   UNKNOWN: 'unknown',
 } as const;
 
@@ -91,6 +92,12 @@ export const GITHUB_CAPABILITIES = [
     label: 'Request PR reviews',
     description: 'Request reviewers on a pull request',
     permission: 'Pull requests: Read and write',
+  },
+  {
+    action: 'create_pull_request',
+    label: 'Create pull requests',
+    description: 'Open a new branch and pull request from a meeting request',
+    permission: 'Contents + Pull requests: Read and write',
   },
 ] as const;
 

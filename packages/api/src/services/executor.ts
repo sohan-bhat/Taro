@@ -114,7 +114,8 @@ export async function executeCommand(
       case INTENTS.ASSIGN_GITHUB_ISSUE:
       case INTENTS.CLOSE_PULL_REQUEST:
       case INTENTS.MERGE_PULL_REQUEST:
-      case INTENTS.REQUEST_GITHUB_REVIEW: {
+      case INTENTS.REQUEST_GITHUB_REVIEW:
+      case INTENTS.CREATE_PULL_REQUEST: {
         const github = await GithubService.fromCompanyId(companyId);
         if (!github) {
           status = 'failed';
@@ -138,7 +139,8 @@ export async function executeCommand(
         const repo = github.repo;
         // Actions that operate on an existing issue/PR need a number
         const needsNumber =
-          intent.action !== INTENTS.CREATE_GITHUB_ISSUE;
+          intent.action !== INTENTS.CREATE_GITHUB_ISSUE &&
+          intent.action !== INTENTS.CREATE_PULL_REQUEST;
         if (needsNumber && !n) {
           status = 'clarification_needed';
           summary = `❓ Couldn't tell which issue/PR number from: "${command.slice(0, 80)}"`;
@@ -211,6 +213,17 @@ export async function executeCommand(
           case INTENTS.MERGE_PULL_REQUEST:
             gh = await github.mergePullRequest(n!);
             verb = 'Merged PR';
+            break;
+          case INTENTS.CREATE_PULL_REQUEST:
+            if (!p.title) {
+              status = 'clarification_needed';
+              summary = `❓ Couldn't tell the pull request title from: "${command.slice(0, 80)}"`;
+              gh = { success: false };
+              verb = 'pull request';
+              break;
+            }
+            gh = await github.openPullRequest(p.title, p.body || '', p.branch);
+            verb = 'Opened PR';
             break;
           case INTENTS.REQUEST_GITHUB_REVIEW:
             if (!p.reviewers || p.reviewers.length === 0) {
