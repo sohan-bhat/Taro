@@ -206,13 +206,21 @@ export const meetings = {
     request(`/api/meetings/${id}/end`, { method: 'POST' }),
 };
 
+// The OAuth callbacks (Slack, GitHub) redirect back to whatever origin we
+// launched from. Pass it along so the flow returns to this site (Vercel or
+// localhost) instead of the API's configured default.
+function returnToParam(): string {
+  if (typeof window === 'undefined') return '';
+  return `&returnTo=${encodeURIComponent(window.location.origin)}`;
+}
+
 // Slack endpoints
 export const slack = {
   status: (companyId: string): Promise<SlackStatus> =>
     request(`/api/slack/status/${companyId}`),
 
   getInstallUrl: (companyId: string): string =>
-    `${API_URL}/api/slack/install?companyId=${companyId}`,
+    `${API_URL}/api/slack/install?companyId=${companyId}${returnToParam()}`,
 
   disconnect: (companyId: string): Promise<{ message: string }> =>
     request(`/api/slack/disconnect/${companyId}`, { method: 'DELETE' }),
@@ -224,7 +232,7 @@ export const github = {
     request(`/api/github/status/${companyId}`),
 
   getInstallUrl: (companyId: string): string =>
-    `${API_URL}/api/github/install?companyId=${companyId}`,
+    `${API_URL}/api/github/install?companyId=${companyId}${returnToParam()}`,
 
   reconnect: (companyId: string): Promise<{ connected: boolean; repo?: string; accountLogin?: string }> =>
     request('/api/github/reconnect', {

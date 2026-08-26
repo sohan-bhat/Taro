@@ -10,6 +10,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { requireAuth, assertCompany, type AuthedRequest } from '../middleware/auth';
 import { ValidationError } from '../lib/errors';
 import { env } from '../config/env';
+import { encodeOAuthState, decodeOAuthState } from '../lib/oauthState';
 import { GITHUB_CAPABILITIES, DEFAULT_GITHUB_ACTIONS } from '@taro/shared';
 
 const VALID_ACTIONS = new Set(GITHUB_CAPABILITIES.map((c) => c.action));
@@ -20,7 +21,7 @@ export const githubRouter: RouterType = Router();
 // browser redirect, so it can't carry the bearer token; the companyId rides
 // along as `state` and comes back on the setup callback.
 githubRouter.get('/install', (req, res) => {
-  const { companyId } = req.query;
+  const { companyId, returnTo } = req.query;
   if (!companyId || typeof companyId !== 'string') {
     return res.status(400).json({ error: 'companyId is required' });
   }
@@ -29,15 +30,18 @@ githubRouter.get('/install', (req, res) => {
       .status(503)
       .json({ error: 'The Taro GitHub App is not configured on this server yet.', code: 'GITHUB_APP_UNCONFIGURED' });
   }
-  res.redirect(githubInstallUrl(companyId));
+  // Carry the originating origin so the setup callback returns there, not localhost.
+  const state = encodeOAuthState(companyId, typeof returnTo === 'string' ? returnTo : undefined);
+  res.redirect(githubInstallUrl(state));
 });
 
 // GitHub sends the browser here after the app is installed (Setup URL)
 githubRouter.get('/callback', async (req, res) => {
-  const { installation_id: installationId, state: companyId } = req.query;
-  const appUrl = env.appUrl;
+  const { installation_id: installationId, state } = req.query;
+  const { companyId, returnTo } = decodeOAuthState(typeof state === 'string' ? state : '');
+  const appUrl = returnTo || env.appUrl;
 
-  if (!installationId || typeof installationId !== 'string' || !companyId || typeof companyId !== 'string') {
+  if (!installationId || typeof installationId !== 'string' || !companyId) {
     return res.redirect(`${appUrl}/dashboard?error=github_missing_params`);
   }
 

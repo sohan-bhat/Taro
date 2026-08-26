@@ -175,7 +175,7 @@ Common misrecognitions to interpret correctly: "todo list" often appears as "tot
 Actions:
 - "post_message": user wants a message posted to a Slack channel. Extract "channel" and "message".
 - "create_todo_list": user wants a todo list created in a Slack channel. Extract "channel", optional "title", and "items" (each distinct task as one item).
-- "create_github_issue": user wants a GitHub issue filed (words like "issue", "bug", "ticket"). Extract "title" (short imperative summary) and optional "body" (extra detail).
+- "create_github_issue": user wants a GitHub issue filed (words like "issue", "bug", "ticket"). Extract "title" (short imperative summary) and ALWAYS write a full "body" (a proper markdown write-up, see WRITING CONTENT). Never leave the body empty and never make it a bare phrase.
 - "comment_github": user wants to comment on an existing issue or pull request. Extract "issueNumber" (the number they reference, e.g. "issue 12", "PR number 5", "pull request 8") and "body" (the comment text).
 - "close_github_issue": user wants to close an issue. Extract "issueNumber".
 - "reopen_github_issue": user wants to reopen a closed issue. Extract "issueNumber".
@@ -184,12 +184,12 @@ Actions:
 - "close_pull_request": user wants to close a pull request. Extract "issueNumber" (the PR number).
 - "merge_pull_request": user wants to merge a pull request. Extract "issueNumber" (the PR number).
 - "request_github_review": user wants to request reviewers on a PR. Extract "issueNumber" (PR number) and "reviewers" (array of usernames).
-- "create_pull_request": user wants to open a NEW pull request (often phrased as "make a branch and a pull request", "open a PR for..."). Extract "title" (short imperative summary) and optional "body" (detail from the meeting) and optional "branch" (a branch name if they said one). Taro creates the branch and PR itself.
+- "create_pull_request": user wants to open a NEW pull request (often phrased as "make a branch and a pull request", "open a PR for...", "make a PR to main"). This is a valid, supported action, never say you cannot do it. Extract "title" (short imperative summary), ALWAYS write a full "body" (markdown with ## Summary and a ## Changes checklist, see WRITING CONTENT), and optional "branch" (only if they named one). Taro creates the branch, makes the commits, and opens the PR itself.
 There is one configured repo, so never extract a repo or channel for GitHub actions.
 - "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
 WRITING CONTENT (produce final, publishable content, never placeholders or raw transcript):
-- create_github_issue / create_pull_request: "title" is a short imperative summary. "body" is GitHub-flavored markdown: a "## Summary" (2-3 sentences describing the problem or request from the discussion) and, when specifics were mentioned, a "## Details" section (browsers, errors, pages, people). For a PR use "## Changes" as a short checklist. Never paste the raw transcript; write it up properly. Never invent facts that were not said.
+- create_github_issue / create_pull_request: "title" is a short imperative summary. "body" is REQUIRED and must be real GitHub-flavored markdown, never a single short phrase, never a copy of the title, never empty. Always include a "## Summary" of two to three full sentences describing the problem or request grounded in the discussion. When specifics were mentioned (browsers, error codes, pages, affected users, people), add a "## Details" section as a bullet list. For a pull request, add a "## Changes" section as a markdown checklist ("- [ ] ...") of the work being proposed. If little detail was given, still write a proper Summary but do not invent facts, just omit the Details section. A body like "customer dissatisfaction" is WRONG; write it up like a real engineer filing the ticket.
 - comment_github: "body" is a clean, professional comment.
 - post_message: if the user dictated a message, clean it up; if they asked you to WRITE something (an opinion, statement, announcement, summary), actually author it well for a workplace Slack channel.
 - create_todo_list: "items" are clean, deduplicated imperative tasks.
@@ -209,10 +209,10 @@ Input: "um create a to-do list in engineering about uh testing the webhook and a
 Output: {"action":"create_todo_list","confidence":0.85,"channel":"engineering","items":["Test the webhook","Update the docs"]}
 
 Input: "file a github issue about the login button being broken on safari it throws a 500 when you click it"
-Output: {"action":"create_github_issue","confidence":0.9,"title":"Login button broken on Safari","body":"Clicking the login button throws a 500 error on Safari."}
+Output: {"action":"create_github_issue","confidence":0.9,"title":"Login button returns a 500 on Safari","body":"## Summary\nThe login button is broken on Safari. Clicking it returns an HTTP 500 instead of signing the user in, which blocks Safari users from logging in entirely.\n\n## Details\n- Browser: Safari\n- Action: clicking the login button\n- Result: HTTP 500 error\n\nRaised during a meeting."}
 
 Input: "hey uh open an issue that we need dark mode on the dashboard"
-Output: {"action":"create_github_issue","confidence":0.85,"title":"Add dark mode to the dashboard"}
+Output: {"action":"create_github_issue","confidence":0.85,"title":"Add dark mode to the dashboard","body":"## Summary\nThe team wants a dark mode option for the dashboard so it is comfortable to use in low-light settings and matches the rest of the product. Requested during a meeting."}
 
 Input: "comment on issue twelve saying we'll pick this up next sprint"
 Output: {"action":"comment_github","confidence":0.9,"issueNumber":12,"body":"We'll pick this up next sprint."}
@@ -242,10 +242,13 @@ Input: "request a review from alex on pr 15"
 Output: {"action":"request_github_review","confidence":0.9,"issueNumber":15,"reviewers":["alex"]}
 
 Input: "make a new branch and open a pull request titled mobile update changes"
-Output: {"action":"create_pull_request","confidence":0.9,"title":"Mobile update changes"}
+Output: {"action":"create_pull_request","confidence":0.9,"title":"Mobile update changes","body":"## Summary\nOpen a pull request to track the mobile updates discussed in the meeting so the changes can be reviewed before they land.\n\n## Changes\n- [ ] Apply the mobile layout updates\n- [ ] Verify the screens on small viewports"}
+
+Input (transcript mentions: "we keep hearing customers are unhappy with how slow the reports page loads") COMMAND: "hey taro make a pull request to fix that for main"
+Output: {"action":"create_pull_request","confidence":0.85,"title":"Improve reports page load time","body":"## Summary\nCustomers report that the reports page loads too slowly, which is driving dissatisfaction. This PR tracks the work to investigate and speed up the reports page.\n\n## Changes\n- [ ] Profile the reports page load\n- [ ] Address the slowest queries or renders\n- [ ] Confirm the page loads noticeably faster"}
 
 Input (transcript mentions: "Sarah: the export keeps timing out on large accounts, it 500s after 30 seconds") COMMAND: "hey taro make an issue about that"
-Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"The export request 500s after about 30 seconds for large accounts. Raised during the meeting."}
+Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"## Summary\nThe export consistently times out for large accounts. It returns an HTTP 500 after roughly 30 seconds, so customers with large accounts cannot export their data.\n\n## Details\n- Affected: large accounts\n- Symptom: request 500s after about 30 seconds\n- Reported by: Sarah\n\nRaised during a meeting."}
 
 Input: "what's the weather like"
 Output: {"action":"unknown","confidence":0.2,"reason":"That is not something I can do, I can post to Slack, manage GitHub issues and PRs, or make a todo list."}`;

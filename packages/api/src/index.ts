@@ -3,6 +3,7 @@ import { env } from './config/env';
 
 import express from 'express';
 import http from 'http';
+import path from 'path';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import { connectDB } from './db/mongo';
@@ -32,6 +33,15 @@ app.use(express.json({ limit: '10mb' }));
 // Health check
 app.get(API_ROUTES.HEALTH, (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Public avatar the meeting bot wears in the call. MeetingBaas fetches this by
+// URL from its own servers (a non-browser fetch, so it passes ngrok's browser
+// interstitial), which is why the bot's default image points back here.
+app.get('/taro-bot.png', (req, res) => {
+  res.type('image/png');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(path.resolve(__dirname, '../assets/taro-bot.png'));
 });
 
 // Routes

@@ -15,6 +15,24 @@ interface JoinMeetingParams {
   meetingId?: string;
   /** Public https base URL (converted to wss for streaming endpoints) */
   publicBaseUrl?: string;
+  /** Public https URL of the avatar the bot shows in the meeting */
+  botImage?: string;
+}
+
+/**
+ * The avatar the meeting bot shows in Google Meet / Zoom / Teams. MeetingBaas
+ * fetches this over the public internet from its own servers, so it must be a
+ * reachable https URL (localhost won't work). Order of preference:
+ *   1. explicit BOT_IMAGE_URL
+ *   2. the API host itself (/taro-bot.png) - already public and proven
+ *      reachable by MeetingBaas, since webhooks and the audio stream land here
+ *   3. the web app on Vercel (/taro-bot.png in its public dir)
+ */
+function defaultBotImage(): string {
+  if (env.botImageUrl.startsWith('https://')) return env.botImageUrl;
+  if (env.apiUrl.startsWith('https://')) return `${env.apiUrl.replace(/\/$/, '')}/taro-bot.png`;
+  if (env.appUrl.startsWith('https://')) return `${env.appUrl.replace(/\/$/, '')}/taro-bot.png`;
+  return '';
 }
 
 interface MeetingBaasBot {
@@ -38,8 +56,12 @@ export class MeetingBaasService {
     webhookUrl,
     meetingId,
     publicBaseUrl,
+    botImage,
   }: JoinMeetingParams): Promise<MeetingBaasBot> {
     console.log(`[MeetingBaas] Joining meeting: ${meetingUrl}`);
+
+    const image = botImage || defaultBotImage();
+    if (image) console.log(`[MeetingBaas] Bot avatar: ${image}`);
 
     const useV2 = env.meetingBaasApiVersion === 'v2';
     const streamOk = meetingId && publicBaseUrl?.startsWith('https://');
@@ -64,6 +86,7 @@ export class MeetingBaasService {
       body = {
         meeting_url: meetingUrl,
         bot_name: botName,
+        ...(image ? { bot_image: image } : {}),
         entry_message: 'Taro Assistant has joined - say "Hey Taro, ..." to give me a command',
         recording_mode: 'speaker_view',
         reserved: false,
@@ -88,6 +111,7 @@ export class MeetingBaasService {
       body = {
         meeting_url: meetingUrl,
         bot_name: botName,
+        ...(image ? { bot_image: image } : {}),
         recording_mode: 'speaker_view',
         entry_message: 'Taro Assistant has joined - say "Hey Taro, ..." to give me a command',
         automatic_leave: { waiting_room_timeout: 600, noone_joined_timeout: 600 },

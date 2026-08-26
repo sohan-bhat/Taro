@@ -104,7 +104,14 @@ export const GITHUB_CAPABILITIES = [
 export type GithubAction = (typeof GITHUB_CAPABILITIES)[number]['action'];
 
 // What a freshly connected workspace can do until it changes the settings.
-export const DEFAULT_GITHUB_ACTIONS: GithubAction[] = ['create_github_issue'];
+// The safe, non-destructive set: file issues, comment, and open pull requests
+// (a PR is only a proposal against a new branch, it never touches main).
+// Powerful actions (merge, close) stay opt-in via the dashboard.
+export const DEFAULT_GITHUB_ACTIONS: GithubAction[] = [
+  'create_github_issue',
+  'comment_github',
+  'create_pull_request',
+];
 
 // Meeting status
 export const MEETING_STATUS = {

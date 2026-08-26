@@ -31,8 +31,8 @@ export function githubAppConfigured(): boolean {
   return !!(env.githubAppId && env.githubAppSlug && env.githubAppPrivateKey);
 }
 
-export function githubInstallUrl(companyId: string): string {
-  return `https://github.com/apps/${env.githubAppSlug}/installations/new?state=${encodeURIComponent(companyId)}`;
+export function githubInstallUrl(state: string): string {
+  return `https://github.com/apps/${env.githubAppSlug}/installations/new?state=${encodeURIComponent(state)}`;
 }
 
 async function githubErrorMessage(response: Response): Promise<string> {
@@ -47,6 +47,22 @@ async function githubErrorMessage(response: Response): Promise<string> {
 
 function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+/**
+ * Pull checklist items out of a PR write-up. Reuses any markdown checkbox or
+ * bullet lines the model already wrote; falls back to a generic plan so the
+ * tasks commit is never empty.
+ */
+function extractChecklist(body: string): string {
+  const items = (body || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s*(\[[ xX]\]\s*)?.+/.test(line))
+    .map((line) => line.replace(/^[-*]\s*(\[[ xX]\]\s*)?/, '').trim())
+    .filter(Boolean);
+  const list = items.length > 0 ? items : ['Implement the change', 'Add or update tests', 'Review and verify'];
+  return list.map((item) => `- [ ] ${item}`).join('\n');
 }
 
 /** App-level JWT (RS256), valid for 9 minutes, used to mint installation tokens */
@@ -257,10 +273,29 @@ export class GithubService {
     }
   }
 
+  /** Commit a single new file to a branch. Each call is one commit. */
+  private async commitFile(
+    branch: string,
+    path: string,
+    content: string,
+    message: string
+  ): Promise<GithubResult | null> {
+    const res = await this.request('PUT', `/repos/${this.repo}/contents/${path}`, {
+      message: message.slice(0, 72),
+      content: Buffer.from(content, 'utf8').toString('base64'),
+      branch,
+    });
+    if (!res.ok) {
+      return { success: false, error: `${await githubErrorMessage(res)}${this.permHint(res.status)}` };
+    }
+    return null;
+  }
+
   /**
    * Open a new branch and a pull request off it. A PR needs the branch to
-   * differ from the base, so Taro commits a small proposal file (the request,
-   * written up from the meeting) onto the new branch, then opens the PR.
+   * differ from the base, so Taro lays down a few small commits on the new
+   * branch (the written-up proposal, then a task checklist) and opens the PR
+   * against them. This makes the PR read like real staged work, not one blob.
    */
   async openPullRequest(title: string, body: string, branchHint?: string): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
@@ -275,11 +310,12 @@ export class GithubService {
       const baseSha = ((await refRes.json()) as { object: { sha: string } }).object.sha;
 
       // 2. Create the branch (retry with a suffix if the name is taken)
-      const slug = (branchHint || title)
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 40) || 'taro';
+      const slug =
+        (branchHint || title)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 40) || 'taro';
       let branch = `taro/${slug}`;
       let made = false;
       for (let attempt = 0; attempt < 3 && !made; attempt++) {
@@ -297,17 +333,28 @@ export class GithubService {
       }
       if (!made) return { success: false, error: 'Could not create a unique branch name.' };
 
-      // 3. Commit a proposal file so the branch has a diff to open a PR against
-      const path = `.taro/proposals/${slug || 'proposal'}.md`;
-      const content = `# ${title}\n\n${body || '_(no additional detail)_'}\n\n---\nOpened by Taro from a meeting.\n`;
-      const putRes = await this.request('PUT', `/repos/${this.repo}/contents/${path}`, {
-        message: `Taro: ${title}`.slice(0, 72),
-        content: Buffer.from(content, 'utf8').toString('base64'),
+      // 3. Small commits so the branch has a real diff to open a PR against.
+      // Commit A: the written-up proposal.
+      const proposal = `# ${title}\n\n${body || '_(no additional detail)_'}\n\n---\nOpened by Taro from a meeting.\n`;
+      const c1 = await this.commitFile(
         branch,
-      });
-      if (!putRes.ok) {
-        return { success: false, error: `${await githubErrorMessage(putRes)}${this.permHint(putRes.status)}` };
-      }
+        `.taro/proposals/${slug}.md`,
+        proposal,
+        `docs: propose ${title}`
+      );
+      if (c1) return c1;
+
+      // Commit B: a task checklist (reuse the ## Changes items if the write-up
+      // has them, otherwise a sensible default) so reviewers see the plan.
+      const checklist = extractChecklist(body);
+      const tasks = `# Tasks: ${title}\n\n${checklist}\n\n_Tracked by Taro from a meeting._\n`;
+      const c2 = await this.commitFile(
+        branch,
+        `.taro/tasks/${slug}.md`,
+        tasks,
+        `chore: track follow-up tasks for ${title}`
+      );
+      if (c2) return c2;
 
       // 4. Open the pull request
       const prRes = await this.request('POST', `/repos/${this.repo}/pulls`, {

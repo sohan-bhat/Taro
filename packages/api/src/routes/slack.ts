@@ -5,34 +5,37 @@ import { SlackService } from '../services';
 import { asyncHandler } from '../middleware/errorHandler';
 import { env } from '../config/env';
 import { requireAuth, assertCompany, type AuthedRequest } from '../middleware/auth';
+import { encodeOAuthState, decodeOAuthState } from '../lib/oauthState';
 
 export const slackRouter: RouterType = Router();
 
 // Build redirect URI consistently
 const getRedirectUri = () => `${env.apiUrl}/api/slack/callback`;
-const getAppUrl = () => env.appUrl;
 
 // Initiate Slack OAuth
 slackRouter.get('/install', (req, res) => {
-  const { companyId } = req.query;
+  const { companyId, returnTo } = req.query;
 
-  if (!companyId) {
+  if (!companyId || typeof companyId !== 'string') {
     return res.status(400).json({ error: 'companyId is required' });
   }
 
   // channels:history is required for the message.channels event (auto-join)
   const scopes = ['chat:write', 'channels:read', 'channels:join', 'channels:history', 'users:read'].join(',');
   const redirectUri = getRedirectUri();
+  // Carry the originating origin so the callback returns there, not localhost.
+  const state = encodeOAuthState(companyId, typeof returnTo === 'string' ? returnTo : undefined);
 
-  const installUrl = `https://slack.com/oauth/v2/authorize?client_id=${env.slackClientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${companyId}`;
+  const installUrl = `https://slack.com/oauth/v2/authorize?client_id=${env.slackClientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 
   res.redirect(installUrl);
 });
 
 // Slack OAuth callback
 slackRouter.get('/callback', async (req, res) => {
-  const { code, state: companyId } = req.query;
-  const appUrl = getAppUrl();
+  const { code, state } = req.query;
+  const { companyId, returnTo } = decodeOAuthState(typeof state === 'string' ? state : '');
+  const appUrl = returnTo || env.appUrl;
 
   if (!code || !companyId) {
     return res.redirect(`${appUrl}/dashboard?error=missing_params`);

@@ -64,6 +64,12 @@ export const env = {
   apiUrl: getOptional('API_URL', 'http://localhost:4000'),
   appUrl: getOptional('NEXT_PUBLIC_APP_URL', 'http://localhost:3000'),
 
+  // Public https image the meeting bot shows as its avatar. Defaults to the
+  // logo served from the web app's /public (Vercel). Must be publicly
+  // reachable (not localhost, not the ngrok interstitial) for MeetingBaas to
+  // fetch it, so it is only sent when it resolves to an https URL.
+  botImageUrl: getOptional('BOT_IMAGE_URL', ''),
+
   // Feature flags
   isDev: process.env.NODE_ENV !== 'production',
 } as const;
