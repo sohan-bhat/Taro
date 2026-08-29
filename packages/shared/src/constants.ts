@@ -1,8 +1,6 @@
-// Wake word to trigger Taro
 export const WAKE_WORD = 'hey taro';
 
-// Common speech-to-text misrecognitions of the wake word.
-// Matched against normalized (lowercased, punctuation-stripped) transcript text.
+// Common speech-to-text misrecognitions of the wake word, matched against normalized transcript text.
 export const WAKE_WORD_VARIATIONS = [
   'hey taro',
   'hey tarot',
@@ -17,7 +15,6 @@ export const WAKE_WORD_VARIATIONS = [
   'hey tarrow',
 ] as const;
 
-// Supported intents
 export const INTENTS = {
   POST_MESSAGE: 'post_message',
   CREATE_TODO_LIST: 'create_todo_list',
@@ -34,10 +31,7 @@ export const INTENTS = {
   UNKNOWN: 'unknown',
 } as const;
 
-// GitHub capabilities a company can turn on/off for Taro. These gate what Taro
-// will DO, independent of what the GitHub App is technically permitted to do:
-// the app grants the ceiling, these are the company's policy within it.
-// `action` matches the parsed intent; `permission` is the GitHub App scope it needs.
+// GitHub capabilities a company can turn on/off for Taro; the GitHub App permission is the ceiling, this is the company's policy within it.
 export const GITHUB_CAPABILITIES = [
   {
     action: 'create_github_issue',
@@ -84,7 +78,7 @@ export const GITHUB_CAPABILITIES = [
   {
     action: 'merge_pull_request',
     label: 'Merge pull requests',
-    description: 'Merge a PR by number (powerful — off by default)',
+    description: 'Merge a PR by number (powerful, off by default)',
     permission: 'Pull requests + Contents: Read and write',
   },
   {
@@ -103,17 +97,13 @@ export const GITHUB_CAPABILITIES = [
 
 export type GithubAction = (typeof GITHUB_CAPABILITIES)[number]['action'];
 
-// What a freshly connected workspace can do until it changes the settings.
-// The safe, non-destructive set: file issues, comment, and open pull requests
-// (a PR is only a proposal against a new branch, it never touches main).
-// Powerful actions (merge, close) stay opt-in via the dashboard.
+// Safe, non-destructive defaults; a PR is just a proposal against a new branch, it never touches main. Powerful actions like merge and close stay opt-in.
 export const DEFAULT_GITHUB_ACTIONS: GithubAction[] = [
   'create_github_issue',
   'comment_github',
   'create_pull_request',
 ];
 
-// Meeting status
 export const MEETING_STATUS = {
   PENDING: 'pending',
   JOINING: 'joining',
@@ -122,7 +112,6 @@ export const MEETING_STATUS = {
   ERROR: 'error',
 } as const;
 
-// API endpoints
 export const API_ROUTES = {
   HEALTH: '/health',
   COMPANIES: '/api/companies',

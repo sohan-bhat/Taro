@@ -1,11 +1,7 @@
-/**
- * Typed API client for Taro backend.
- * Centralizes all fetch calls with consistent error handling.
- */
+// Typed API client for the Taro backend.
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-// API error with structured response
 export class ApiError extends Error {
   constructor(
     public statusCode: number,
@@ -18,7 +14,6 @@ export class ApiError extends Error {
   }
 }
 
-// Response types
 export interface Company {
   _id: string;
   name: string;
@@ -88,8 +83,7 @@ export interface GithubStatus {
   connectedAt?: string;
 }
 
-// Generic request handler. Attaches the workspace access token when present:
-// after activation the license key is never sent again, only this token.
+// Attaches the workspace access token when present; after activation the license key is never sent again, only this token.
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -103,21 +97,19 @@ async function request<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      // ngrok's free tier serves an HTML interstitial to browser requests
-      // without this header, which would break JSON parsing. Harmless elsewhere.
+      // Without this, ngrok's free tier serves an HTML interstitial instead of JSON. Harmless elsewhere.
       'ngrok-skip-browser-warning': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
 
-  // Handle non-OK responses
   if (!response.ok) {
     let errorData: { error?: string; code?: string; requestId?: string } = {};
     try {
       errorData = await response.json();
     } catch {
-      // Response wasn't JSON
+      // not JSON, fall through with defaults
     }
 
     throw new ApiError(
@@ -128,7 +120,6 @@ async function request<T>(
     );
   }
 
-  // Handle empty responses (204 No Content)
   if (response.status === 204) {
     return undefined as T;
   }
@@ -141,7 +132,6 @@ export interface Activation {
   accessToken: string;
 }
 
-// Company endpoints
 export const companies = {
   create: (data: { name: string; domain: string; licenseKey: string }): Promise<Activation> =>
     request('/api/companies', {
@@ -155,8 +145,7 @@ export const companies = {
     request(`/api/companies/${id}/onboarding-complete`, { method: 'POST' }),
 };
 
-// Auth endpoints. The license key is proof of purchase: it activates the
-// workspace once and can recover access; sessions run on access tokens.
+// The license key is proof of purchase: it activates the workspace once and can recover access; sessions run on access tokens.
 export const auth = {
   session: (): Promise<{ company: Company }> => request('/api/auth/session'),
 
@@ -167,9 +156,8 @@ export const auth = {
     }),
 };
 
-// Where the workspace access token lives in the browser
 export const TOKEN_STORAGE_KEY = 'taro.accessToken';
-// Legacy storage slot from before access tokens existed (migrated on load)
+// Legacy slot from before access tokens existed, migrated on load
 export const LICENSE_STORAGE_KEY = 'taro.licenseKey';
 
 export interface LicenseLookup {
@@ -177,7 +165,6 @@ export interface LicenseLookup {
   company?: Company;
 }
 
-// License endpoints
 export const licenses = {
   lookup: (licenseKey: string): Promise<LicenseLookup> =>
     request('/api/licenses/lookup', {
@@ -186,7 +173,6 @@ export const licenses = {
     }),
 };
 
-// Meeting endpoints
 export const meetings = {
   list: (companyId: string, archived = false): Promise<Meeting[]> =>
     request(`/api/meetings?companyId=${companyId}&archived=${archived ? '1' : '0'}`),
@@ -206,15 +192,12 @@ export const meetings = {
     request(`/api/meetings/${id}/end`, { method: 'POST' }),
 };
 
-// The OAuth callbacks (Slack, GitHub) redirect back to whatever origin we
-// launched from. Pass it along so the flow returns to this site (Vercel or
-// localhost) instead of the API's configured default.
+// OAuth callbacks redirect back to whatever origin we launched from, so the flow returns to this site instead of the API's configured default.
 function returnToParam(): string {
   if (typeof window === 'undefined') return '';
   return `&returnTo=${encodeURIComponent(window.location.origin)}`;
 }
 
-// Slack endpoints
 export const slack = {
   status: (companyId: string): Promise<SlackStatus> =>
     request(`/api/slack/status/${companyId}`),
@@ -226,7 +209,7 @@ export const slack = {
     request(`/api/slack/disconnect/${companyId}`, { method: 'DELETE' }),
 };
 
-// GitHub endpoints (GitHub App installation, Taro acts as its own bot)
+// GitHub App installation; Taro acts as its own bot, never through a person's account.
 export const github = {
   status: (companyId: string): Promise<GithubStatus> =>
     request(`/api/github/status/${companyId}`),
@@ -259,7 +242,6 @@ export const github = {
     request(`/api/github/disconnect/${companyId}`, { method: 'DELETE' }),
 };
 
-// Export grouped API
 export const api = {
   companies,
   meetings,

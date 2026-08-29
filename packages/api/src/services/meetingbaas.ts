@@ -11,7 +11,7 @@ interface JoinMeetingParams {
   meetingUrl: string;
   botName?: string;
   webhookUrl: string;
-  /** Our meeting ID - used to route the realtime audio WebSockets */
+  /** Our meeting ID, used to route the realtime audio WebSockets */
   meetingId?: string;
   /** Public https base URL (converted to wss for streaming endpoints) */
   publicBaseUrl?: string;
@@ -24,14 +24,14 @@ interface JoinMeetingParams {
  * fetches this over the public internet from its own servers, so it must be a
  * reachable https URL (localhost won't work). Order of preference:
  *   1. explicit BOT_IMAGE_URL
- *   2. the API host itself (/taro-bot.png) - already public and proven
- *      reachable by MeetingBaas, since webhooks and the audio stream land here
- *   3. the web app on Vercel (/taro-bot.png in its public dir)
+ *   2. the API host itself (/taro-bot.jpg), already public and proven
+ *      reachable by MeetingBaas since webhooks and the audio stream land here
+ *   3. the web app on Vercel (/taro-bot.jpg in its public dir)
  */
 function defaultBotImage(): string {
   if (env.botImageUrl.startsWith('https://')) return env.botImageUrl;
-  if (env.apiUrl.startsWith('https://')) return `${env.apiUrl.replace(/\/$/, '')}/taro-bot.png`;
-  if (env.appUrl.startsWith('https://')) return `${env.appUrl.replace(/\/$/, '')}/taro-bot.png`;
+  if (env.apiUrl.startsWith('https://')) return `${env.apiUrl.replace(/\/$/, '')}/taro-bot.jpg`;
+  if (env.appUrl.startsWith('https://')) return `${env.appUrl.replace(/\/$/, '')}/taro-bot.jpg`;
   return '';
 }
 
@@ -47,9 +47,6 @@ export class MeetingBaasService {
     this.apiKey = apiKey;
   }
 
-  /**
-   * Deploy a bot to join a meeting
-   */
   async joinMeeting({
     meetingUrl,
     botName = 'Taro Assistant',
@@ -80,8 +77,8 @@ export class MeetingBaasService {
     let body: Record<string, unknown>;
 
     if (useV2) {
-      // v2: the API version that actually delivers realtime audio. Matches the
-      // MeetingBaas reference bot (streaming_config, integer Hz, no transcription).
+      // v2 is the API version that actually delivers realtime audio, matching the
+      // MeetingBaas reference bot's shape (streaming_config, integer Hz, no transcription).
       url = `${MEETINGBAAS_API}/v2/bots`;
       body = {
         meeting_url: meetingUrl,
@@ -104,9 +101,8 @@ export class MeetingBaasService {
       };
       if (streamOk) console.log(`[MeetingBaas] (v2) Streaming: in=${inUrl} out=${outUrl}`);
     } else {
-      // v1: bot join + recording work, but streaming audio is not delivered on
-      // this platform (proven empirically). Kept so the post-meeting path works
-      // without a v2 key.
+      // v1 does not deliver streaming audio (confirmed empirically), but is kept
+      // so the post-meeting path works without a v2 key.
       url = `${MEETINGBAAS_API}/bots`;
       body = {
         meeting_url: meetingUrl,
@@ -144,9 +140,6 @@ export class MeetingBaasService {
     return { ...data, bot_id: botId };
   }
 
-  /**
-   * Remove bot from meeting
-   */
   async leaveBot(botId: string): Promise<void> {
     console.log(`[MeetingBaas] Removing bot: ${botId}`);
 
@@ -164,7 +157,6 @@ export class MeetingBaasService {
   }
 }
 
-// Singleton instance (created lazily with API key from env)
 let instance: MeetingBaasService | null = null;
 
 export function getMeetingBaasService(): MeetingBaasService {

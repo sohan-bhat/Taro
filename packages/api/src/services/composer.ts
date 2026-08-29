@@ -1,9 +1,8 @@
 /**
- * Content composition: turns a raw spoken command plus meeting context into
- * polished, connector-appropriate content. One registry entry per action, so
- * new connectors (pull requests, tickets, docs) add a spec here and get the
- * same treatment. If Gemini is unavailable the raw extracted params pass
- * through untouched.
+ * Turns a raw spoken command plus meeting context into polished,
+ * connector-appropriate content. One registry entry per action, so a new
+ * connector just adds a spec here. Falls back to the raw extracted params
+ * if Gemini is unavailable.
  */
 
 import { GoogleGenAI, Type } from '@google/genai';
@@ -83,11 +82,7 @@ Use the meeting transcript context for anything the speaker referenced ("about w
   },
 };
 
-/**
- * Refine extracted intent params into publishable content. Returns the
- * original params merged with the composed fields; falls back to the
- * originals on any failure so execution never blocks on composition.
- */
+/** Merges composed fields into the original params; falls back to the originals on any failure so execution never blocks on composition. */
 export async function composeContent(
   action: string,
   params: IntentParams,

@@ -1,7 +1,4 @@
-/**
- * Environment configuration with validation.
- * Import this at the very top of index.ts to fail fast on missing vars.
- */
+// Import this at the very top of index.ts so we fail fast on missing vars.
 
 function getRequired(key: string): string {
   const value = process.env[key];
@@ -22,59 +19,46 @@ function decodePrivateKey(raw: string): string {
   return Buffer.from(raw, 'base64').toString('utf8');
 }
 
-// Load dotenv before validation
 import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
-// Validate and export all environment variables
 export const env = {
-  // Database
   mongoUri: getRequired('MONGODB_URI'),
 
-  // Slack
   slackClientId: getRequired('SLACK_CLIENT_ID'),
   slackClientSecret: getRequired('SLACK_CLIENT_SECRET'),
   slackAppToken: getOptional('SLACK_APP_TOKEN', ''),
 
-  // Google Gemini (intent parsing)
+  // Used for intent parsing.
   googleApiKey: getRequired('GOOGLE_API_KEY'),
   geminiModel: getOptional('GEMINI_MODEL', 'gemini-3.6-flash'),
 
-  // MeetingBaas
   meetingBaasApiKey: getRequired('MEETINGBAAS_API_KEY'),
-  // 'v1' (default) or 'v2'. v2 is required for realtime audio streaming and
-  // needs a v2-platform API key from MeetingBaas.
+  // v2 is required for realtime audio streaming and needs a v2-platform API key from MeetingBaas.
   meetingBaasApiVersion: getOptional('MEETINGBAAS_API_VERSION', 'v1'),
 
-  // Realtime transcription backend (first match wins):
-  //   GROQ_API_KEY  -> Groq Whisper cloud (scalable, free tier)
-  //   STT_WS_URL    -> local faster-whisper server (packages/api/stt-server)
-  //   neither       -> in-process sherpa-onnx (free, lower accuracy)
+  // Realtime transcription backend, first match wins: GROQ_API_KEY uses Groq Whisper cloud,
+  // STT_WS_URL points at a local faster-whisper server, otherwise falls back to in-process sherpa-onnx.
   groqApiKey: getOptional('GROQ_API_KEY', ''),
   sttWsUrl: getOptional('STT_WS_URL', ''),
 
-  // GitHub App: the Taro bot identity for the GitHub connector
+  // The Taro bot identity for the GitHub connector.
   githubAppId: getOptional('GITHUB_APP_ID', ''),
   githubAppSlug: getOptional('GITHUB_APP_SLUG', ''),
   githubAppPrivateKey: decodePrivateKey(getOptional('GITHUB_APP_PRIVATE_KEY', '')),
 
-  // Server
   port: getOptional('PORT', '4000'),
   apiUrl: getOptional('API_URL', 'http://localhost:4000'),
   appUrl: getOptional('NEXT_PUBLIC_APP_URL', 'http://localhost:3000'),
 
-  // Public https image the meeting bot shows as its avatar. Defaults to the
-  // logo served from the web app's /public (Vercel). Must be publicly
-  // reachable (not localhost, not the ngrok interstitial) for MeetingBaas to
-  // fetch it, so it is only sent when it resolves to an https URL.
+  // Must resolve to a public https URL (not localhost, not the ngrok interstitial) since
+  // MeetingBaas fetches it directly; defaults to the logo served from the web app.
   botImageUrl: getOptional('BOT_IMAGE_URL', ''),
 
-  // Feature flags
   isDev: process.env.NODE_ENV !== 'production',
 } as const;
 
-// Log loaded config (without secrets)
 console.log('Environment loaded:', {
   mongoUri: env.mongoUri.replace(/\/\/.*@/, '//<credentials>@'),
   slackClientId: env.slackClientId,

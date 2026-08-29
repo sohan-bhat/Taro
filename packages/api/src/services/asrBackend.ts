@@ -107,7 +107,7 @@ class RemoteBackend implements AsrBackend {
     });
     ws.on('close', () => {
       this.open = false;
-      if (!this.destroyed) setTimeout(() => this.connect(), 2000); // reconnect for long meetings
+      if (!this.destroyed) setTimeout(() => this.connect(), 2000);
     });
   }
 
@@ -125,15 +125,14 @@ class RemoteBackend implements AsrBackend {
     try {
       this.ws?.close();
     } catch {
-      // already closed
+      // ignore
     }
   }
 }
 
-// ── Groq Whisper (cloud, free tier) ──────────────────────────────────────
 // Groq's transcription API is batch, not streaming, so we do voice-activity
 // detection here: buffer speech, and when the speaker pauses, send that one
-// utterance to Groq. Scalable cloud STT, nothing runs on the user's machine.
+// utterance to Groq.
 const GROQ_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const GROQ_MODEL = process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo';
 const SR = 16000;
@@ -219,8 +218,7 @@ class GroqBackend implements AsrBackend {
     this.seg = [];
     this.silenceRun = 0;
     if (samples.length < MIN_SAMPLES) return;
-    // Stay realtime: if requests are backing up (rate limit / slow network),
-    // drop this segment rather than queue an ever-growing lag.
+    // Drop this segment rather than queue an ever-growing lag if requests are backing up
     if (this.pending >= 2) return;
     void this.transcribe(Int16Array.from(samples));
   }
@@ -229,7 +227,6 @@ class GroqBackend implements AsrBackend {
     this.pending++;
     try {
       const form = new FormData();
-      // Copy into a fresh Uint8Array so the Blob part is a plain ArrayBuffer
       const wav = new Uint8Array(wavEncode(samples));
       form.append('file', new Blob([wav], { type: 'audio/wav' }), 'audio.wav');
       form.append('model', GROQ_MODEL);
@@ -264,11 +261,7 @@ class GroqBackend implements AsrBackend {
   }
 }
 
-/**
- * Pick the STT backend. If STT_WS_URL is set, use the faster-whisper server;
- * otherwise fall back to local sherpa-onnx. Returns null only when neither is
- * available (no server URL and the local model failed to load).
- */
+/** Returns null only when no backend is available: no Groq key, no STT_WS_URL, and the local model failed to load. */
 export function createAsrBackend(onUtterance: (text: string) => void): AsrBackend | null {
   if (process.env.GROQ_API_KEY) return new GroqBackend(process.env.GROQ_API_KEY, onUtterance);
   if (process.env.STT_WS_URL) return new RemoteBackend(process.env.STT_WS_URL, onUtterance);
@@ -278,14 +271,12 @@ export function createAsrBackend(onUtterance: (text: string) => void): AsrBacken
   return new LocalBackend(asr, onUtterance);
 }
 
-/** Human-readable description of the active backend, for boot logs. */
 export function asrBackendLabel(): string {
   if (process.env.GROQ_API_KEY) return `Groq Whisper (${GROQ_MODEL})`;
   if (process.env.STT_WS_URL) return `faster-whisper server at ${process.env.STT_WS_URL}`;
   return asrAvailable() ? 'local sherpa-onnx' : 'UNAVAILABLE';
 }
 
-/** Whether some STT backend can run (remote configured, or local model present). */
 export function asrBackendAvailable(): boolean {
   return !!process.env.GROQ_API_KEY || !!process.env.STT_WS_URL || asrAvailable();
 }

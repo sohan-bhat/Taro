@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils';
 
 /**
  * Accessible modal dialog: backdrop click and Escape cancel, focus moves to
- * the panel, body scroll is locked while open. Render conditionally by the
- * caller (only mounts when open).
+ * the panel, and body scroll locks while open. Caller renders it conditionally
+ * so it only mounts when open.
  */
 export function Dialog({
   open,
@@ -21,9 +21,9 @@ export function Dialog({
 }) {
   const panelRef = React.useRef<HTMLDivElement>(null);
 
-  // Focus the panel and lock scroll ONLY when the dialog opens. This must not
-  // depend on onClose (a new function each render) or it would re-focus the
-  // panel on every keystroke and steal focus from inputs inside the dialog.
+  // Must depend only on `open`, not `onClose` (a new function each render),
+  // or it would re-focus the panel on every keystroke and steal focus from
+  // inputs inside the dialog.
   React.useEffect(() => {
     if (!open) return;
     panelRef.current?.focus();

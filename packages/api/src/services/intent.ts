@@ -14,7 +14,7 @@ function getClient(): GoogleGenAI | null {
   return client;
 }
 
-// Simple regex-based intent parser - fallback when Gemini is unavailable
+// Regex fallback for when no LLM is reachable. Handles the common commands only.
 export function parseIntentSimple(command: string): ParsedIntent {
   const lower = command.toLowerCase().trim();
 
@@ -124,7 +124,7 @@ export function parseIntentSimple(command: string): ParsedIntent {
   };
 }
 
-// Structured output schema - Gemini is forced to return exactly this shape
+// Structured output schema. Gemini must return exactly this shape.
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -309,7 +309,7 @@ function buildUserPrompt(command: string, context?: string): string {
     : `COMMAND: "${command}"`;
 }
 
-// Primary path: Groq's Llama (generous free tier, shares the STT key).
+// Primary path: Groq, which has a generous free tier and shares the STT key.
 async function parseWithGroq(command: string, context?: string): Promise<ParsedIntent> {
   const res = await fetch(GROQ_LLM_URL, {
     method: 'POST',
@@ -363,13 +363,12 @@ export async function parseIntent(command: string, context?: string): Promise<Pa
     try {
       return await parseWithGemini(command, context);
     } catch (error) {
-      console.error('═'.repeat(60));
-      console.error('[Intent] ❌ LLM parsing failed - falling back to regex (no body/PR support).');
-      console.error('[Intent]', error instanceof Error ? error.message : error);
-      console.error('═'.repeat(60));
+      // With both LLMs down the regex still catches simple commands, just with
+      // no issue bodies and no pull requests.
+      console.error('[Intent] LLM parsing failed, using regex fallback:', error instanceof Error ? error.message : error);
     }
   } else {
-    console.warn('[Intent] ⚠️  No LLM key configured - using regex fallback.');
+    console.warn('[Intent] No LLM key configured, using regex fallback.');
   }
   return parseIntentSimple(command);
 }

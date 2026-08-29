@@ -44,7 +44,7 @@ export class SlackListener {
   }
 
   private async handleMessage(event: any, body: any) {
-    // Ignore bot messages (including our own confirmations) and non-text events
+    // Ignore bot messages (including our own) and non-text events
     if (!event?.text || event.bot_id) return;
 
     const meetLinks = event.text.match(MEET_LINK_REGEX);
@@ -54,8 +54,8 @@ export class SlackListener {
     console.log(`Slack listener: Detected Meet link: ${meetUrl}`);
 
     try {
-      // event.team can be missing on some message shapes; body.team_id is the
-      // authoritative workspace ID for the envelope
+      // event.team can be missing on some message shapes; body.team_id is
+      // the authoritative workspace ID.
       const teamId = event.team || body?.team_id;
       const connection = await SlackConnectionModel.findOne({ teamId });
       if (!connection) {
@@ -63,9 +63,9 @@ export class SlackListener {
         return;
       }
 
-      // Check if we already have this meeting. Meetings that never received a
-      // terminal webhook (server down, tunnel dropped) would otherwise block
-      // the same meet URL forever - personal Meet rooms get reused constantly.
+      // A meeting that never got a terminal webhook (server down, tunnel
+      // dropped) would otherwise block this URL forever, and personal Meet
+      // rooms get reused constantly.
       const existing = await MeetingModel.findOne({
         meetUrl,
         status: { $in: ['pending', 'joining', 'active'] },
@@ -90,8 +90,6 @@ export class SlackListener {
         await MeetingModel.findByIdAndUpdate(existing._id, { status: 'error' });
       }
 
-      // Create meeting, remembering where the link was posted so results
-      // can be threaded back after the meeting
       const webClient = new WebClient(connection.accessToken);
 
       // Resolve who posted the link, for the meeting history
@@ -121,7 +119,6 @@ export class SlackListener {
         startedByName,
       });
 
-      // Deploy bot via MeetingBaas
       try {
         const meetingBaas = getMeetingBaasService();
         const webhookUrl = `${env.apiUrl}/api/webhooks/meetingbaas`;

@@ -6,8 +6,8 @@ import { normalizeLicenseKey } from '../lib/licenseKey';
 
 export const licensesRouter: RouterType = Router();
 
-// The landing page's single entry point: is this key unknown, ready to
-// activate, or already attached to a workspace?
+// Landing page's entry point: reports whether this key is unknown, ready to
+// activate, or already attached to a workspace.
 licensesRouter.post(
   '/lookup',
   asyncHandler(async (req, res) => {

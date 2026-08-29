@@ -1,8 +1,7 @@
 /**
- * Realtime diagnostics: JSON-lines log plus a short raw-audio capture per
- * meeting, so a failed live test can be analyzed after the fact (what the
- * ASR heard, how much audio arrived, and the exact wire format).
- * Both files are gitignored.
+ * Realtime diagnostics: a JSON-lines log plus a short raw-audio capture per
+ * meeting, so a failed live test can be analyzed after the fact. Both files
+ * are gitignored.
  */
 import fs from 'fs';
 import path from 'path';

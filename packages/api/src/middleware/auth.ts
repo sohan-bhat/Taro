@@ -7,9 +7,9 @@ export interface AuthedRequest extends Request {
 }
 
 /**
- * Bearer-token auth + entitlement enforcement for workspace endpoints.
- * A valid token is not enough: the workspace's license must still be
- * active (not revoked), so pulling a license cuts off access immediately.
+ * Bearer-token auth plus entitlement check: a valid token isn't enough, the
+ * workspace's license must still be active, so revoking it cuts off access
+ * immediately.
  */
 export async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
   try {
@@ -41,7 +41,6 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   }
 }
 
-/** 403 unless the authenticated workspace matches the one being accessed */
 export function assertCompany(req: AuthedRequest, res: Response, companyId: string): boolean {
   if (req.companyId !== companyId) {
     res.status(403).json({ error: 'You do not have access to this workspace.', code: 'FORBIDDEN' });

@@ -20,9 +20,9 @@ const BASE_HEADERS = {
 
 export interface GithubResult {
   success: boolean;
-  /** Issue URL on success */
+  /** URL of the issue or PR on success */
   url?: string;
-  /** Issue number on success */
+  /** Issue or PR number on success */
   number?: number;
   error?: string;
 }
@@ -49,11 +49,7 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-/**
- * Pull checklist items out of a PR write-up. Reuses any markdown checkbox or
- * bullet lines the model already wrote; falls back to a generic plan so the
- * tasks commit is never empty.
- */
+/** Pulls checklist items out of a PR write-up, falling back to a generic plan so the tasks commit is never empty. */
 function extractChecklist(body: string): string {
   const items = (body || '')
     .split('\n')
@@ -174,7 +170,6 @@ export class GithubService {
     }
   }
 
-  /** Set an issue's state open/closed */
   private async setIssueState(issueNumber: number, state: 'open' | 'closed'): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
@@ -189,17 +184,14 @@ export class GithubService {
     }
   }
 
-  /** Close an issue */
   closeIssue(issueNumber: number): Promise<GithubResult> {
     return this.setIssueState(issueNumber, 'closed');
   }
 
-  /** Reopen a closed issue */
   reopenIssue(issueNumber: number): Promise<GithubResult> {
     return this.setIssueState(issueNumber, 'open');
   }
 
-  /** Add labels to an issue */
   async addLabels(issueNumber: number, labels: string[]): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
@@ -213,7 +205,6 @@ export class GithubService {
     }
   }
 
-  /** Assign users to an issue */
   async assignIssue(issueNumber: number, assignees: string[]): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
@@ -227,7 +218,6 @@ export class GithubService {
     }
   }
 
-  /** Close a pull request (without merging) */
   async closePullRequest(prNumber: number): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
@@ -242,14 +232,13 @@ export class GithubService {
     }
   }
 
-  /** Merge a pull request */
   async mergePullRequest(prNumber: number): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
       const response = await this.request('PUT', `/repos/${this.repo}/pulls/${prNumber}/merge`, {});
       if (!response.ok) {
         const extra =
-          response.status === 405 ? ' (the PR may not be mergeable — conflicts or failing checks)' : this.permHint(response.status);
+          response.status === 405 ? ' (the PR may not be mergeable, it has conflicts or failing checks)' : this.permHint(response.status);
         return { success: false, error: `${await githubErrorMessage(response)}${extra}` };
       }
       return { success: true, url: `https://github.com/${this.repo}/pull/${prNumber}`, number: prNumber };
@@ -258,7 +247,6 @@ export class GithubService {
     }
   }
 
-  /** Request reviewers on a pull request */
   async requestReviewers(prNumber: number, reviewers: string[]): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
@@ -273,7 +261,7 @@ export class GithubService {
     }
   }
 
-  /** Commit a single new file to a branch. Each call is one commit. */
+  /** Each call creates one commit. */
   private async commitFile(
     branch: string,
     path: string,
@@ -292,15 +280,14 @@ export class GithubService {
   }
 
   /**
-   * Open a new branch and a pull request off it. A PR needs the branch to
-   * differ from the base, so Taro lays down a few small commits on the new
-   * branch (the written-up proposal, then a task checklist) and opens the PR
-   * against them. This makes the PR read like real staged work, not one blob.
+   * A PR needs the branch to differ from the base, so Taro lays down a couple
+   * of small commits on the new branch (a write-up, then a task checklist)
+   * so the PR reads like real staged work rather than one blob.
    */
   async openPullRequest(title: string, body: string, branchHint?: string): Promise<GithubResult> {
     if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
     try {
-      // 1. Default branch + its head SHA (the base)
+      // Default branch and its head SHA (the PR base)
       const repoRes = await this.request('GET', `/repos/${this.repo}`);
       if (!repoRes.ok) return { success: false, error: await githubErrorMessage(repoRes) };
       const base = ((await repoRes.json()) as { default_branch: string }).default_branch;
@@ -309,7 +296,7 @@ export class GithubService {
       if (!refRes.ok) return { success: false, error: await githubErrorMessage(refRes) };
       const baseSha = ((await refRes.json()) as { object: { sha: string } }).object.sha;
 
-      // 2. Create the branch (retry with a suffix if the name is taken)
+      // Retry with a random suffix if the branch name is already taken
       const slug =
         (branchHint || title)
           .toLowerCase()
@@ -333,8 +320,6 @@ export class GithubService {
       }
       if (!made) return { success: false, error: 'Could not create a unique branch name.' };
 
-      // 3. Small commits so the branch has a real diff to open a PR against.
-      // Commit A: the written-up proposal.
       const proposal = `# ${title}\n\n${body || '_(no additional detail)_'}\n\n---\nOpened by Taro from a meeting.\n`;
       const c1 = await this.commitFile(
         branch,
@@ -344,8 +329,7 @@ export class GithubService {
       );
       if (c1) return c1;
 
-      // Commit B: a task checklist (reuse the ## Changes items if the write-up
-      // has them, otherwise a sensible default) so reviewers see the plan.
+      // Reuses the write-up's checklist items if it has any, otherwise a default plan
       const checklist = extractChecklist(body);
       const tasks = `# Tasks: ${title}\n\n${checklist}\n\n_Tracked by Taro from a meeting._\n`;
       const c2 = await this.commitFile(
@@ -356,7 +340,6 @@ export class GithubService {
       );
       if (c2) return c2;
 
-      // 4. Open the pull request
       const prRes = await this.request('POST', `/repos/${this.repo}/pulls`, {
         title,
         body: `${body || ''}\n\n_Opened by Taro during a meeting._`.trim(),

@@ -2,10 +2,7 @@ import * as React from 'react';
 import { Label } from './label';
 import { cn } from '@/lib/utils';
 
-/**
- * Form field wrapper: label, control, and either a hint or an inline error.
- * Forms use noValidate + these errors instead of native browser bubbles.
- */
+/** Forms use noValidate and this component's error text instead of native browser validation bubbles. */
 export function Field({
   label,
   htmlFor,

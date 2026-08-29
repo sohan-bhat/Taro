@@ -1,7 +1,3 @@
-/**
- * Typed error classes for consistent API error handling.
- */
-
 export class AppError extends Error {
   constructor(
     public statusCode: number,

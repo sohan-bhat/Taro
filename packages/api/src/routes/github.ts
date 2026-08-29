@@ -17,9 +17,8 @@ const VALID_ACTIONS = new Set(GITHUB_CAPABILITIES.map((c) => c.action));
 
 export const githubRouter: RouterType = Router();
 
-// Start the GitHub App installation. Like Slack's OAuth start this is a
-// browser redirect, so it can't carry the bearer token; the companyId rides
-// along as `state` and comes back on the setup callback.
+// Like Slack's OAuth start, this is a browser redirect that can't carry a bearer token,
+// so companyId rides along as `state` and comes back on the setup callback.
 githubRouter.get('/install', (req, res) => {
   const { companyId, returnTo } = req.query;
   if (!companyId || typeof companyId !== 'string') {
@@ -30,7 +29,7 @@ githubRouter.get('/install', (req, res) => {
       .status(503)
       .json({ error: 'The Taro GitHub App is not configured on this server yet.', code: 'GITHUB_APP_UNCONFIGURED' });
   }
-  // Carry the originating origin so the setup callback returns there, not localhost.
+  // Carries the originating origin so the setup callback returns there, not localhost.
   const state = encodeOAuthState(companyId, typeof returnTo === 'string' ? returnTo : undefined);
   res.redirect(githubInstallUrl(state));
 });
@@ -59,8 +58,7 @@ githubRouter.get('/callback', async (req, res) => {
 
     const repos = await listInstallationRepos(installationId);
     const existing = await GithubConnectionModel.findOne({ companyId });
-    // Keep a previously chosen repo if it's still granted; auto-pick when
-    // the company granted exactly one
+    // Keep a previously chosen repo if it's still granted; auto-pick when the company granted exactly one.
     const repo =
       existing?.repo && repos.includes(existing.repo)
         ? existing.repo
@@ -89,7 +87,6 @@ githubRouter.get('/callback', async (req, res) => {
   }
 });
 
-// Connection status for a company
 githubRouter.get(
   '/status/:companyId',
   requireAuth,
@@ -97,8 +94,7 @@ githubRouter.get(
     if (!assertCompany(req, res, req.params.companyId)) return;
 
     const connection = await GithubConnectionModel.findOne({ companyId: req.params.companyId });
-    // Soft-disconnected connections keep their installationId so we can
-    // reconnect in one click without another GitHub round-trip.
+    // Soft-disconnected connections keep their installationId so we can reconnect in one click.
     if (!connection?.installationId || connection.disconnectedAt) {
       return res.json({
         connected: false,
@@ -122,7 +118,6 @@ githubRouter.get(
   })
 );
 
-// Repositories the installation can file issues in (for the picker)
 githubRouter.get(
   '/repos/:companyId',
   requireAuth,
@@ -137,7 +132,6 @@ githubRouter.get(
   })
 );
 
-// Choose the default repo issues are filed in
 githubRouter.post(
   '/repo',
   requireAuth,
@@ -163,7 +157,6 @@ githubRouter.post(
   })
 );
 
-// Choose which actions Taro is allowed to perform for this workspace
 githubRouter.post(
   '/capabilities',
   requireAuth,
@@ -185,8 +178,8 @@ githubRouter.post(
   })
 );
 
-// Reconnect a soft-disconnected workspace using its existing installation,
-// no GitHub round-trip. Revalidates the installation still exists first.
+// Reconnects a soft-disconnected workspace using its existing installation, no GitHub round-trip,
+// after revalidating the installation still exists.
 githubRouter.post(
   '/reconnect',
   requireAuth,
@@ -217,8 +210,8 @@ githubRouter.post(
   })
 );
 
-// Soft-disconnect: keep the installation so reconnecting is one click. To fully
-// revoke, the user uninstalls the Taro app from their GitHub settings.
+// Soft-disconnect keeps the installation so reconnecting is one click; to fully revoke,
+// the user uninstalls the Taro app from their GitHub settings.
 githubRouter.delete(
   '/disconnect/:companyId',
   requireAuth,

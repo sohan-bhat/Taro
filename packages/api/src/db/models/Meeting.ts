@@ -27,7 +27,6 @@ const meetingSchema = new Schema<Meeting>(
   { timestamps: true }
 );
 
-// Index for finding active meetings
 meetingSchema.index({ companyId: 1, status: 1 });
 
 export const MeetingModel = model<Meeting>('Meeting', meetingSchema);

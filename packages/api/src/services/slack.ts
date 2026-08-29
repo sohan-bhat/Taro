@@ -10,7 +10,6 @@ export class SlackService {
     this.companyId = companyId;
   }
 
-  // Create SlackService from companyId
   static async fromCompanyId(companyId: string): Promise<SlackService | null> {
     const connection = await SlackConnectionModel.findOne({ companyId });
     if (!connection) {
@@ -19,13 +18,11 @@ export class SlackService {
     return new SlackService(connection.accessToken, companyId);
   }
 
-  // Post a message to a channel
   async postMessage(channel: string, text: string): Promise<{ success: boolean; error?: string }> {
     try {
-      // Handle channel name with or without #
       const channelName = channel.replace(/^#/, '');
 
-      // First, try to find the channel (fuzzy: "socials" resolves to "social")
+      // Fuzzy match: "socials" resolves to "social"
       const channelId = await this.findChannelId(channelName);
       if (!channelId) {
         const available = await this.listChannelNames();
@@ -39,10 +36,9 @@ export class SlackService {
       try {
         await this.client.conversations.join({ channel: channelId });
       } catch {
-        // Ignore join errors - bot might already be a member
+        // Ignore, the bot might already be a member
       }
 
-      // Post the message
       await this.client.chat.postMessage({
         channel: channelId,
         text,
@@ -58,9 +54,8 @@ export class SlackService {
     }
   }
 
-  // Join every public channel so message.channels events are delivered
-  // (Slack only sends channel messages to apps that are members).
-  // Called once after OAuth install.
+  // Slack only delivers channel messages to apps that are members, so join
+  // everywhere once after OAuth install.
   async joinAllPublicChannels(): Promise<number> {
     try {
       const result = await this.client.conversations.list({
@@ -86,7 +81,6 @@ export class SlackService {
     }
   }
 
-  // Post directly to a known channel ID, optionally threaded
   async postToChannelId(
     channelId: string,
     text: string,
@@ -108,16 +102,13 @@ export class SlackService {
     }
   }
 
-  // Find channel ID by name, tolerating ASR/phrasing drift ("socials" -> "social").
-  // Public channels only - requesting private_channel without the groups:read
-  // scope makes Slack reject the entire call with missing_scope.
   private async findChannelId(channelName: string): Promise<string | null> {
     const match = await this.resolveChannel(channelName);
     return match?.id || null;
   }
 
-  // Resolve a spoken channel name to a real channel. Returns the match plus
-  // how confident we are, and the list of available names for a helpful error.
+  // Public channels only: requesting private_channel without the groups:read
+  // scope makes Slack reject the entire call with missing_scope.
   async resolveChannel(
     channelName: string
   ): Promise<{ id: string; name: string; exact: boolean } | null> {
@@ -134,12 +125,11 @@ export class SlackService {
 
       const target = normalizeChannel(channelName);
 
-      // 1. Exact match (after normalization: lowercased, spaces/underscores -> hyphens)
       const exact = channels.find((ch) => normalizeChannel(ch.name) === target);
       if (exact) return { ...exact, exact: true };
 
-      // 2. Closest fuzzy match: singular/plural and small typos collapse.
-      //    Threshold scales with name length so short names stay strict.
+      // Otherwise take the closest fuzzy match; the distance tolerance scales
+      // with name length so short names stay strict.
       let best: { id: string; name: string } | null = null;
       let bestDistance = Infinity;
       for (const ch of channels) {
@@ -165,7 +155,6 @@ export class SlackService {
     }
   }
 
-  // Public channel names, for building a helpful "did you mean" style error.
   async listChannelNames(): Promise<string[]> {
     try {
       const result = await this.client.conversations.list({
@@ -190,8 +179,8 @@ export function normalizeChannel(name: string): string {
     .replace(/[^a-z0-9-]/g, '');
 }
 
-// Levenshtein distance, but a trailing plural "s" (social/socials) and simple
-// hyphen differences cost nothing, so obvious spoken variants resolve cleanly.
+// Levenshtein distance, except a trailing plural "s" or hyphen difference
+// costs nothing, so obvious spoken variants resolve cleanly.
 export function channelDistance(a: string, b: string): number {
   const strip = (s: string) => s.replace(/-/g, '');
   const sa = strip(a);

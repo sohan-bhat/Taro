@@ -12,7 +12,6 @@ const slackConnectionSchema = new Schema<SlackConnection>(
   { timestamps: true }
 );
 
-// Index for quick lookup by company
 slackConnectionSchema.index({ companyId: 1 });
 
 export const SlackConnectionModel = model<SlackConnection>('SlackConnection', slackConnectionSchema);

@@ -9,8 +9,7 @@ const sora = Sora({
   variable: '--font-sora',
 });
 
-// Gabarito's regular weight has naturally thick strokes, so body text reads
-// sturdy without ever being set bold
+// Gabarito's regular weight has thick strokes, so body text reads sturdy without being set bold
 const gabarito = Gabarito({
   subsets: ['latin'],
   variable: '--font-gabarito',

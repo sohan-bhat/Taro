@@ -2,10 +2,7 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import crypto from 'crypto';
 import { AppError } from '../lib/errors';
 
-/**
- * Global error handler middleware.
- * Converts errors to consistent JSON responses with request IDs for debugging.
- */
+// Tags each response with a request ID so a report from a user can be correlated with server logs.
 export function errorHandler(
   err: Error,
   req: Request,
@@ -15,7 +12,6 @@ export function errorHandler(
   const requestId = crypto.randomUUID().slice(0, 8);
 
   if (err instanceof AppError) {
-    // Known application error - log concisely
     console.error(`[${requestId}] ${err.code}: ${err.message}`, err.details || '');
 
     return res.status(err.statusCode).json({
@@ -26,7 +22,6 @@ export function errorHandler(
     });
   }
 
-  // Unexpected error - log full stack trace
   console.error(`[${requestId}] Unexpected error:`, err);
 
   return res.status(500).json({
@@ -36,10 +31,7 @@ export function errorHandler(
   });
 }
 
-/**
- * Wrapper for async route handlers to catch errors and pass to errorHandler.
- * Usage: router.get('/path', asyncHandler(async (req, res) => { ... }))
- */
+// Express doesn't catch rejected promises from async handlers on its own; this forwards them to errorHandler.
 export function asyncHandler(
   fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
 ): RequestHandler {

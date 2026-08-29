@@ -5,7 +5,7 @@ const parsedIntentSchema = new Schema<ParsedIntent>(
   {
     action: { type: String, required: true },
     confidence: { type: Number, required: true },
-    params: { type: Schema.Types.Mixed }, // channel/message/title/items[] - shape varies by intent
+    params: { type: Schema.Types.Mixed }, // channel/message/title/items[]: shape varies by intent
     source: { type: String }, // 'gemini' | 'fallback_regex'
   },
   { _id: false }
@@ -29,7 +29,6 @@ const actionLogSchema = new Schema<ActionLog>(
   { timestamps: true }
 );
 
-// Index for fetching logs by meeting
 actionLogSchema.index({ meetingId: 1, createdAt: -1 });
 
 export const ActionLogModel = model<ActionLog>('ActionLog', actionLogSchema);

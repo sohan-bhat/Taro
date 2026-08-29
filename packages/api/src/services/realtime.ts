@@ -27,9 +27,8 @@ const MAX_ROLLING_CHARS = 1000;
 // How long a session waits for MeetingBaas to reconnect before giving up
 const RECONNECT_GRACE_MS = 60_000;
 const HEARTBEAT_MS = 30_000;
-// After a wake phrase is heard, wait for speech to settle before executing so
-// a command spoken across several finalized utterances assembles into one.
-// Generous, because people pause mid-sentence; noise no longer resets it.
+// Wait for speech to settle after a wake phrase before executing, so a command
+// spoken across several finalized utterances assembles into one.
 const COMMAND_DEBOUNCE_MS = 2_800;
 
 const DING_PCM = makeDingPcm();
@@ -180,9 +179,6 @@ class RealtimeSession {
       });
     }
 
-    // Hand the raw audio to whichever STT backend is active. Finalized
-    // utterances come back through handleUtterance (sync for local sherpa,
-    // async over a websocket for the faster-whisper server).
     this.backend.push(chunk);
   }
 
@@ -198,10 +194,8 @@ class RealtimeSession {
       { liveTranscript: this.liveTranscript.slice(-4000), lastAudioAt: new Date() }
     ).catch(() => {});
 
-    // Take the most recent wake phrase's command-so-far and (re)arm a debounce.
-    // As more of the sentence arrives, pendingCommand grows and the timer
-    // resets; it only executes once the speaker pauses, so fragmented
-    // utterances ("post", "what you like", "about the day") become one command.
+    // Re-arm the debounce on the latest wake phrase's command-so-far, so fragmented
+    // utterances only execute once the speaker pauses.
     const commands = extractCommands(this.rollingText);
     if (commands.length > 0) {
       const latest = commands[commands.length - 1];
@@ -219,8 +213,7 @@ class RealtimeSession {
     this.pendingCommand = null;
     if (!command || this.executed.has(command)) return;
     this.executed.add(command);
-    // Reset the wake-scan buffer so the same wake can't re-fire; a new command
-    // starts a fresh accumulation.
+    // Reset the wake-scan buffer so the same wake phrase can't re-fire.
     this.rollingText = '';
     this.executing = this.executing.then(() => this.runCommand(command));
   }
@@ -257,8 +250,8 @@ class RealtimeSession {
   }
 
   private playDing() {
-    // Prefer a socket that is not the one delivering audio to us; on a
-    // single shared socket, the audio socket is also the way back in.
+    // Prefer a socket other than the audio source; on a single shared socket
+    // the audio socket is also the way back in.
     const open = [...this.sockets.entries()].filter(
       ([, a]) => a.socket.readyState === a.socket.OPEN
     );
@@ -281,7 +274,7 @@ class RealtimeSession {
     debugLog({ event: 'ding_sent', meetingId: this.meetingId, targets: targets.map(([, a]) => a.direction) });
   }
 
-  /** Number of live commands executed (used by the webhook to skip re-execution). */
+  /** Used by the webhook to skip re-executing commands already run live. */
   get liveCommandCount(): number {
     return this.executed.size;
   }
@@ -309,10 +302,8 @@ class RealtimeSession {
       liveCommands: this.executed.size,
       heard: this.liveTranscript.slice(0, 2000),
     });
-    // The audio socket dropping (after the reconnect grace) is our reliable
-    // "call over" signal. v2 doesn't always send bot.completed, so without this
-    // a meeting can stay stuck on "live" forever. Only advances a still-running
-    // meeting; never overrides an error state.
+    // The audio socket dropping (after the reconnect grace) is our reliable "call
+    // over" signal, since v2 doesn't always send bot.completed.
     MeetingModel.updateOne(
       { _id: this.meetingId, status: { $in: ['pending', 'joining', 'active'] } },
       { status: 'ended', endedAt: new Date() }
@@ -339,7 +330,6 @@ class RealtimeSessionManager {
     session.addSocket(direction, socket);
   }
 
-  /** Live commands already executed for a meeting (0 if no session ran). */
   liveCommandCount(meetingId: string): number {
     return this.sessions.get(meetingId)?.liveCommandCount ?? 0;
   }

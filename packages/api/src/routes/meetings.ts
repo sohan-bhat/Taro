@@ -9,7 +9,6 @@ import { env } from '../config/env';
 
 export const meetingsRouter: RouterType = Router();
 
-// Validate Google Meet URL format
 function isValidMeetUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -22,14 +21,12 @@ function isValidMeetUrl(url: string): boolean {
   }
 }
 
-// Get all meetings for a company
 meetingsRouter.get(
   '/',
   requireAuth,
   asyncHandler(async (req: AuthedRequest, res) => {
     const { status, archived } = req.query;
 
-    // Always scoped to the authenticated workspace
     const filter: Record<string, unknown> = { companyId: req.companyId };
     if (status) filter.status = status;
     // Main history hides archived meetings; the archive view asks for them.
@@ -42,8 +39,7 @@ meetingsRouter.get(
   })
 );
 
-// Clear the main history: archive every non-archived meeting for the
-// workspace. Nothing is deleted; archived meetings stay in the archive view.
+// Archives rather than deletes, so meetings stay visible in the archive view.
 meetingsRouter.post(
   '/clear-history',
   requireAuth,
@@ -56,7 +52,6 @@ meetingsRouter.post(
   })
 );
 
-// Get meeting by ID with action logs
 meetingsRouter.get(
   '/:id',
   requireAuth,
@@ -78,7 +73,6 @@ meetingsRouter.get(
   })
 );
 
-// Create meeting (request bot to join)
 meetingsRouter.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -88,20 +82,17 @@ meetingsRouter.post(
       throw new ValidationError('companyId and meetUrl are required');
     }
 
-    // Validate company exists
     const company = await CompanyModel.findById(companyId);
     if (!company) {
       throw new NotFoundError('Company', companyId);
     }
 
-    // Validate Google Meet URL format
     if (!isValidMeetUrl(meetUrl)) {
       throw new ValidationError(
         'Invalid Google Meet URL. Expected format: https://meet.google.com/xxx-xxxx-xxx'
       );
     }
 
-    // Check for existing active meeting with same URL
     const existingMeeting = await MeetingModel.findOne({
       companyId,
       meetUrl,
@@ -118,14 +109,12 @@ meetingsRouter.post(
       throw new ConflictError('Bot is already in or joining this meeting');
     }
 
-    // Create meeting record
     const meeting = await MeetingModel.create({
       companyId,
       meetUrl,
       status: MEETING_STATUS.PENDING,
     });
 
-    // Deploy bot via MeetingBaas
     try {
       const meetingBaas = getMeetingBaasService();
       const webhookUrl = `${env.apiUrl}/api/webhooks/meetingbaas`;
@@ -140,7 +129,6 @@ meetingsRouter.post(
         publicBaseUrl: env.apiUrl,
       });
 
-      // Update meeting with bot ID
       meeting.botId = bot.bot_id;
       meeting.status = MEETING_STATUS.JOINING;
       await meeting.save();
@@ -156,7 +144,6 @@ meetingsRouter.post(
   })
 );
 
-// Update meeting status
 meetingsRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
@@ -169,7 +156,6 @@ meetingsRouter.patch(
 
     const updateData: Record<string, unknown> = { status };
 
-    // Set timestamps based on status
     if (status === MEETING_STATUS.ACTIVE) {
       updateData.startedAt = new Date();
     } else if (status === MEETING_STATUS.ENDED) {
@@ -190,7 +176,6 @@ meetingsRouter.patch(
   })
 );
 
-// End meeting
 meetingsRouter.post(
   '/:id/end',
   requireAuth,
@@ -202,7 +187,6 @@ meetingsRouter.post(
     }
     if (!assertCompany(req, res, meeting.companyId.toString())) return;
 
-    // Remove bot from meeting via MeetingBaas
     if (meeting.botId) {
       try {
         const meetingBaas = getMeetingBaasService();

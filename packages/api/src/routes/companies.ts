@@ -85,7 +85,6 @@ companiesRouter.post(
   })
 );
 
-// Get the authenticated workspace (includes integration summary)
 companiesRouter.get(
   '/:id',
   requireAuth,
@@ -109,7 +108,6 @@ companiesRouter.get(
   })
 );
 
-// Mark first-run onboarding as done
 companiesRouter.post(
   '/:id/onboarding-complete',
   requireAuth,
@@ -128,7 +126,6 @@ companiesRouter.post(
   })
 );
 
-// Update company
 companiesRouter.patch(
   '/:id',
   requireAuth,
@@ -150,7 +147,6 @@ companiesRouter.patch(
   })
 );
 
-// Delete company
 companiesRouter.delete(
   '/:id',
   requireAuth,
@@ -162,7 +158,6 @@ companiesRouter.delete(
       throw new NotFoundError('Company', req.params.id);
     }
 
-    // Also delete associated integration connections and credentials
     await SlackConnectionModel.deleteMany({ companyId: req.params.id });
     await GithubConnectionModel.deleteMany({ companyId: req.params.id });
     await AccessTokenModel.deleteMany({ companyId: req.params.id });

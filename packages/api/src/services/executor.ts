@@ -117,8 +117,8 @@ export async function executeCommand(
           break;
         }
 
-        // Policy gate: the company must have this action enabled, regardless of
-        // what the GitHub App is technically permitted to do.
+        // The company must have this action enabled, regardless of what the
+        // GitHub App is technically permitted to do.
         const enabled =
           github.enabledActions.length > 0 ? github.enabledActions : DEFAULT_GITHUB_ACTIONS;
         if (!enabled.includes(intent.action)) {

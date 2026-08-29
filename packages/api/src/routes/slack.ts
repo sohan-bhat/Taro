@@ -9,10 +9,8 @@ import { encodeOAuthState, decodeOAuthState } from '../lib/oauthState';
 
 export const slackRouter: RouterType = Router();
 
-// Build redirect URI consistently
 const getRedirectUri = () => `${env.apiUrl}/api/slack/callback`;
 
-// Initiate Slack OAuth
 slackRouter.get('/install', (req, res) => {
   const { companyId, returnTo } = req.query;
 
@@ -31,7 +29,6 @@ slackRouter.get('/install', (req, res) => {
   res.redirect(installUrl);
 });
 
-// Slack OAuth callback
 slackRouter.get('/callback', async (req, res) => {
   const { code, state } = req.query;
   const { companyId, returnTo } = decodeOAuthState(typeof state === 'string' ? state : '');
@@ -88,7 +85,6 @@ slackRouter.get('/callback', async (req, res) => {
   }
 });
 
-// Get Slack connection status for a company
 slackRouter.get(
   '/status/:companyId',
   requireAuth,
@@ -110,7 +106,6 @@ slackRouter.get(
   })
 );
 
-// Disconnect Slack
 slackRouter.delete(
   '/disconnect/:companyId',
   requireAuth,

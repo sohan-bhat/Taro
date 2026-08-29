@@ -16,9 +16,8 @@ export interface TranscriptSegment {
   words?: TranscriptWord[];
 }
 
-// Cap how much text after a wake word is treated as one command
 const MAX_COMMAND_LENGTH = 300;
-// Ignore fragments too short to be a real command ("hey taro" followed by nothing)
+// Ignores fragments too short to be a real command, e.g. "hey taro" with nothing after it
 const MIN_COMMAND_LENGTH = 4;
 
 /**
@@ -52,7 +51,7 @@ export function normalizeSpeech(text: string): string {
     .trim();
 }
 
-// Levenshtein edit distance (small strings, so the simple DP is plenty fast).
+// Small strings, so the simple O(mn) DP is plenty fast.
 function levenshtein(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
@@ -71,30 +70,26 @@ function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
-// 0..1 similarity: 1 = identical, lower = further apart.
 function similarity(a: string, b: string): number {
   const max = Math.max(a.length, b.length);
   return max === 0 ? 1 : 1 - levenshtein(a, b) / max;
 }
 
-// "taro" anchors. sherpa-onnx renders the name many ways (taro, tarro, tero,
-// terror, toro, tarot...); scoring against several anchors catches them all
-// without an ever-growing hardcoded list.
+// sherpa-onnx renders "taro" many ways (tarro, tero, terror, toro, tarot...),
+// so scoring against several anchors catches them all without a hardcoded list.
 const TARO_ANCHORS = ['taro', 'tero', 'tarot', 'tarrow'];
 const TARO_THRESHOLD = 0.6;
 
-// How "taro"-like a word is. Gated on starting with 't' so real words that are
-// edit-close but phonetically different (hero, zero, gyro) can't trigger.
 function taroScore(word: string): number {
   if (word.length < 3 || word.length > 8) return 0;
-  // Every "taro" variant is t + vowel (ta/te/to...); this rejects edit-close
-  // words like "there" (t-h) that would otherwise scrape the threshold.
+  // Every "taro" variant is t + vowel, which rejects edit-close but phonetically
+  // different words like "there" or "hero" that would otherwise scrape the threshold.
   if (word[0] !== 't' || !'aeiou'.includes(word[1])) return 0;
   return Math.max(...TARO_ANCHORS.map((a) => similarity(word, a)));
 }
 
-// How "hey"-like the preceding word is (hey/he/hay/hi/ey...). The greeting is
-// required so a stray "taro"-ish word in normal speech won't fire a command.
+// Requiring a greeting (hey/he/hay/hi/ey...) before the taro-like word keeps a
+// stray "taro"-ish word in normal speech from firing a command.
 function isGreeting(word: string): boolean {
   if (!word) return false;
   if (word.length > 4) return false;
@@ -108,10 +103,8 @@ function isGreeting(word: string): boolean {
 const WORD_RE = /[\p{L}\p{N}']+/gu;
 
 /**
- * Find wake phrases by phonetic closeness rather than a fixed list: a
- * greeting-like word ("hey"/"he"/...) immediately followed by a word close
- * enough to "taro". Returns the char span of each match (end = end of the
- * taro word), so the command is whatever follows.
+ * Finds wake phrases by phonetic closeness rather than a fixed list. Returns
+ * the char span of each match, ending at the taro word, so the command is whatever follows.
  */
 export function findWakeMatches(text: string): Array<{ start: number; end: number }> {
   const tokens: Array<{ word: string; start: number; end: number }> = [];
@@ -129,10 +122,7 @@ export function findWakeMatches(text: string): Array<{ start: number; end: numbe
   return matches;
 }
 
-/**
- * Find every wake phrase and return the command text that follows each one
- * (up to the next wake phrase, or MAX_COMMAND_LENGTH).
- */
+// Returns the command text following each wake phrase, up to the next wake phrase or MAX_COMMAND_LENGTH.
 export function extractCommands(
   fullText: string,
   // Kept for signature compatibility; matching is now phonetic, not list-based.

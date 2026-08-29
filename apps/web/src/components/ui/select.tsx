@@ -8,7 +8,8 @@ const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HT
       <select
         ref={ref}
         className={cn(
-          'h-9 w-full appearance-none rounded-lg border border-fog-300 bg-white pl-3 pr-9 text-sm text-fog-900 shadow-sm transition-colors hover:border-fog-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-taro-500 focus-visible:border-transparent disabled:cursor-not-allowed disabled:opacity-50',
+          // text-base on mobile (16px) prevents iOS zoom-on-focus; text-sm on desktop.
+          'h-9 w-full appearance-none rounded-lg border border-fog-300 bg-white pl-3 pr-9 text-base sm:text-sm text-fog-900 shadow-sm transition-colors hover:border-fog-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-taro-500 focus-visible:border-transparent disabled:cursor-not-allowed disabled:opacity-50',
           className
         )}
         {...props}

@@ -45,9 +45,9 @@ const INT8_ENC = `${MODEL_DIR}/encoder-epoch-99-avg-1-chunk-16-left-128.int8.onn
 const INT8_JOIN = `${MODEL_DIR}/joiner-epoch-99-avg-1-chunk-16-left-128.int8.onnx`;
 const DECODER = `${MODEL_DIR}/decoder-epoch-99-avg-1-chunk-16-left-128.onnx`;
 const TOKENS = `${MODEL_DIR}/tokens.txt`;
-// bpe.vocab (token + score per line) is required for hotword biasing. It's
-// generated once from bpe.model at setup (see README); if absent we skip the
-// hotwords tier rather than crash the native module.
+// bpe.vocab (token + score per line), needed for hotword biasing, is generated
+// once from bpe.model at setup (see README); if it's missing, skip the
+// hotwords tier instead of crashing the native module.
 const BPE_VOCAB = `${MODEL_DIR}/bpe.vocab`;
 const HOTWORDS = path.resolve(__dirname, 'asr-hotwords.txt');
 const HOTWORDS_OK = fs.existsSync(BPE_VOCAB) && fs.existsSync(HOTWORDS);
@@ -144,10 +144,6 @@ export function asrAvailable(): boolean {
   return getRecognizer() !== null;
 }
 
-/**
- * Create a streaming recognition session for one meeting.
- * Returns null if the ASR engine is unavailable.
- */
 export function createAsrStream(): AsrStream | null {
   const rec = getRecognizer();
   if (!rec) return null;

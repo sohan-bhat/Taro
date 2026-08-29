@@ -1,11 +1,8 @@
 /**
- * Webhook endpoints for receiving data from external services.
- * Currently handles MeetingBaas webhooks (v1 API).
- *
- * Realtime commands are handled by services/realtime.ts as audio streams in.
- * This webhook is the POST-MEETING path: status tracking, transcript
- * persistence, and a fallback command sweep for anything the live pipeline
- * missed (it is skipped entirely when live commands already executed).
+ * MeetingBaas webhooks (v1 API). Realtime commands are handled separately in
+ * services/realtime.ts as audio streams in; this is the post-meeting path,
+ * covering status tracking, transcript persistence, and a fallback command
+ * sweep for anything the live pipeline missed.
  */
 
 import { Router, type Router as RouterType } from 'express';
@@ -33,12 +30,8 @@ const ERROR_CODES = [
   'meeting_error',
 ];
 
-/**
- * MeetingBaas webhook endpoint.
- * Acknowledge immediately, then process async - command execution can take
- * seconds (Gemini + Slack calls) and a slow response triggers webhook retries,
- * which would mean duplicate Slack posts.
- */
+// Acknowledge immediately, then process async: command execution can take seconds
+// (Gemini + Slack calls), and a slow response would trigger webhook retries and duplicate Slack posts.
 webhooksRouter.post('/meetingbaas', (req, res) => {
   res.sendStatus(200);
   processEvent(req.body).catch((error) => {
@@ -93,9 +86,8 @@ async function processEvent(payload: { event?: string; data?: Record<string, unk
     case 'bot.completed': {
       const segments = (data.transcript ?? []) as TranscriptSegment[];
       let fullText = flattenTranscript(segments);
-      // We opt out of MeetingBaas transcription (to get the raw audio stream),
-      // so `complete` usually carries no transcript. Fall back to the transcript
-      // our own live ASR accumulated during the call.
+      // We opt out of MeetingBaas transcription to get the raw audio stream instead, so `complete`
+      // usually carries no transcript; fall back to what our own live ASR accumulated during the call.
       if (fullText.length === 0 && meeting.liveTranscript) {
         fullText = meeting.liveTranscript;
         console.log(`[Webhook] Using live ASR transcript for fallback (${fullText.length} chars)`);
@@ -103,8 +95,7 @@ async function processEvent(payload: { event?: string; data?: Record<string, unk
       console.log(`[Webhook] ${event}: transcript ${fullText.length} chars, ${segments.length} segments`);
 
       const liveAlready = await ActionLogModel.countDocuments({ meetingId: meeting._id.toString(), mode: 'live' });
-      // Nothing to act on yet and nothing ran live: record the end state and
-      // wait for a later event (or the session close) that has words.
+      // Nothing to act on and nothing ran live yet: record the end state and wait for a later event with words.
       if (fullText.length === 0 && liveAlready === 0) {
         console.log(`[Webhook] ${event} carried no transcript yet - waiting`);
         await MeetingModel.updateOne(
@@ -114,8 +105,8 @@ async function processEvent(payload: { event?: string; data?: Record<string, unk
         return;
       }
 
-      // Atomically claim post-meeting processing. Webhook retries and the
-      // complete/transcription_complete pair would otherwise double-execute.
+      // Atomically claim post-meeting processing so webhook retries and the complete/transcription_complete
+      // pair don't double-execute it.
       const claimed = await MeetingModel.findOneAndUpdate(
         { _id: meeting._id, commandsProcessedAt: { $exists: false } },
         {
@@ -136,10 +127,9 @@ async function processEvent(payload: { event?: string; data?: Record<string, unk
 
       const meetingId = claimed._id.toString();
 
-      // If the realtime pipeline already executed commands during the call,
-      // don't re-run extraction on the final transcript - the live ASR text
-      // and the provider transcript never match verbatim, so re-running
-      // would double-post every action.
+      // If the realtime pipeline already executed commands, don't re-run extraction on the final
+      // transcript: the live ASR text and the provider transcript never match verbatim, so
+      // re-running would double-post every action.
       const liveActions = await ActionLogModel.find({ meetingId, mode: 'live' }).sort({ createdAt: 1 });
 
       let summaries: string[];

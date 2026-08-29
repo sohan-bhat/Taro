@@ -2,9 +2,9 @@
 export interface Company {
   _id: string;
   name: string;
-  domain: string; // e.g., "company.com" - used to detect meetings
-  licenseKey?: string; // e.g. "TARO-K3NF-8WPQ-M2XZ" - how a company signs back in
-  onboardedAt?: Date; // set when the first-run onboarding is completed
+  domain: string; // e.g. "company.com", used to detect meetings
+  licenseKey?: string; // e.g. "TARO-K3NF-8WPQ-M2XZ", how a company signs back in
+  onboardedAt?: Date; // set once first-run onboarding completes
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,8 +20,7 @@ export interface SlackConnection {
   createdAt: Date;
 }
 
-// A purchasable license. Issued first (unclaimed), then a company activates
-// its workspace with it. companyId is set once claimed.
+// Issued unclaimed, then a company activates its workspace with it; companyId is set once claimed.
 export interface License {
   _id: string;
   key: string; // "TARO-XXXX-XXXX-XXXX"
@@ -31,16 +30,14 @@ export interface License {
   createdAt: Date;
 }
 
-// GitHub App installation: Taro acts as its own bot (`taro[bot]`), never
-// through a person's account
+// GitHub App installation: Taro acts as its own bot (`taro[bot]`), never through a person's account.
 export interface GithubConnection {
   _id: string;
   companyId: string;
   installationId: string;
   accountLogin?: string; // org or user the app is installed on
   repo?: string; // default "owner/name" issues are filed in
-  // Which GitHub actions the company has allowed Taro to perform (subset of
-  // GITHUB_CAPABILITIES). Empty/undefined falls back to DEFAULT_GITHUB_ACTIONS.
+  // Subset of GITHUB_CAPABILITIES the company allows; empty/undefined falls back to DEFAULT_GITHUB_ACTIONS.
   enabledActions?: string[];
   disconnectedAt?: Date; // soft-disconnected: keep the installation for one-click reconnect
   createdAt: Date;
@@ -53,7 +50,7 @@ export interface Meeting {
   meetUrl: string;
   status: 'pending' | 'joining' | 'active' | 'ended' | 'error';
   botId?: string; // MeetingBaas bot ID
-  // Where the meeting link was detected, so results can be posted back in-thread
+  // Where the meeting link was detected, so results can be posted back in the thread
   slackChannelId?: string;
   slackThreadTs?: string;
   // Who posted the Meet link that triggered this meeting (Slack display name)
@@ -82,8 +79,7 @@ export interface ActionLog {
   command: string; // Raw transcript
   intent: ParsedIntent;
   status: 'success' | 'failed' | 'clarification_needed';
-  // 'live' = executed mid-meeting from the realtime audio stream;
-  // 'post_meeting' = executed from the end-of-meeting transcript webhook
+  // 'live' runs mid-meeting from the realtime audio stream, 'post_meeting' from the end-of-meeting transcript webhook.
   mode?: 'live' | 'post_meeting';
   result?: string;
   errorMessage?: string;
@@ -96,9 +92,9 @@ export interface IntentParams {
   message?: string;
   title?: string;
   items?: string[];
-  body?: string; // GitHub issue body / comment text
+  body?: string; // GitHub issue body or comment text
   issueNumber?: number; // target issue or PR number
-  labels?: string[]; // labels to add
+  labels?: string[];
   assignees?: string[]; // GitHub logins to assign
   reviewers?: string[]; // GitHub logins to request review from
   branch?: string; // new branch name for a pull request
@@ -106,7 +102,7 @@ export interface IntentParams {
   original?: string;
 }
 
-// Parsed intent from Gemini (or the regex fallback)
+// Parsed intent from the LLM, or the regex fallback
 export interface ParsedIntent {
   action:
     | 'post_message'
@@ -124,11 +120,10 @@ export interface ParsedIntent {
     | 'unknown';
   confidence: number;
   params: IntentParams;
-  // Which parser produced this - 'fallback_regex' means Gemini failed and should be investigated
+  // Which parser produced this; 'fallback_regex' means the LLM failed and should be investigated.
   source?: 'groq' | 'gemini' | 'fallback_regex';
 }
 
-// Available integration types
 export type IntegrationType = 'slack' | 'github' | 'google_calendar' | 'microsoft_teams' | 'zoom';
 
 // Integration metadata for UI
@@ -139,7 +134,6 @@ export interface IntegrationInfo {
   available: boolean; // Whether it's implemented
 }
 
-// Available integrations for companies to choose from
 export const AVAILABLE_INTEGRATIONS: IntegrationInfo[] = [
   {
     type: 'slack',

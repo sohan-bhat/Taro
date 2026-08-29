@@ -1,9 +1,8 @@
 import crypto from 'crypto';
 
 /**
- * Workspace access tokens: the day-to-day credential after a license is
- * redeemed (the license key itself is only used for activation/recovery,
- * the way Adobe retires a redemption code once it's attached to an account).
+ * Workspace access tokens: the day-to-day credential once a license is
+ * redeemed (the license key itself is only used for activation/recovery).
  * Only a SHA-256 hash is stored; the raw token is shown once.
  */
 

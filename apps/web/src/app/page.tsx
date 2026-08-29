@@ -11,6 +11,7 @@ import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
+import { DEMO_KEY } from '@/demo/key';
 
 type Step = 'key' | 'activate';
 
@@ -70,6 +71,12 @@ export default function Home() {
     const key = keyInput.trim().toUpperCase();
     if (!key) {
       setFieldErrors({ key: 'Enter your license key.' });
+      return;
+    }
+    // The demo key opens the static snapshot with no backend call, so judges
+    // can explore Taro even when the live server is offline.
+    if (key === DEMO_KEY) {
+      router.push('/demo');
       return;
     }
     if (!KEY_PATTERN.test(key)) {
@@ -179,9 +186,9 @@ export default function Home() {
         </section>
 
         {/* Right: the door. A license is bought first, then activated here. */}
-        <section className="w-full max-w-md lg:justify-self-end">
+        <section className="w-full max-w-md mx-auto lg:mx-0 lg:justify-self-end">
           <Card className="shadow-[0_1px_2px_rgba(28,25,35,0.04),0_8px_24px_-8px_rgba(28,25,35,0.08)]">
-            <CardContent className="p-8">
+            <CardContent className="p-6 sm:p-8">
               {step === 'key' ? (
                 <>
                   <h2 className="font-display font-semibold text-lg text-fog-900">

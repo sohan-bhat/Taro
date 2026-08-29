@@ -1,10 +1,8 @@
 /**
- * OAuth `state` codec. We need the callback to send the user back to whatever
- * origin they started from (Vercel in production, localhost in dev) instead of
- * a single hard-coded NEXT_PUBLIC_APP_URL. So we pack the companyId and the
- * originating origin into `state` and unpack them on the way back.
- *
- * Backward compatible: a legacy bare-companyId state still decodes correctly.
+ * OAuth `state` codec: packs companyId and the originating origin (Vercel in
+ * prod, localhost in dev) so the callback can send the user back to wherever
+ * they started, instead of one hard-coded NEXT_PUBLIC_APP_URL. Still decodes
+ * a legacy bare-companyId state.
  */
 
 export interface OAuthState {
@@ -34,9 +32,9 @@ export function decodeOAuthState(raw: string): OAuthState {
 }
 
 /**
- * Reduce a caller-supplied return URL to a bare, trusted origin. Guards against
- * open-redirect abuse: only https origins (any host) and localhost are allowed,
- * and any path/query is stripped so we only ever keep scheme + host.
+ * Reduces a caller-supplied URL to a bare, trusted origin, to guard against
+ * open-redirect abuse: only https (any host) or localhost is allowed, and any
+ * path or query is dropped.
  */
 export function safeOrigin(returnTo?: string): string | undefined {
   if (!returnTo) return undefined;
@@ -47,7 +45,6 @@ export function safeOrigin(returnTo?: string): string | undefined {
       return `${u.protocol}//${u.host}`;
     }
   } catch {
-    // Malformed URL
   }
   return undefined;
 }

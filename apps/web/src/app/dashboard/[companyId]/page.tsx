@@ -47,12 +47,11 @@ const ACTION_BADGE: Record<string, 'success' | 'destructive' | 'warning'> = {
 };
 
 function IntegrationIcon({ type }: { type: string }) {
-  if (type === 'slack') return <SlackIcon className="w-6 h-6" />;
-  if (type === 'github') return <GithubIcon className="w-6 h-6 text-fog-900" />;
-  return <CalendarIcon className="w-6 h-6 text-fog-400" />;
+  if (type === 'slack') return <SlackIcon className="w-6 h-6 shrink-0" />;
+  if (type === 'github') return <GithubIcon className="w-6 h-6 shrink-0 text-fog-900" />;
+  return <CalendarIcon className="w-6 h-6 shrink-0 text-fog-400" />;
 }
 
-// Default repository picker for the GitHub App installation
 function RepoPicker({
   repos,
   value,
@@ -112,9 +111,7 @@ export default function Dashboard() {
   const [removing, setRemoving] = useState(false);
   const [showPerms, setShowPerms] = useState(false);
 
-  // Show the post-OAuth toast exactly once. Effects can re-run (React dev
-  // double-invoke, re-renders), so a ref guards against a duplicate, and we
-  // strip the one-time query params so a refresh can't replay it either.
+  // Guard against React's dev double-invoke firing this twice, and strip the query params so a refresh can't replay the toast.
   const handledParams = useRef('');
   useEffect(() => {
     const key = searchParams.toString();
@@ -164,8 +161,7 @@ export default function Dashboard() {
         ]);
       } catch (error) {
         if (error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403)) {
-          // No valid session for this workspace (or the license was revoked):
-          // back to the door
+          // No valid session (or the license was revoked): send them back to the door
           localStorage.removeItem(TOKEN_STORAGE_KEY);
           router.replace('/');
           return;
@@ -185,8 +181,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [companyId, router]);
 
-  // Keep the expanded meeting's detail fresh: commands and the transcript
-  // arrive after the meeting ends, while the panel may already be open
+  // Commands and the transcript arrive after the meeting ends, so keep polling while the panel is open
   useEffect(() => {
     if (!expandedId) return;
     let cancelled = false;
@@ -218,7 +213,6 @@ export default function Dashboard() {
   const githubConnected = !!github?.connected;
   const needsOnboarding = !!company && !company.onboardedAt;
 
-  // Load the granted repositories once the app is installed
   useEffect(() => {
     if (!githubConnected) {
       setGithubRepos([]);
@@ -239,8 +233,7 @@ export default function Dashboard() {
         showToast('The Taro GitHub app is not configured on this server yet.', 'error');
         return;
       }
-      // If the app is still installed on GitHub, reconnect in one click
-      // instead of bouncing through the install flow again.
+      // If the app is still installed on GitHub, reconnect in one click instead of bouncing through install again.
       if (github?.reconnectable) {
         api.github
           .reconnect(companyId)
@@ -282,7 +275,6 @@ export default function Dashboard() {
     }
   };
 
-  // Consequences shown in the confirm dialog, specific to each integration
   const removalWarning = (type: string): string => {
     if (type === 'slack') {
       return 'Taro will stop watching your Slack channels for Google Meet links and can no longer join meetings or post results back. Your meeting history is kept.';
@@ -388,7 +380,6 @@ export default function Dashboard() {
     }
   };
 
-  // One meeting row, reused by the main list and the archive view
   const renderMeetingRow = (meeting: Meeting, archivedRow = false) => {
     const isExpanded = expandedId === meeting._id;
     const detail = details[meeting._id];
@@ -399,7 +390,7 @@ export default function Dashboard() {
       <div key={meeting._id}>
         <button
           onClick={() => toggleMeeting(meeting._id)}
-          className="w-full flex items-center justify-between gap-4 p-4 text-left hover:bg-fog-50 transition focus-visible:outline-none focus-visible:bg-fog-50"
+          className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-fog-50 transition focus-visible:outline-none focus-visible:bg-fog-50"
         >
           <div className="flex items-center gap-3 min-w-0">
             {isLive && <WaveMark live className="w-4 h-5 shrink-0" />}
@@ -569,9 +560,8 @@ export default function Dashboard() {
   return (
     <main className="min-h-screen">
 
-      {/* Top nav */}
       <header className="sticky top-0 z-40 bg-fog-50/90 backdrop-blur border-b border-fog-200">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-4 min-w-0">
             <Wordmark />
             <Separator orientation="vertical" className="h-6 hidden sm:block" />
@@ -599,9 +589,8 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-10">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
         {needsOnboarding ? (
-          /* First-run onboarding */
           <div className="max-w-2xl mx-auto">
             <h1 className="font-display font-bold text-3xl tracking-tight text-fog-900 [text-wrap:balance]">
               Welcome, {company.name}
@@ -612,12 +601,11 @@ export default function Dashboard() {
             </p>
 
             <div className="mt-8 space-y-4">
-              {/* Step 1: Slack */}
               <Card>
-                <CardContent className="flex items-start justify-between gap-4">
-                  <div className="flex gap-4">
-                    <SlackIcon className="w-8 h-8 mt-0.5" />
-                    <div>
+                <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex gap-4 min-w-0">
+                    <SlackIcon className="w-8 h-8 mt-0.5 shrink-0" />
+                    <div className="min-w-0">
                       <h2 className="font-display font-semibold text-fog-900">
                         1&nbsp;&middot;&nbsp;Connect Slack
                       </h2>
@@ -633,19 +621,21 @@ export default function Dashboard() {
                     </div>
                   </div>
                   {!slackConnected && (
-                    <Button onClick={() => connectIntegration('slack')} className="shrink-0">
+                    <Button
+                      onClick={() => connectIntegration('slack')}
+                      className="w-full sm:w-auto shrink-0"
+                    >
                       Connect
                     </Button>
                   )}
                 </CardContent>
               </Card>
 
-              {/* Step 2: GitHub */}
               <Card>
-                <CardContent className="flex items-start justify-between gap-4">
-                  <div className="flex gap-4">
-                    <GithubIcon className="w-8 h-8 mt-0.5 text-fog-900" />
-                    <div>
+                <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex gap-4 min-w-0">
+                    <GithubIcon className="w-8 h-8 mt-0.5 text-fog-900 shrink-0" />
+                    <div className="min-w-0">
                       <h2 className="font-display font-semibold text-fog-900">
                         2&nbsp;&middot;&nbsp;Install the Taro GitHub app
                         <Badge variant="outline" className="ml-2 font-sans font-normal align-middle">
@@ -671,7 +661,7 @@ export default function Dashboard() {
                     <Button
                       variant="secondary"
                       onClick={() => connectIntegration('github')}
-                      className="shrink-0"
+                      className="w-full sm:w-auto shrink-0"
                     >
                       Install
                     </Button>
@@ -679,7 +669,6 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Step 3: first command */}
               <Card>
                 <CardContent className="flex gap-4">
                   <div className="w-8 flex justify-center pt-0.5">
@@ -700,8 +689,13 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            <div className="mt-8 flex items-center gap-4">
-              <Button size="lg" onClick={finishOnboarding} disabled={!slackConnected || finishing}>
+            <div className="mt-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <Button
+                size="lg"
+                onClick={finishOnboarding}
+                disabled={!slackConnected || finishing}
+                className="w-full sm:w-auto"
+              >
                 {finishing && <Spinner />}
                 {finishing ? 'Finishing' : 'Finish setup'}
               </Button>
@@ -713,9 +707,7 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          /* Regular dashboard */
           <div className="space-y-8">
-            {/* Integrations */}
             <section>
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="font-display font-semibold text-lg text-fog-900">Integrations</h2>
@@ -796,7 +788,6 @@ export default function Dashboard() {
               </div>
             </section>
 
-            {/* Meetings */}
             <section>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display font-semibold text-lg text-fog-900">Meetings</h2>
@@ -823,7 +814,6 @@ export default function Dashboard() {
                 )}
               </Card>
 
-              {/* Archive: cleared meetings are kept here for good, out of the main list */}
               <div className="mt-4">
                 <Button variant="link" size="sm" onClick={toggleArchived}>
                   {showArchived ? 'Hide archived meetings' : 'View archived meetings'}
@@ -845,7 +835,6 @@ export default function Dashboard() {
               </div>
             </section>
 
-            {/* Voice command reference */}
             <Card className="bg-taro-50 border-taro-100">
               <CardContent>
                 <h3 className="font-display font-semibold text-sm text-taro-900 mb-3">
@@ -873,7 +862,7 @@ export default function Dashboard() {
 
       <Dialog open={showPerms} onClose={() => setShowPerms(false)} labelledBy="perms-title">
         <DialogBody>
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 id="perms-title" className="font-display font-semibold text-lg text-fog-900">
                 GitHub permissions

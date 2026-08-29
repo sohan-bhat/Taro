@@ -1,4 +1,4 @@
-// Load and validate environment first - will throw if missing required vars
+// Must be the first import so a missing env var fails fast, before anything else loads.
 import { env } from './config/env';
 
 import express from 'express';
@@ -24,27 +24,22 @@ import { generateLicenseKey } from './lib/licenseKey';
 
 const app = express();
 
-// Middleware
 app.use(cors());
-// MeetingBaas `complete` webhooks carry the full word-level transcript;
-// the 100kb default rejects meetings longer than ~10 minutes with a 413
+// MeetingBaas `complete` webhooks carry the full word-level transcript; the 100kb default
+// rejects meetings longer than ~10 minutes with a 413.
 app.use(express.json({ limit: '10mb' }));
 
-// Health check
 app.get(API_ROUTES.HEALTH, (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Public avatar the meeting bot wears in the call. MeetingBaas fetches this by
-// URL from its own servers (a non-browser fetch, so it passes ngrok's browser
-// interstitial), which is why the bot's default image points back here.
-app.get('/taro-bot.png', (req, res) => {
-  res.type('image/png');
+// MeetingBaas fetches the bot's avatar server-side, so this URL bypasses ngrok's browser interstitial.
+app.get('/taro-bot.jpg', (req, res) => {
+  res.type('image/jpeg');
   res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.sendFile(path.resolve(__dirname, '../assets/taro-bot.png'));
+  res.sendFile(path.resolve(__dirname, '../assets/taro-bot.jpg'));
 });
 
-// Routes
 app.use(API_ROUTES.COMPANIES, companiesRouter);
 app.use(API_ROUTES.MEETINGS, meetingsRouter);
 app.use('/api/slack', slackRouter);
@@ -53,21 +48,19 @@ app.use('/api/licenses', licensesRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/webhooks', webhooksRouter);
 
-// Error handler (must be after routes)
+// Must run after the routes so it can catch their errors.
 app.use(errorHandler);
 
-// HTTP server wraps express so the realtime WebSockets share port 4000
-// (and therefore the single ngrok tunnel)
+// Wraps express so the realtime WebSockets share port 4000, and therefore the single ngrok tunnel.
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
-// MeetingBaas dials these endpoints when a bot joins with streaming enabled:
-//   /ws/audio-in/<meetingId>  - meeting audio to us
-//   /ws/audio-out/<meetingId> - audio we push into the meeting (ding)
+// MeetingBaas dials these when a bot joins with streaming enabled:
+//   /ws/audio-in/<meetingId>: meeting audio to us
+//   /ws/audio-out/<meetingId>: audio we push into the meeting (ding)
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
-  // /ws/audio/<id> is the shared bidirectional endpoint (what MeetingBaas's
-  // own bots use); the -in/-out forms are kept for older bot records
+  // /ws/audio/<id> is the current shared bidirectional endpoint; -in/-out are kept for older bot records.
   const match = url.pathname.match(/^\/ws\/audio(?:-(in|out))?\/([a-f0-9]{24})$/);
 
   if (!match) {
@@ -88,21 +81,19 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-// Start server
 async function start() {
   try {
     await connectDB();
     console.log('Connected to MongoDB');
 
-    // GitHub connections from the personal-token era are retired; the
-    // connector is now a GitHub App installation
+    // GitHub connections from the personal-token era are retired in favor of GitHub App installations.
     const legacyGithub = await GithubConnectionModel.deleteMany({ installationId: { $exists: false } });
     if (legacyGithub.deletedCount) {
       console.log(`[Migrate] Removed ${legacyGithub.deletedCount} legacy GitHub token connection(s)`);
     }
 
-    // Companies created before licenses existed get a key and a claimed
-    // license row at boot, so redeem/lookup work uniformly
+    // Companies created before licenses existed get a key and a claimed license row at boot,
+    // so redeem/lookup work uniformly.
     const companies = await CompanyModel.find();
     for (const company of companies) {
       if (!company.licenseKey) {
@@ -129,7 +120,6 @@ async function start() {
       );
     });
 
-    // Start Slack listener for auto-join (optional - only if token configured)
     if (env.slackAppToken) {
       await slackListener.start();
     } else {
@@ -141,13 +131,11 @@ async function start() {
   }
 }
 
-// Keep the webhook server alive if a stray promise rejects (Node's default
-// is to crash the process)
+// Node's default is to crash the process on an unhandled rejection; log instead and keep serving.
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down...');
   process.exit(0);
