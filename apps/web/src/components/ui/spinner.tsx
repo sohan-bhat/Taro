@@ -1,15 +1,7 @@
-import { cn } from '@/lib/utils';
-
-export function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden className={cn('animate-spin', className)}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
-      <path
-        d="M21 12a9 9 0 0 0-9-9"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+/**
+ * @deprecated There are no spinners. A pending action changes its label to a verb ("Saving") and
+ * sets `disabled` and `aria-busy`. This renders nothing; delete it once nothing imports it.
+ */
+export function Spinner(_props: { className?: string }) {
+  return null;
 }

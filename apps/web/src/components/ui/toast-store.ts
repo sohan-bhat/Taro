@@ -8,10 +8,11 @@ export interface ToastItem {
   leaving: boolean;
 }
 
-const DISMISS_MS = 4000;
-const EXIT_MS = 130; // must match the CSS exit animation duration
+const EXIT_MS = 120; // matches animate-fade-out
+const MAX_TOASTS = 4;
 
 let toasts: ToastItem[] = [];
+let nextId = 1;
 const listeners = new Set<(t: ToastItem[]) => void>();
 
 function emit() {
@@ -22,10 +23,13 @@ function emit() {
 export function subscribeToasts(fn: (t: ToastItem[]) => void): () => void {
   listeners.add(fn);
   fn([...toasts]);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 export function dismissToast(id: number) {
+  if (!toasts.some((t) => t.id === id && !t.leaving)) return;
   toasts = toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
   emit();
   setTimeout(() => {
@@ -34,9 +38,14 @@ export function dismissToast(id: number) {
   }, EXIT_MS);
 }
 
-export function showToast(message: string, variant: ToastVariant = 'success') {
-  const id = Date.now() + Math.random();
+/** Success toasts leave after 4 seconds (the Toaster pauses that while hovered or focused). Errors stay until dismissed. */
+export function showToast(message: string, variant: ToastVariant = 'success'): number {
+  const same = toasts.find((t) => !t.leaving && t.message === message && t.variant === variant);
+  if (same) return same.id;
+  const id = nextId++;
   toasts = [...toasts, { id, message, variant, leaving: false }];
+  const extra = toasts.filter((t) => !t.leaving).length - MAX_TOASTS;
+  if (extra > 0) toasts.filter((t) => !t.leaving).slice(0, extra).forEach((t) => dismissToast(t.id));
   emit();
-  setTimeout(() => dismissToast(id), DISMISS_MS);
+  return id;
 }

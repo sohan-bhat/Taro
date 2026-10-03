@@ -1,8 +1,10 @@
 import * as React from 'react';
 import { Label } from './label';
-import { cn } from '@/lib/utils';
 
-/** Forms use noValidate and this component's error text instead of native browser validation bubbles. */
+/**
+ * A label above, a hint below, and an error in place of the hint. The control (the one child)
+ * gets aria-describedby and aria-invalid. Forms use noValidate, so this is the only error text.
+ */
 export function Field({
   label,
   htmlFor,
@@ -11,21 +13,34 @@ export function Field({
   className,
   children,
 }: {
-  label: string;
+  label: React.ReactNode;
   htmlFor: string;
-  error?: string;
-  hint?: string;
+  error?: React.ReactNode;
+  hint?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 }) {
+  const noteId = error ? `${htmlFor}-error` : hint ? `${htmlFor}-hint` : undefined;
+  let control = children;
+  if (React.isValidElement<{ 'aria-describedby'?: string; 'aria-invalid'?: React.AriaAttributes['aria-invalid'] }>(children)) {
+    const own = children.props['aria-describedby'];
+    control = React.cloneElement(children, {
+      'aria-describedby': [own, noteId].filter(Boolean).join(' ') || undefined,
+      'aria-invalid': error ? true : children.props['aria-invalid'],
+    });
+  }
   return (
-    <div className={cn('space-y-0', className)}>
+    <div className={className}>
       <Label htmlFor={htmlFor}>{label}</Label>
-      {children}
+      {control}
       {error ? (
-        <p className="text-xs text-red-600 mt-1.5">{error}</p>
+        <p id={noteId} className="mt-1.5 text-meta text-beet">
+          {error}
+        </p>
       ) : hint ? (
-        <p className="text-xs text-fog-400 mt-1.5">{hint}</p>
+        <p id={noteId} className="mt-1.5 text-meta text-ash">
+          {hint}
+        </p>
       ) : null}
     </div>
   );

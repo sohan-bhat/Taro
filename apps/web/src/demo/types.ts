@@ -28,13 +28,11 @@ export interface DemoDetail extends DemoMeeting {
 }
 
 export interface DemoSnapshot {
-  demoKey: string;
   capturedAt: string;
   company: {
     _id: string;
     name: string;
     domain: string;
-    licenseKey: string;
     onboardedAt?: string;
     createdAt: string;
     updatedAt: string;

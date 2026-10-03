@@ -1,24 +1,33 @@
 import * as React from 'react';
-import { cva, type VariantProps } from 'class-variance-authority';
+import { cva } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
-const alertVariants = cva('rounded-xl border px-3.5 py-2.5 text-sm leading-relaxed', {
+// The ruled note: a 3px left rule and a sentence. Leads with what happened, then what to do.
+const alertVariants = cva('border-l-[3px] py-0.5 pl-3.5 text-sm leading-relaxed', {
   variants: {
-    variant: {
-      default: 'bg-taro-50 border-taro-200 text-taro-800',
-      destructive: 'bg-red-50 border-red-200 text-red-700',
-      success: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    tone: {
+      info: 'border-taro text-ink',
+      error: 'border-beet text-ink',
+      quiet: 'border-rule text-ink-2',
     },
   },
-  defaultVariants: { variant: 'default' },
+  defaultVariants: { tone: 'info' },
 });
 
-export interface AlertProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof alertVariants> {}
+export type AlertTone = 'info' | 'error' | 'quiet';
 
-function Alert({ className, variant, ...props }: AlertProps) {
-  return <div role="alert" className={cn(alertVariants({ variant }), className)} {...props} />;
+// Old variant names, mapped until every call site uses `tone`.
+const LEGACY_TONES = { default: 'info', destructive: 'error', success: 'quiet' } as const;
+
+export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
+  tone?: AlertTone;
+  /** @deprecated Use `tone`. */
+  variant?: keyof typeof LEGACY_TONES;
 }
 
-export { Alert };
+export function Alert({ tone, variant, className, role, ...props }: AlertProps) {
+  const t: AlertTone = tone ?? (variant ? LEGACY_TONES[variant] : 'info');
+  return <div role={role ?? (t === 'error' ? 'alert' : 'status')} className={cn(alertVariants({ tone: t }), className)} {...props} />;
+}
+
+export { alertVariants };

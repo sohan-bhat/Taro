@@ -1,59 +1,56 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { subscribeToasts, dismissToast, type ToastItem } from './toast-store';
+import { useEffect, useRef, useState } from 'react';
+import { dismissToast, subscribeToasts, type ToastItem } from './toast-store';
 import { cn } from '@/lib/utils';
 
-function Icon({ variant }: { variant: 'success' | 'error' }) {
-  return variant === 'error' ? (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.4" className="h-3.5 w-3.5">
-      <path d="M6 6l8 8M14 6l-8 8" strokeLinecap="round" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.6" className="h-3.5 w-3.5">
-      <path d="M4 10.5l4 4 8-9" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+const DISMISS_MS = 4000;
 
-function ToastCard({ toast }: { toast: ToastItem }) {
+function Toast({ toast }: { toast: ToastItem }) {
   const isError = toast.variant === 'error';
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const remaining = useRef(DISMISS_MS);
+
+  // The 4 seconds only count down while nobody is hovering or focused on the toast.
+  useEffect(() => {
+    if (isError || hovered || focused || toast.leaving) return;
+    const started = Date.now();
+    const timer = window.setTimeout(() => dismissToast(toast.id), remaining.current);
+    return () => {
+      window.clearTimeout(timer);
+      remaining.current = Math.max(800, remaining.current - (Date.now() - started));
+    };
+  }, [isError, hovered, focused, toast.leaving, toast.id]);
+
   return (
     <div
-      role="status"
-      aria-live="polite"
+      data-toast=""
+      role={isError ? 'alert' : 'status'}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+      }}
       className={cn(
-        'pointer-events-auto flex items-start gap-3 rounded-xl border py-3 pl-3 pr-2.5 shadow-[0_10px_30px_-10px_rgba(28,25,35,0.45)] w-[min(88vw,360px)]',
-        toast.leaving ? 'animate-[toast-out_130ms_ease-in_forwards]' : 'animate-[toast-in_190ms_cubic-bezier(0.2,0.9,0.3,1.3)]',
+        'pointer-events-auto flex w-full max-w-[360px] items-start gap-3 rounded-menu',
         isError
-          ? 'bg-red-950 border-red-800 text-red-50'
-          : 'bg-taro-900 border-taro-700 text-fog-50'
+          ? 'border border-rule bg-paper py-3 pl-[19px] pr-4 text-ink shadow-[inset_4px_0_0_theme(colors.beet.DEFAULT),0_12px_32px_-12px_rgba(29,23,36,0.28)]'
+          : 'on-ink bg-ink px-4 py-3 text-poi shadow-menu',
+        toast.leaving ? 'animate-fade-out' : 'motion-safe:animate-toast-in motion-reduce:animate-fade-in'
       )}
     >
-      <span
-        className={cn(
-          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
-          isError ? 'bg-red-500/25 text-red-200' : 'bg-taro-400/25 text-taro-100'
-        )}
-      >
-        <Icon variant={toast.variant} />
-      </span>
-
-      <p className="flex-1 pt-0.5 text-sm font-medium leading-snug">{toast.message}</p>
-
-      {/* 3D close button, matching the app's raised buttons */}
+      <p className="flex-1 text-sm font-medium leading-snug">{toast.message}</p>
       <button
-        aria-label="Dismiss"
+        type="button"
         onClick={() => dismissToast(toast.id)}
         className={cn(
-          'shrink-0 grid h-6 w-6 place-items-center rounded-lg text-current transition-all duration-100',
-          'bg-white/10 hover:bg-white/20 active:translate-y-[2px]',
-          'shadow-[0_2px_0_rgba(0,0,0,0.35)] active:shadow-[0_0_0_rgba(0,0,0,0.35)]'
+          '-my-1 inline-flex min-h-11 shrink-0 items-center rounded-sm text-meta font-semibold underline underline-offset-[3px] sm:min-h-0',
+          isError ? 'text-taro hover:text-taro-hover' : 'text-taro-200 hover:text-white'
         )}
       >
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
-          <path d="M6 6l8 8M14 6l-8 8" strokeLinecap="round" />
-        </svg>
+        Dismiss
       </button>
     </div>
   );
@@ -64,9 +61,12 @@ export function Toaster() {
   useEffect(() => subscribeToasts(setToasts), []);
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-4 bottom-[calc(16px+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:items-end"
+    >
       {toasts.map((t) => (
-        <ToastCard key={t.id} toast={t} />
+        <Toast key={t.id} toast={t} />
       ))}
     </div>
   );

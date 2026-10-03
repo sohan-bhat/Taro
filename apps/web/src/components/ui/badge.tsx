@@ -1,31 +1,28 @@
 import * as React from 'react';
-import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '@/lib/utils';
+import { Status, statusVariants, type StatusTone } from './status';
 
-const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap',
-  {
-    variants: {
-      variant: {
-        default: 'bg-taro-50 text-taro-700 border-taro-200',
-        success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        warning: 'bg-amber-50 text-amber-700 border-amber-200',
-        destructive: 'bg-red-50 text-red-700 border-red-200',
-        info: 'bg-sky-50 text-sky-700 border-sky-200',
-        muted: 'bg-fog-100 text-fog-600 border-fog-200',
-        outline: 'bg-transparent text-fog-500 border-fog-200',
-      },
-    },
-    defaultVariants: { variant: 'default' },
-  }
-);
+// Old Badge variants, mapped onto Status tones. Delete this file once nothing imports it.
+const TONES: Record<BadgeVariant, StatusTone> = {
+  default: 'neutral',
+  success: 'neutral',
+  warning: 'attention',
+  info: 'attention',
+  destructive: 'failed',
+  muted: 'ended',
+  outline: 'ended',
+};
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof badgeVariants> {}
+type BadgeVariant = 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'muted' | 'outline';
 
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  variant?: BadgeVariant | null;
 }
 
-export { Badge, badgeVariants };
+/** @deprecated Use `Status` from components/ui/status. */
+export function Badge({ variant, ...props }: BadgeProps) {
+  return <Status tone={TONES[variant ?? 'default']} {...props} />;
+}
+
+/** @deprecated Use `statusVariants`. */
+export const badgeVariants = ({ variant }: { variant?: BadgeVariant | null } = {}) =>
+  statusVariants({ tone: TONES[variant ?? 'default'] });

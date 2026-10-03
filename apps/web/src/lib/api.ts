@@ -1,252 +1,135 @@
-// Typed API client for the Taro backend.
+// Typed client for the Taro API. The workspace comes from the session token,
+// so no call takes a workspace ID.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+import type {
+  GithubAccountChoice,
+  GithubStatus,
+  LlmProviderId,
+  Meeting,
+  MeetingDetail,
+  ProviderSettings,
+  ServerMeta,
+  SttProviderId,
+  User,
+  Workspace,
+  WorkspaceOverview,
+  WorkspaceRole,
+} from '@taro/shared';
+import { getToken } from './session';
+
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '');
 
 export class ApiError extends Error {
   constructor(
-    public statusCode: number,
+    public status: number,
     public code: string,
-    message: string,
-    public requestId?: string
+    message: string
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-export interface Company {
-  _id: string;
-  name: string;
-  domain: string;
-  licenseKey?: string;
-  onboardedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Meeting {
-  _id: string;
-  companyId: string;
-  meetUrl: string;
-  status: 'pending' | 'joining' | 'active' | 'ended' | 'error';
-  startedByName?: string;
-  archivedAt?: string;
-  transcript?: string;
-  liveTranscript?: string;
-  lastAudioAt?: string;
-  startedAt?: string;
-  endedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ActionLogEntry {
-  _id: string;
-  command: string;
-  intent: {
-    action: string;
-    confidence: number;
-    params?: {
-      channel?: string;
-      message?: string;
-      title?: string;
-      items?: string[];
-    };
-    source?: string;
-  };
-  status: 'success' | 'failed' | 'clarification_needed';
-  result?: string;
-  errorMessage?: string;
-  createdAt: string;
-}
-
-export interface MeetingDetail extends Meeting {
-  actionLogs: ActionLogEntry[];
-}
-
-export interface SlackStatus {
-  connected: boolean;
-  teamName?: string;
-  connectedAt?: string;
-}
-
-export interface GithubStatus {
-  connected: boolean;
-  /** False when the server has no GitHub App credentials yet */
-  configured?: boolean;
-  accountLogin?: string;
-  repo?: string;
-  needsRepo?: boolean;
-  enabledActions?: string[];
-  /** True when a prior installation exists and can be reconnected in one click */
-  reconnectable?: boolean;
-  connectedAt?: string;
-}
-
-// Attaches the workspace access token when present; after activation the license key is never sent again, only this token.
-async function request<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const url = `${API_URL}${endpoint}`;
-
-  const token =
-    typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
-
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      // Without this, ngrok's free tier serves an HTML interstitial instead of JSON. Harmless elsewhere.
-      'ngrok-skip-browser-warning': 'true',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    let errorData: { error?: string; code?: string; requestId?: string } = {};
-    try {
-      errorData = await response.json();
-    } catch {
-      // not JSON, fall through with defaults
-    }
-
-    throw new ApiError(
-      response.status,
-      errorData.code || 'UNKNOWN_ERROR',
-      errorData.error || `Request failed with status ${response.status}`,
-      errorData.requestId
-    );
+async function request<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const token = getToken();
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method: init.method ?? 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        // ngrok's free tier serves an HTML warning page instead of JSON without this
+        'ngrok-skip-browser-warning': 'true',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    });
+  } catch {
+    throw new ApiError(0, 'NETWORK', "Can't reach the Taro server. Check your connection and try again.");
   }
 
-  if (response.status === 204) {
-    return undefined as T;
+  if (res.status === 204) return undefined as T;
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (!res.ok) {
+    throw new ApiError(res.status, data.code || 'ERROR', data.error || `Request failed (${res.status})`);
   }
-
-  return response.json();
+  return data as T;
 }
 
-export interface Activation {
-  company: Company;
-  accessToken: string;
+const origin = () => (typeof window === 'undefined' ? '' : window.location.origin);
+
+export function isSessionError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }
-
-export const companies = {
-  create: (data: { name: string; domain: string; licenseKey: string }): Promise<Activation> =>
-    request('/api/companies', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  get: (id: string): Promise<Company> => request(`/api/companies/${id}`),
-
-  completeOnboarding: (id: string): Promise<Company> =>
-    request(`/api/companies/${id}/onboarding-complete`, { method: 'POST' }),
-};
-
-// The license key is proof of purchase: it activates the workspace once and can recover access; sessions run on access tokens.
-export const auth = {
-  session: (): Promise<{ company: Company }> => request('/api/auth/session'),
-
-  recover: (licenseKey: string): Promise<Activation> =>
-    request('/api/auth/recover', {
-      method: 'POST',
-      body: JSON.stringify({ licenseKey }),
-    }),
-};
-
-export const TOKEN_STORAGE_KEY = 'taro.accessToken';
-// Legacy slot from before access tokens existed, migrated on load
-export const LICENSE_STORAGE_KEY = 'taro.licenseKey';
-
-export interface LicenseLookup {
-  status: 'not_found' | 'unclaimed' | 'claimed';
-  company?: Company;
-}
-
-export const licenses = {
-  lookup: (licenseKey: string): Promise<LicenseLookup> =>
-    request('/api/licenses/lookup', {
-      method: 'POST',
-      body: JSON.stringify({ licenseKey }),
-    }),
-};
-
-export const meetings = {
-  list: (companyId: string, archived = false): Promise<Meeting[]> =>
-    request(`/api/meetings?companyId=${companyId}&archived=${archived ? '1' : '0'}`),
-
-  clearHistory: (): Promise<{ archived: number }> =>
-    request('/api/meetings/clear-history', { method: 'POST' }),
-
-  get: (id: string): Promise<MeetingDetail> => request(`/api/meetings/${id}`),
-
-  create: (data: { companyId: string; meetUrl: string }): Promise<Meeting> =>
-    request('/api/meetings', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  end: (id: string): Promise<Meeting> =>
-    request(`/api/meetings/${id}/end`, { method: 'POST' }),
-};
-
-// OAuth callbacks redirect back to whatever origin we launched from, so the flow returns to this site instead of the API's configured default.
-function returnToParam(): string {
-  if (typeof window === 'undefined') return '';
-  return `&returnTo=${encodeURIComponent(window.location.origin)}`;
-}
-
-export const slack = {
-  status: (companyId: string): Promise<SlackStatus> =>
-    request(`/api/slack/status/${companyId}`),
-
-  getInstallUrl: (companyId: string): string =>
-    `${API_URL}/api/slack/install?companyId=${companyId}${returnToParam()}`,
-
-  disconnect: (companyId: string): Promise<{ message: string }> =>
-    request(`/api/slack/disconnect/${companyId}`, { method: 'DELETE' }),
-};
-
-// GitHub App installation; Taro acts as its own bot, never through a person's account.
-export const github = {
-  status: (companyId: string): Promise<GithubStatus> =>
-    request(`/api/github/status/${companyId}`),
-
-  getInstallUrl: (companyId: string): string =>
-    `${API_URL}/api/github/install?companyId=${companyId}${returnToParam()}`,
-
-  reconnect: (companyId: string): Promise<{ connected: boolean; repo?: string; accountLogin?: string }> =>
-    request('/api/github/reconnect', {
-      method: 'POST',
-      body: JSON.stringify({ companyId }),
-    }),
-
-  repos: (companyId: string): Promise<{ repos: string[] }> =>
-    request(`/api/github/repos/${companyId}`),
-
-  setRepo: (data: { companyId: string; repo: string }): Promise<{ repo: string }> =>
-    request('/api/github/repo', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  setCapabilities: (data: { companyId: string; actions: string[] }): Promise<{ enabledActions: string[] }> =>
-    request('/api/github/capabilities', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  disconnect: (companyId: string): Promise<{ message: string }> =>
-    request(`/api/github/disconnect/${companyId}`, { method: 'DELETE' }),
-};
 
 export const api = {
-  companies,
-  meetings,
-  slack,
-  github,
-  licenses,
-  auth,
+  meta: () => request<ServerMeta>('/api/meta'),
+
+  auth: {
+    slackStartUrl: (nonce: string) =>
+      `${API_URL}/api/auth/slack/start?${new URLSearchParams({ n: nonce, returnTo: origin() })}`,
+    exchange: (code: string) => request<{ token: string }>('/api/auth/exchange', { method: 'POST', body: { code } }),
+    session: () => request<{ workspace: Workspace; me: User }>('/api/auth/session'),
+    logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  },
+
+  workspace: {
+    overview: () => request<WorkspaceOverview>('/api/workspace'),
+    update: (data: { name?: string; botName?: string }) =>
+      request<{ workspace: Workspace }>('/api/workspace', { method: 'PATCH', body: data }),
+    completeOnboarding: () =>
+      request<{ workspace: Workspace }>('/api/workspace/onboarding-complete', { method: 'POST' }),
+    members: () => request<{ members: User[] }>('/api/workspace/members'),
+    setRole: (userId: string, role: WorkspaceRole) =>
+      request<{ member: User }>(`/api/workspace/members/${userId}`, { method: 'PATCH', body: { role } }),
+    removeMember: (userId: string) =>
+      request<{ member: User }>(`/api/workspace/members/${userId}`, { method: 'DELETE' }),
+    restoreMember: (userId: string) =>
+      request<{ member: User }>(`/api/workspace/members/${userId}/restore`, { method: 'POST' }),
+    remove: () => request<void>('/api/workspace', { method: 'DELETE' }),
+  },
+
+  providers: {
+    setMeetingBot: (apiKey: string) =>
+      request<{ providers: ProviderSettings }>('/api/providers/meeting-bot', { method: 'PUT', body: { apiKey } }),
+    setLlm: (data: { provider: LlmProviderId; apiKey?: string; model?: string; baseUrl?: string }) =>
+      request<{ providers: ProviderSettings }>('/api/providers/llm', { method: 'PUT', body: data }),
+    setStt: (data: { provider: SttProviderId; apiKey?: string; useLlmKey?: boolean }) =>
+      request<{ providers: ProviderSettings }>('/api/providers/stt', { method: 'PUT', body: data }),
+    remove: (slot: 'meeting-bot' | 'llm' | 'stt') =>
+      request<{ providers: ProviderSettings }>(`/api/providers/${slot}`, { method: 'DELETE' }),
+  },
+
+  meetings: {
+    list: (archived = false) => request<{ meetings: Meeting[] }>(`/api/meetings?archived=${archived ? '1' : '0'}`),
+    get: (id: string) => request<{ meeting: MeetingDetail }>(`/api/meetings/${id}`),
+    send: (meetingUrl: string) =>
+      request<{ meeting: Meeting; alreadyActive: boolean }>('/api/meetings', { method: 'POST', body: { meetingUrl } }),
+    leave: (id: string) => request<{ meeting: Meeting }>(`/api/meetings/${id}/leave`, { method: 'POST' }),
+    clearHistory: () => request<{ archived: number }>('/api/meetings/clear-history', { method: 'POST' }),
+  },
+
+  slack: {
+    installUrl: () =>
+      request<{ url: string }>('/api/slack/install-url', { method: 'POST', body: { returnTo: origin() } }),
+    disconnect: () => request<{ connected: boolean }>('/api/slack', { method: 'DELETE' }),
+  },
+
+  github: {
+    installUrl: (mode: 'install' | 'connect' = 'install') =>
+      request<{ url: string }>('/api/github/install-url', { method: 'POST', body: { returnTo: origin(), mode } }),
+    connect: (token: string, installationId?: string) =>
+      request<{ connected: boolean; choices?: GithubAccountChoice[] }>('/api/github/connect', {
+        method: 'POST',
+        body: { token, ...(installationId ? { installationId } : {}) },
+      }),
+    repos: () => request<{ repos: string[] }>('/api/github/repos'),
+    setRepo: (repo: string) => request<{ repo: string }>('/api/github/repo', { method: 'POST', body: { repo } }),
+    setCapabilities: (actions: string[]) =>
+      request<{ enabledActions: string[] }>('/api/github/capabilities', { method: 'POST', body: { actions } }),
+    reconnect: () => request<{ connected: boolean }>('/api/github/reconnect', { method: 'POST' }),
+    disconnect: () => request<{ connected: boolean }>('/api/github', { method: 'DELETE' }),
+  },
 };
+
+export type { GithubStatus, Meeting, MeetingDetail, ProviderSettings, User, Workspace, WorkspaceOverview };

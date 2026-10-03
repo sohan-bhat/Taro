@@ -1,40 +1,41 @@
 import './globals.css';
-import type { Metadata } from 'next';
-import { Sora, Gabarito, JetBrains_Mono } from 'next/font/google';
+import type { Metadata, Viewport } from 'next';
+import { codeFace, recordFace, saidFace } from './fonts';
 import { Toaster } from '@/components/ui/toaster';
 
-const sora = Sora({
-  subsets: ['latin'],
-  weight: ['600', '700'],
-  variable: '--font-sora',
-});
-
-// Gabarito's regular weight has thick strokes, so body text reads sturdy without being set bold
-const gabarito = Gabarito({
-  subsets: ['latin'],
-  variable: '--font-gabarito',
-});
-
-const jetbrains = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
-  variable: '--font-jetbrains',
-});
+// Runs before first paint so signed-in visitors never see "Sign in with Slack" flash into "Open your dashboard".
+const SESSION_SCRIPT = `try{if(localStorage.getItem('taro.session'))document.documentElement.dataset.session='in'}catch(e){}`;
 
 export const metadata: Metadata = {
-  title: 'Taro, the meeting assistant that listens',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
+  title: { default: 'Taro, a voice assistant for your meetings', template: '%s · Taro' },
   description:
-    'Taro joins your meetings, listens for "Hey Taro", and does the work in Slack and GitHub while you keep talking.',
+    'Say “Hey Taro” in Google Meet, Zoom, or Teams and Taro does the work in Slack and GitHub while everyone keeps talking. Free to use with your own meeting bot and AI keys.',
+  openGraph: {
+    title: 'Taro, a voice assistant for your meetings',
+    description: 'Say “Hey Taro” in your call and Taro does the work in Slack and GitHub while everyone keeps talking.',
+    type: 'website',
+    siteName: 'Taro',
+  },
+  twitter: { card: 'summary_large_image' },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = { themeColor: '#F4F0F6', viewportFit: 'cover' };
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sora.variable} ${gabarito.variable} ${jetbrains.variable}`}>
-      <body className="bg-fog-50 text-fog-900 font-sans min-h-screen antialiased">
+    // suppressHydrationWarning covers only the data-session attribute the head script adds
+    <html lang="en" suppressHydrationWarning className={`${saidFace.variable} ${recordFace.variable} ${codeFace.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SESSION_SCRIPT }} />
+      </head>
+      <body className="min-h-screen bg-poi font-sans text-ink antialiased">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-control focus:bg-paper focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-taro focus:shadow-menu"
+        >
+          Skip to content
+        </a>
         {children}
         <Toaster />
       </body>

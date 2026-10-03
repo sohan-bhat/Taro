@@ -1,16 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
-  <rect width="1024" height="1024" fill="#4E3564"/>
-  <g fill="#F7F5FB" stroke="#F7F5FB" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M512 292 C600 298 714 418 714 566 C714 702 620 802 512 802 C404 802 310 702 310 566 C310 418 424 298 512 292 Z" stroke="none"/>
-    <path d="M512 300 V176" fill="none" stroke-width="30"/>
-    <path d="M512 232 L436 180" fill="none" stroke-width="30"/>
-    <path d="M512 232 L588 180" fill="none" stroke-width="30"/>
-  </g>
-  <g fill="#4E3564">
-    <rect x="371" y="502" width="34" height="96" rx="17"/>
-    <rect x="433" y="475" width="34" height="150" rx="17"/>
-    <rect x="495" y="455" width="34" height="190" rx="17"/>
-    <rect x="557" y="475" width="34" height="150" rx="17"/>
-    <rect x="619" y="502" width="34" height="96" rx="17"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#4E3564"/><g transform="translate(4.48 0.56) scale(0.72)"><g fill="none" stroke="#F4F0F6" stroke-width="3.4" stroke-linecap="round"><path d="M16 9.5V3"/><path d="M16 6L11.8 3.2"/><path d="M16 6L20.2 3.2"/></g><path fill="#F4F0F6" fill-rule="evenodd" d="M16 8.42C21.63 8.81 28.93 16.49 28.93 25.96C28.93 34.66 22.91 41.06 16 41.06C9.09 41.06 3.07 34.66 3.07 25.96C3.07 16.49 10.37 8.81 16 8.42Z M7.6 22.6a2.1 2.1 0 0 1 4.2 0v5.6a2.1 2.1 0 0 1 -4.2 0Z M13.9 19.9a2.1 2.1 0 0 1 4.2 0v11a2.1 2.1 0 0 1 -4.2 0Z M20.2 22.6a2.1 2.1 0 0 1 4.2 0v5.6a2.1 2.1 0 0 1 -4.2 0Z"/></g></svg>
