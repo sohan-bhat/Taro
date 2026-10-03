@@ -1,35 +1,43 @@
 /**
- * Realtime meeting sessions. MeetingBaas dials our WebSocket endpoint
- * (one shared bidirectional socket, the same shape its own reference bots
- * use) and streams 16 kHz s16le mono audio as binary frames plus speaker
- * roster updates as JSON text frames. We push the confirmation ding back
- * on the same socket.
+ * Realtime meeting sessions. MeetingBaas dials our WebSocket endpoints and
+ * streams 16 kHz s16le mono audio as binary frames (plus roster updates as
+ * text frames); we push the confirmation ding back the same way.
  *
- * MeetingBaas connects while the bot is still in the lobby and reconnects
- * on the lobby -> admitted transition, so a session must outlive any single
- * socket: it only closes after a grace period with no sockets attached.
+ * MeetingBaas connects while the bot is still in the lobby and reconnects on
+ * the lobby to admitted transition, so a session outlives any single socket
+ * and only closes after a grace period with no sockets attached.
  *
- * Audio -> sherpa-onnx streaming ASR -> finalized utterances -> wake-word
- * scan -> execute command mid-meeting -> ding + Slack thread reply.
+ * Audio -> the workspace's transcription -> finalized utterances -> wake-word
+ * scan -> the workspace's AI model -> action -> ding + Slack thread reply.
  */
 
 import type { WebSocket } from 'ws';
+import { COPY } from '@taro/shared';
 import { MeetingModel } from '../db/models';
-import { createAsrBackend, asrBackendLabel, type AsrBackend } from './asrBackend';
+import { safeEqual, sha256 } from '../lib/crypto';
+import { log, errorMessage } from '../lib/logger';
+import { createSttBackend, type SttBackend } from './stt';
 import { makeDingPcm } from './audio';
 import { extractCommands } from './transcript';
 import { executeCommand } from './executor';
 import { SlackService } from './slack';
-import { debugLog, captureAudio } from './debugLog';
+import { loadProviders } from './workspaceProviders';
+import type { LlmConfig } from './llm';
+import { debugLog } from './debugLog';
 
 // Rolling window of finalized speech kept per meeting for wake-word scans
 const MAX_ROLLING_CHARS = 1000;
 // How long a session waits for MeetingBaas to reconnect before giving up
 const RECONNECT_GRACE_MS = 60_000;
 const HEARTBEAT_MS = 30_000;
-// Wait for speech to settle after a wake phrase before executing, so a command
-// spoken across several finalized utterances assembles into one.
+// Wait for speech to settle after a wake phrase so a command spoken across
+// several utterances assembles into one before it runs.
 const COMMAND_DEBOUNCE_MS = 2_800;
+
+// The stale sweep's thresholds. A bot waits at most 10 minutes in a lobby
+// (see timeout_config in meetingbaas.ts), so 45 minutes with no audio at all is safe.
+const STALE_AUDIO_MS = 10 * 60 * 1000;
+const NEVER_ADMITTED_MS = 45 * 60 * 1000;
 
 const DING_PCM = makeDingPcm();
 
@@ -45,7 +53,8 @@ class RealtimeSession {
   private companyId: string | null = null;
   private slackChannelId?: string;
   private slackThreadTs?: string;
-  private backend: AsrBackend | null = null;
+  private llm: LlmConfig | null = null;
+  private backend: SttBackend | null = null;
   private rollingText = '';
   private liveTranscript = '';
   private executed = new Set<string>();
@@ -62,6 +71,7 @@ class RealtimeSession {
   private graceTimer: NodeJS.Timeout | null = null;
   private heartbeat: NodeJS.Timeout | null = null;
   private lastLivenessWrite = 0;
+  private reportedFatal = false;
 
   constructor(
     meetingId: string,
@@ -73,18 +83,29 @@ class RealtimeSession {
   async init(): Promise<boolean> {
     const meeting = await MeetingModel.findById(this.meetingId);
     if (!meeting) {
-      console.error(`[Realtime] No meeting found for ${this.meetingId}`);
+      log.warn(`[Realtime] No meeting found for ${this.meetingId}`);
       return false;
     }
     this.companyId = meeting.companyId;
     this.slackChannelId = meeting.slackChannelId ?? undefined;
     this.slackThreadTs = meeting.slackThreadTs ?? undefined;
-    this.backend = createAsrBackend((text) => this.handleUtterance(text));
+    // Picking up after a restart or a long reconnect: keep what was already heard
+    this.liveTranscript = meeting.liveTranscript ?? '';
+    this.markedActive = meeting.status === 'active';
+
+    const providers = await loadProviders(meeting.companyId);
+    this.llm = providers?.llm ?? null;
+    this.backend = createSttBackend(
+      providers?.stt ?? null,
+      (text) => this.handleUtterance(text),
+      (message) => this.reportFatal(message)
+    );
     if (!this.backend) {
-      console.warn('[Realtime] ASR unavailable - live commands disabled for this meeting');
+      log.warn(`[Realtime] Meeting ${this.meetingId} has no transcription configured, so live commands are off`);
+      this.reportFatal(COPY.noTranscription);
       return false;
     }
-    console.log(`[Realtime] Session started for meeting ${this.meetingId} (ASR: ${asrBackendLabel()})`);
+    log.info(`[Realtime] Session started for meeting ${this.meetingId} (${this.backend.label})`);
     debugLog({ event: 'session_start', meetingId: this.meetingId });
     this.heartbeat = setInterval(() => {
       debugLog({
@@ -95,6 +116,7 @@ class RealtimeSession {
         bytes: this.bytes,
       });
     }, HEARTBEAT_MS);
+    this.heartbeat.unref();
     return true;
   }
 
@@ -109,36 +131,28 @@ class RealtimeSession {
 
     socket.on('message', (data: Buffer, isBinary: boolean) => {
       if (isBinary) {
+        // Whichever socket delivers audio first is the source; the other carries the ding.
         if (this.audioSourceId === null) {
           this.audioSourceId = id;
-          console.log(`[Realtime] Meeting audio arrives on socket #${id} (${direction})`);
           debugLog({ event: 'audio_source', meetingId: this.meetingId, direction, id });
         }
-        if (this.audioSourceId === id) {
-          this.onAudio(data);
-        }
+        if (this.audioSourceId === id) this.onAudio(data);
         return;
       }
-      // Text frames: the stream header, then speaker roster updates
-      const text = data.toString();
-      console.log(`[Realtime] Event (${direction}): ${text.slice(0, 160)}`);
-      debugLog({ event: 'text_frame', meetingId: this.meetingId, direction, id, raw: text.slice(0, 500) });
+      debugLog({ event: 'text_frame', meetingId: this.meetingId, direction, id, raw: data.toString().slice(0, 500) });
     });
 
     socket.on('close', () => {
       debugLog({ event: 'socket_closed', meetingId: this.meetingId, direction, id });
       this.sockets.delete(id);
-      if (this.audioSourceId === id) {
-        // The next socket to deliver audio becomes the source
-        this.audioSourceId = null;
-      }
+      if (this.audioSourceId === id) this.audioSourceId = null;
       if (this.sockets.size === 0) {
         this.graceTimer = setTimeout(() => this.close(), RECONNECT_GRACE_MS);
       }
     });
 
     socket.on('error', (error: Error) => {
-      console.error(`[Realtime] Socket error (${direction}) for ${this.meetingId}:`, error.message);
+      log.warn(`[Realtime] Socket error (${direction}) for ${this.meetingId}: ${error.message}`);
     });
   }
 
@@ -147,7 +161,6 @@ class RealtimeSession {
 
     this.frames += 1;
     this.bytes += chunk.length;
-    captureAudio(this.meetingId, chunk);
     if (!this.markedActive) {
       this.markedActive = true;
       MeetingModel.updateOne(
@@ -155,28 +168,11 @@ class RealtimeSession {
         { status: 'active', startedAt: new Date() }
       ).catch(() => {});
     }
-    // Liveness for the dashboard: "audio is reaching Taro right now"
+    // Liveness for the dashboard ("audio is reaching Taro right now"), throttled
     const now = Date.now();
     if (now - this.lastLivenessWrite > 3000) {
       this.lastLivenessWrite = now;
       MeetingModel.updateOne({ _id: this.meetingId }, { lastAudioAt: new Date(now) }).catch(() => {});
-    }
-    if (this.frames === 1 || this.frames % 200 === 0) {
-      // Sampled mean amplitude: 0 = pure silence arriving
-      let sum = 0;
-      let n = 0;
-      for (let i = 0; i + 1 < chunk.length; i += 100) {
-        sum += Math.abs(chunk.readInt16LE(i));
-        n += 1;
-      }
-      debugLog({
-        event: 'audio_stats',
-        meetingId: this.meetingId,
-        frames: this.frames,
-        bytes: this.bytes,
-        chunkBytes: chunk.length,
-        meanAbs: n ? Math.round(sum / n) : 0,
-      });
     }
 
     this.backend.push(chunk);
@@ -185,7 +181,7 @@ class RealtimeSession {
   private handleUtterance(finalized: string) {
     if (this.closed) return;
 
-    console.log(`[Realtime] Utterance: "${finalized}"`);
+    log.debug(`[Realtime] Utterance: "${finalized}"`);
     debugLog({ event: 'utterance', meetingId: this.meetingId, text: finalized });
     this.liveTranscript = `${this.liveTranscript} ${finalized}`.trim();
     this.rollingText = `${this.rollingText} ${finalized}`.trim().slice(-MAX_ROLLING_CHARS);
@@ -194,8 +190,8 @@ class RealtimeSession {
       { liveTranscript: this.liveTranscript.slice(-4000), lastAudioAt: new Date() }
     ).catch(() => {});
 
-    // Re-arm the debounce on the latest wake phrase's command-so-far, so fragmented
-    // utterances only execute once the speaker pauses.
+    // Re-arm the debounce on the latest wake phrase, so fragmented utterances
+    // only execute once the speaker pauses.
     const commands = extractCommands(this.rollingText);
     if (commands.length > 0) {
       const latest = commands[commands.length - 1];
@@ -213,14 +209,14 @@ class RealtimeSession {
     this.pendingCommand = null;
     if (!command || this.executed.has(command)) return;
     this.executed.add(command);
-    // Reset the wake-scan buffer so the same wake phrase can't re-fire.
+    // Reset the wake-scan buffer so the same wake phrase can't fire twice.
     this.rollingText = '';
     this.executing = this.executing.then(() => this.runCommand(command));
   }
 
   private async runCommand(command: string) {
     if (!this.companyId) return;
-    console.log(`[Realtime] 🎤 Live command: "${command}"`);
+    log.debug(`[Realtime] Live command for ${this.meetingId}: "${command}"`);
     debugLog({ event: 'live_command', meetingId: this.meetingId, command });
 
     const result = await executeCommand(
@@ -228,38 +224,40 @@ class RealtimeSession {
       this.companyId,
       command,
       'live',
-      this.liveTranscript.slice(-3000)
+      this.liveTranscript.slice(-3000),
+      this.llm
     );
-    console.log(`[Realtime] ${result.summary}`);
+    log.info(`[Realtime] Command in ${this.meetingId} finished: ${result.status}`);
     debugLog({ event: 'command_result', meetingId: this.meetingId, status: result.status, summary: result.summary });
 
-    if (result.status === 'success') {
-      this.playDing();
-    }
+    if (result.status === 'success') this.playDing();
     // Tell the thread right away instead of waiting for the meeting to end
     this.postThreadUpdate(result.summary).catch((error) =>
-      console.error('[Realtime] Thread update failed:', error)
+      log.warn('[Realtime] Thread update failed:', errorMessage(error))
     );
   }
 
-  private async postThreadUpdate(summary: string) {
+  private reportFatal(message: string) {
+    if (this.reportedFatal) return;
+    this.reportedFatal = true;
+    MeetingModel.updateOne({ _id: this.meetingId }, { errorMessage: message }).catch(() => {});
+    this.postThreadUpdate(message).catch(() => {});
+  }
+
+  private async postThreadUpdate(text: string) {
     if (!this.companyId || !this.slackChannelId || !this.slackThreadTs) return;
     const slack = await SlackService.fromCompanyId(this.companyId);
     if (!slack) return;
-    await slack.postToChannelId(this.slackChannelId, `🎤 ${summary}`, this.slackThreadTs);
+    await slack.postToChannelId(this.slackChannelId, text, this.slackThreadTs);
   }
 
   private playDing() {
     // Prefer a socket other than the audio source; on a single shared socket
     // the audio socket is also the way back in.
-    const open = [...this.sockets.entries()].filter(
-      ([, a]) => a.socket.readyState === a.socket.OPEN
-    );
+    const open = [...this.sockets.entries()].filter(([, a]) => a.socket.readyState === a.socket.OPEN);
     let targets = open.filter(([id]) => id !== this.audioSourceId);
     if (targets.length === 0) targets = open;
-
     if (targets.length === 0) {
-      console.log('[Realtime] No stream connected - skipping ding');
       debugLog({ event: 'ding_skipped', meetingId: this.meetingId });
       return;
     }
@@ -267,16 +265,10 @@ class RealtimeSession {
       try {
         a.socket.send(DING_PCM);
       } catch (error) {
-        console.error('[Realtime] Failed to send ding:', error);
+        log.warn('[Realtime] Failed to send ding:', errorMessage(error));
       }
     }
-    console.log('[Realtime] 🔔 Ding sent to meeting');
     debugLog({ event: 'ding_sent', meetingId: this.meetingId, targets: targets.map(([, a]) => a.direction) });
-  }
-
-  /** Used by the webhook to skip re-executing commands already run live. */
-  get liveCommandCount(): number {
-    return this.executed.size;
   }
 
   close() {
@@ -284,13 +276,13 @@ class RealtimeSession {
     this.closed = true;
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.graceTimer) clearTimeout(this.graceTimer);
-    // Execute anything still pending (speaker finished right as the call ended)
+    // Run anything still pending (the speaker finished right as the call ended)
     if (this.commandTimer) {
       clearTimeout(this.commandTimer);
       this.flushCommand();
     }
     this.backend?.destroy();
-    console.log(
+    log.info(
       `[Realtime] Session closed for meeting ${this.meetingId} ` +
         `(${this.executed.size} live command(s), ${this.liveTranscript.length} chars heard)`
     );
@@ -300,29 +292,41 @@ class RealtimeSession {
       frames: this.frames,
       bytes: this.bytes,
       liveCommands: this.executed.size,
-      heard: this.liveTranscript.slice(0, 2000),
     });
-    // The audio socket dropping (after the reconnect grace) is our reliable "call
-    // over" signal, since v2 doesn't always send bot.completed.
-    MeetingModel.updateOne(
-      { _id: this.meetingId, status: { $in: ['pending', 'joining', 'active'] } },
-      { status: 'ended', endedAt: new Date() }
-    ).catch(() => {});
+    // Status is deliberately left alone: a quiet socket or a deploy isn't the end of
+    // the call. bot.completed, "Make Taro leave", or the stale sweep ends it.
     this.onClosed();
   }
 }
 
 class RealtimeSessionManager {
   private sessions = new Map<string, RealtimeSession>();
+  private initializing = new Map<string, Promise<RealtimeSession | null>>();
+
+  /** Only MeetingBaas, holding this meeting's secret, may open its audio sockets. */
+  async authorize(meetingId: string, token: string): Promise<boolean> {
+    const meeting = await MeetingModel.findById(meetingId).select('+secretHash status');
+    if (!meeting?.secretHash) return false;
+    if (meeting.status === 'ended' || meeting.status === 'error') return false;
+    return safeEqual(sha256(token), meeting.secretHash);
+  }
 
   async handleConnection(meetingId: string, direction: Direction, socket: WebSocket) {
     let session = this.sessions.get(meetingId);
     if (!session) {
-      session = new RealtimeSession(meetingId, () => this.sessions.delete(meetingId));
-      this.sessions.set(meetingId, session);
-      const ok = await session.init();
-      if (!ok) {
-        this.sessions.delete(meetingId);
+      // MeetingBaas opens the in and out sockets together; share one init between them.
+      let pending = this.initializing.get(meetingId);
+      if (!pending) {
+        pending = (async () => {
+          const created = new RealtimeSession(meetingId, () => this.sessions.delete(meetingId));
+          const ok = await created.init();
+          if (ok) this.sessions.set(meetingId, created);
+          return ok ? created : null;
+        })().finally(() => this.initializing.delete(meetingId));
+        this.initializing.set(meetingId, pending);
+      }
+      session = (await pending) ?? undefined;
+      if (!session) {
         socket.close();
         return;
       }
@@ -330,8 +334,38 @@ class RealtimeSessionManager {
     session.addSocket(direction, socket);
   }
 
-  liveCommandCount(meetingId: string): number {
-    return this.sessions.get(meetingId)?.liveCommandCount ?? 0;
+  get activeCount(): number {
+    return this.sessions.size;
+  }
+
+  /**
+   * Ends meetings whose audio stopped without a completion callback (the bot
+   * was removed, the call died), so they don't show as live forever. Meetings
+   * with a session on this instance are left alone.
+   */
+  async sweepStale(): Promise<void> {
+    const now = Date.now();
+    const stale = await MeetingModel.find({
+      status: { $in: ['pending', 'joining', 'active'] },
+      $or: [
+        { lastAudioAt: { $lt: new Date(now - STALE_AUDIO_MS) } },
+        { lastAudioAt: { $exists: false }, createdAt: { $lt: new Date(now - NEVER_ADMITTED_MS) } },
+      ],
+    })
+      .select('_id')
+      .limit(500)
+      .lean();
+    const ids = stale.map((m) => String(m._id)).filter((id) => !this.sessions.has(id));
+    if (ids.length === 0) return;
+    await MeetingModel.updateMany(
+      { _id: { $in: ids }, status: { $in: ['pending', 'joining', 'active'] } },
+      { status: 'ended', endedAt: new Date(now) }
+    );
+    log.info(`[Realtime] Closed out ${ids.length} meeting(s) that stopped sending audio`);
+  }
+
+  closeAll() {
+    for (const session of this.sessions.values()) session.close();
   }
 }
 

@@ -1,24 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeChannel, channelDistance } from './slack';
+import { matchChannel } from './slack';
 
-// Mirrors resolveChannel's matching: exact, then closest within tolerance.
-function resolve(spoken: string, channels: string[]): string | null {
-  const target = normalizeChannel(spoken);
-  const exact = channels.find((c) => normalizeChannel(c) === target);
-  if (exact) return exact;
-  let best: string | null = null;
-  let bestD = Infinity;
-  for (const c of channels) {
-    const d = channelDistance(target, normalizeChannel(c));
-    if (d < bestD) {
-      bestD = d;
-      best = c;
-    }
-  }
-  const tolerance = Math.max(1, Math.floor(target.length / 4));
-  return best && bestD <= tolerance ? best : null;
-}
+const resolve = (spoken: string, channels: string[]) =>
+  matchChannel(spoken, channels.map((name) => ({ name })))?.channel.name ?? null;
 
 const CHANNELS = ['social', 'general', 'g-meet-links', 'new-channel', 'engineering'];
 
@@ -45,4 +30,9 @@ test('genuinely different name does not false-match', () => {
 test('both singular exact and plural present: exact wins', () => {
   assert.equal(resolve('social', ['social', 'socials']), 'social');
   assert.equal(resolve('socials', ['social', 'socials']), 'socials');
+});
+
+test('a name with nothing left after normalizing matches nothing', () => {
+  assert.equal(resolve('#', ['a', 'general']), null);
+  assert.equal(resolve('  ', ['a']), null);
 });

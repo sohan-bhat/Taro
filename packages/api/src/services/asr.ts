@@ -10,12 +10,10 @@ import path from 'path';
 import fs from 'fs';
 import { SAMPLE_RATE } from './audio';
 
-// sherpa-onnx-node ships no TypeScript types
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const MODEL_DIR = path.resolve(
-  __dirname,
-  '../../models/sherpa-onnx-streaming-zipformer-en-2023-06-26'
-);
+// Resolved from the working directory (packages/api in development) so it also works from the built bundle.
+const MODEL_DIR =
+  process.env.ASR_MODEL_DIR ||
+  path.resolve(process.cwd(), 'models/sherpa-onnx-streaming-zipformer-en-2023-06-26');
 
 export interface AsrStream {
   /** Feed s16le-derived Float32 samples; returns finalized utterance text when an endpoint (pause) is reached, else null */
@@ -113,11 +111,7 @@ function getRecognizer(): SherpaOnlineRecognizer | null {
     sherpa = require('sherpa-onnx-node');
   } catch (error) {
     loadFailed = true;
-    console.error('═'.repeat(60));
-    console.error('[ASR] ❌ Failed to load sherpa-onnx native module - realtime commands DISABLED.');
-    console.error('[ASR] Post-meeting command processing still works.');
-    console.error('[ASR]', error instanceof Error ? error.message : error);
-    console.error('═'.repeat(60));
+    console.error('[ASR] Could not load the sherpa-onnx native module, so local transcription is off:', error instanceof Error ? error.message : error);
     return null;
   }
 
@@ -135,13 +129,8 @@ function getRecognizer(): SherpaOnlineRecognizer | null {
   }
 
   loadFailed = true;
-  console.error('[ASR] ❌ All recognizer configs failed - realtime commands DISABLED.');
+  console.error('[ASR] Every sherpa-onnx config failed to load, so local transcription is off.');
   return null;
-}
-
-/** Whether the local ASR engine is available (models present, native lib loads). */
-export function asrAvailable(): boolean {
-  return getRecognizer() !== null;
 }
 
 export function createAsrStream(): AsrStream | null {

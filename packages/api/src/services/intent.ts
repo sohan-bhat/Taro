@@ -1,18 +1,7 @@
-import { GoogleGenAI, Type } from '@google/genai';
-import type { ParsedIntent } from '@taro/shared';
-import { INTENTS } from '@taro/shared';
-
-// Fast, cheap, and safely past the Oct 2026 gemini-2.5 shutdown
-const DEFAULT_MODEL = 'gemini-3.6-flash';
-
-let client: GoogleGenAI | null = null;
-function getClient(): GoogleGenAI | null {
-  if (!process.env.GOOGLE_API_KEY) return null;
-  if (!client) {
-    client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
-  }
-  return client;
-}
+import type { LlmProviderId, ParsedIntent } from '@taro/shared';
+import { COPY, INTENTS, cleanDashes } from '@taro/shared';
+import { completeJson, LlmError, type LlmConfig } from './llm';
+import { log } from '../lib/logger';
 
 // Regex fallback for when no LLM is reachable. Handles the common commands only.
 export function parseIntentSimple(command: string): ParsedIntent {
@@ -124,45 +113,7 @@ export function parseIntentSimple(command: string): ParsedIntent {
   };
 }
 
-// Structured output schema. Gemini must return exactly this shape.
-const RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    action: {
-      type: Type.STRING,
-      enum: [
-        'post_message',
-        'create_todo_list',
-        'create_github_issue',
-        'comment_github',
-        'close_github_issue',
-        'reopen_github_issue',
-        'label_github_issue',
-        'assign_github_issue',
-        'close_pull_request',
-        'merge_pull_request',
-        'request_github_review',
-        'create_pull_request',
-        'unknown',
-      ],
-    },
-    confidence: { type: Type.NUMBER },
-    channel: { type: Type.STRING },
-    message: { type: Type.STRING },
-    title: { type: Type.STRING },
-    items: { type: Type.ARRAY, items: { type: Type.STRING } },
-    body: { type: Type.STRING },
-    issueNumber: { type: Type.NUMBER },
-    labels: { type: Type.ARRAY, items: { type: Type.STRING } },
-    assignees: { type: Type.ARRAY, items: { type: Type.STRING } },
-    reviewers: { type: Type.ARRAY, items: { type: Type.STRING } },
-    branch: { type: Type.STRING },
-    reason: { type: Type.STRING },
-  },
-  required: ['action', 'confidence'],
-};
-
-const SYSTEM_PROMPT = `You are Taro, a voice-activated meeting assistant. You receive raw speech-to-text of a spoken command and extract the intent.
+export const SYSTEM_PROMPT = `You are Taro, a voice-activated meeting assistant. You receive raw speech-to-text of a spoken command and extract the intent.
 
 You are given the recent MEETING TRANSCRIPT plus the specific COMMAND the user spoke after saying "Hey Taro". Reason over the whole conversation like a smart teammate would, not just the command words in isolation.
 
@@ -189,10 +140,11 @@ There is one configured repo, so never extract a repo or channel for GitHub acti
 - "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
 WRITING CONTENT (produce final, publishable content, never placeholders or raw transcript):
-- create_github_issue / create_pull_request: "title" is a short imperative summary. "body" is REQUIRED and must be real GitHub-flavored markdown, never a single short phrase, never a copy of the title, never empty. Always include a "## Summary" of two to three full sentences describing the problem or request grounded in the discussion. When specifics were mentioned (browsers, error codes, pages, affected users, people), add a "## Details" section as a bullet list. For a pull request, add a "## Changes" section as a markdown checklist ("- [ ] ...") of the work being proposed. If little detail was given, still write a proper Summary but do not invent facts, just omit the Details section. A body like "customer dissatisfaction" is WRONG; write it up like a real engineer filing the ticket.
+- create_github_issue / create_pull_request: "title" is a short imperative summary. "body" is REQUIRED and must be real GitHub-flavored markdown, never a single short phrase, never a copy of the title, never empty. Always include a "## Summary" of two to three full sentences describing the problem or request grounded in the discussion. When specifics were mentioned (browsers, error codes, pages, affected customers), add a "## Details" section as a bullet list. For a pull request, add a "## Changes" section as a markdown checklist ("- [ ] ...") of the work being proposed. If little detail was given, still write a proper Summary but do not invent facts, just omit the Details section. A body like "customer dissatisfaction" is WRONG; write it up like a real engineer filing the ticket.
 - comment_github: "body" is a clean, professional comment.
 - post_message: if the user dictated a message, clean it up; if they asked you to WRITE something (an opinion, statement, announcement, summary), actually author it well for a workplace Slack channel.
 - create_todo_list: "items" are clean, deduplicated imperative tasks.
+- Everywhere: Write every field (message, title, body, items, comment, reason) as plain sentences. Never use em dashes or en dashes; use a comma, a period, or the word 'to'. Never name who said something. Markdown headings, lists, and checklists in a body are fine; the sentences inside them follow the same rule.
 
 Channel rules:
 - Slack channel names are lowercase with hyphens. Normalize: "the Engineering channel" -> "engineering", "X Y Z channel" (spelled out letters) -> "xyz", "project updates" -> "project-updates" only if clearly one channel name.
@@ -209,10 +161,10 @@ Input: "um create a to-do list in engineering about uh testing the webhook and a
 Output: {"action":"create_todo_list","confidence":0.85,"channel":"engineering","items":["Test the webhook","Update the docs"]}
 
 Input: "file a github issue about the login button being broken on safari it throws a 500 when you click it"
-Output: {"action":"create_github_issue","confidence":0.9,"title":"Login button returns a 500 on Safari","body":"## Summary\nThe login button is broken on Safari. Clicking it returns an HTTP 500 instead of signing the user in, which blocks Safari users from logging in entirely.\n\n## Details\n- Browser: Safari\n- Action: clicking the login button\n- Result: HTTP 500 error\n\nRaised during a meeting."}
+Output: {"action":"create_github_issue","confidence":0.9,"title":"Login button returns a 500 on Safari","body":"## Summary\nThe login button is broken on Safari. Clicking it returns an HTTP 500 instead of signing the user in, which blocks Safari users from logging in entirely.\n\n## Details\n- Browser: Safari\n- Action: clicking the login button\n- Result: HTTP 500 error"}
 
 Input: "hey uh open an issue that we need dark mode on the dashboard"
-Output: {"action":"create_github_issue","confidence":0.85,"title":"Add dark mode to the dashboard","body":"## Summary\nThe team wants a dark mode option for the dashboard so it is comfortable to use in low-light settings and matches the rest of the product. Requested during a meeting."}
+Output: {"action":"create_github_issue","confidence":0.85,"title":"Add dark mode to the dashboard","body":"## Summary\nThe dashboard needs a dark mode so it is comfortable to use in low light and matches the rest of the product."}
 
 Input: "comment on issue twelve saying we'll pick this up next sprint"
 Output: {"action":"comment_github","confidence":0.9,"issueNumber":12,"body":"We'll pick this up next sprint."}
@@ -244,58 +196,107 @@ Output: {"action":"request_github_review","confidence":0.9,"issueNumber":15,"rev
 Input: "make a new branch and open a pull request titled mobile update changes"
 Output: {"action":"create_pull_request","confidence":0.9,"title":"Mobile update changes","body":"## Summary\nOpen a pull request to track the mobile updates discussed in the meeting so the changes can be reviewed before they land.\n\n## Changes\n- [ ] Apply the mobile layout updates\n- [ ] Verify the screens on small viewports"}
 
-Input (transcript mentions: "we keep hearing customers are unhappy with how slow the reports page loads") COMMAND: "hey taro make a pull request to fix that for main"
-Output: {"action":"create_pull_request","confidence":0.85,"title":"Improve reports page load time","body":"## Summary\nCustomers report that the reports page loads too slowly, which is driving dissatisfaction. This PR tracks the work to investigate and speed up the reports page.\n\n## Changes\n- [ ] Profile the reports page load\n- [ ] Address the slowest queries or renders\n- [ ] Confirm the page loads noticeably faster"}
+Input (transcript mentions: "the reports page is still slow, I'd profile it before we touch the queries") COMMAND: "hey taro open a pull request to speed up the reports page"
+Output: {"action":"create_pull_request","confidence":0.88,"title":"Speed up the reports page","body":"## Summary\nThe reports page loads too slowly. This tracks the work to profile it and speed it up before anyone changes the queries.\n\n## Changes\n- [ ] Profile the reports page load\n- [ ] Fix the slowest queries or renders\n- [ ] Confirm the page loads faster"}
 
-Input (transcript mentions: "Sarah: the export keeps timing out on large accounts, it 500s after 30 seconds") COMMAND: "hey taro make an issue about that"
-Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"## Summary\nThe export consistently times out for large accounts. It returns an HTTP 500 after roughly 30 seconds, so customers with large accounts cannot export their data.\n\n## Details\n- Affected: large accounts\n- Symptom: request 500s after about 30 seconds\n- Reported by: Sarah\n\nRaised during a meeting."}
+Input (transcript mentions: "the export keeps timing out for our biggest customers. same on northwind, it fails after about thirty seconds") COMMAND: "hey taro file an issue about that"
+Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"## Summary\nThe export times out for our largest customers. It fails after roughly 30 seconds, so those customers can't export their data.\n\n## Details\n- Affected: large accounts, including Northwind\n- Symptom: the export fails after about 30 seconds"}
 
 Input: "what's the weather like"
-Output: {"action":"unknown","confidence":0.2,"reason":"That is not something I can do, I can post to Slack, manage GitHub issues and PRs, or make a todo list."}`;
+Output: {"action":"unknown","confidence":0.2,"reason":"I can't check the weather. I can post in Slack, make a checklist, or work on GitHub issues and pull requests."}`;
 
-const GROQ_LLM_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_LLM_MODEL = process.env.GROQ_LLM_MODEL || 'openai/gpt-oss-120b';
+// One schema for every provider with structured output (Claude, Gemini). The
+// OpenAI-compatible providers run in JSON mode, so buildIntent re-validates.
+const INTENT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['action', 'confidence'],
+  properties: {
+    action: { type: 'string', enum: Object.values(INTENTS) },
+    confidence: { type: 'number' },
+    channel: { type: 'string' },
+    message: { type: 'string' },
+    title: { type: 'string' },
+    items: { type: 'array', items: { type: 'string' } },
+    body: { type: 'string' },
+    issueNumber: { type: 'integer' },
+    labels: { type: 'array', items: { type: 'string' } },
+    assignees: { type: 'array', items: { type: 'string' } },
+    reviewers: { type: 'array', items: { type: 'string' } },
+    branch: { type: 'string' },
+    reason: { type: 'string' },
+  },
+};
 
 interface RawParsed {
-  action?: string;
-  confidence?: number;
-  channel?: string;
-  message?: string;
-  title?: string;
-  items?: string[];
-  body?: string;
-  issueNumber?: number;
-  labels?: string[];
-  assignees?: string[];
-  reviewers?: string[];
-  branch?: string;
-  reason?: string;
+  action?: unknown;
+  confidence?: unknown;
+  channel?: unknown;
+  message?: unknown;
+  title?: unknown;
+  items?: unknown;
+  body?: unknown;
+  issueNumber?: unknown;
+  labels?: unknown;
+  assignees?: unknown;
+  reviewers?: unknown;
+  branch?: unknown;
+  reason?: unknown;
 }
 
-function buildIntent(parsed: RawParsed, command: string, source: 'groq' | 'gemini'): ParsedIntent {
-  if (
-    !parsed.action ||
-    !Object.values(INTENTS).includes(parsed.action as (typeof INTENTS)[keyof typeof INTENTS]) ||
-    typeof parsed.confidence !== 'number'
-  ) {
-    throw new Error(`Invalid response shape: ${JSON.stringify(parsed).slice(0, 200)}`);
+const VALID_ACTIONS = new Set<string>(Object.values(INTENTS));
+
+function str(v: unknown, max: number): string | undefined {
+  return typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined;
+}
+
+function strList(v: unknown, maxItems: number, maxLen: number): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v
+    .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+    .map((x) => x.trim().slice(0, maxLen))
+    .slice(0, maxItems);
+  return items.length > 0 ? items : undefined;
+}
+
+// Written fields are cleaned of dashes even though the prompt asks; models reach for them anyway.
+function prose(v: unknown, max: number): string | undefined {
+  const s = str(v, max);
+  return s ? cleanDashes(s) || undefined : undefined;
+}
+
+function proseList(v: unknown, maxItems: number, maxLen: number): string[] | undefined {
+  const items = strList(v, maxItems, maxLen)?.map(cleanDashes).filter(Boolean);
+  return items && items.length > 0 ? items : undefined;
+}
+
+// Model output is untrusted input: check the shape and clamp every field before it reaches a connector.
+export function buildIntent(raw: unknown, command: string, source: LlmProviderId): ParsedIntent {
+  const parsed = (raw && typeof raw === 'object' ? raw : {}) as RawParsed;
+  if (typeof parsed.action !== 'string' || !VALID_ACTIONS.has(parsed.action)) {
+    throw new LlmError(`The model returned an unexpected action: ${JSON.stringify(raw).slice(0, 160)}`, 'bad_response');
   }
-  const clip = (v: string | undefined, n: number) => (typeof v === 'string' ? v.slice(0, n) : v);
+  const confidence = typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5;
+  const issueNumber =
+    typeof parsed.issueNumber === 'number' && Number.isFinite(parsed.issueNumber) && parsed.issueNumber > 0
+      ? Math.round(parsed.issueNumber)
+      : undefined;
+
   return {
     action: parsed.action as ParsedIntent['action'],
-    confidence: parsed.confidence,
+    confidence,
     params: {
-      channel: clip(parsed.channel, 80),
-      message: clip(parsed.message, 2000),
-      title: clip(parsed.title, 200),
-      items: parsed.items,
-      body: clip(parsed.body, 4000),
-      issueNumber: parsed.issueNumber,
-      labels: parsed.labels,
-      assignees: parsed.assignees,
-      reviewers: parsed.reviewers,
-      branch: clip(parsed.branch, 60),
-      reason: clip(parsed.reason, 300),
+      channel: str(parsed.channel, 80),
+      message: prose(parsed.message, 2000),
+      title: prose(parsed.title, 200),
+      items: proseList(parsed.items, 25, 200),
+      body: prose(parsed.body, 4000),
+      issueNumber,
+      labels: strList(parsed.labels, 10, 50),
+      assignees: strList(parsed.assignees, 10, 40),
+      reviewers: strList(parsed.reviewers, 10, 40),
+      branch: str(parsed.branch, 60),
+      reason: prose(parsed.reason, 300),
       ...(parsed.action === 'unknown' ? { original: command } : {}),
     },
     source,
@@ -309,66 +310,69 @@ function buildUserPrompt(command: string, context?: string): string {
     : `COMMAND: "${command}"`;
 }
 
-// Primary path: Groq, which has a generous free tier and shares the STT key.
-async function parseWithGroq(command: string, context?: string): Promise<ParsedIntent> {
-  const res = await fetch(GROQ_LLM_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: GROQ_LLM_MODEL,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: `${SYSTEM_PROMPT}\n\nRespond with ONLY a single JSON object.` },
-        { role: 'user', content: buildUserPrompt(command, context) },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`Groq LLM ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  const raw = data.choices?.[0]?.message?.content;
-  if (!raw) throw new Error('Empty Groq response');
-  return buildIntent(JSON.parse(raw) as RawParsed, command, 'groq');
+// Provider hiccups (overloaded, rate limited, a dropped connection) usually clear in a second.
+function isTransient(error: unknown): boolean {
+  if (!(error instanceof LlmError)) return false;
+  return error.kind === 'rate_limit' || error.kind === 'network' || (error.status !== undefined && error.status >= 500);
 }
 
-// Fallback path: Gemini structured output.
-async function parseWithGemini(command: string, context?: string): Promise<ParsedIntent> {
-  const ai = getClient();
-  if (!ai) throw new Error('No Gemini client');
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const response = await ai.models.generateContent({
-    model,
-    contents: `${SYSTEM_PROMPT}\n\n${buildUserPrompt(command, context)}`,
-    config: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0 },
-  });
-  const raw = response.text;
-  if (!raw) throw new Error('Empty response from Gemini');
-  return buildIntent(JSON.parse(raw) as RawParsed, command, 'gemini');
+async function completeWithRetry(llm: LlmConfig, req: Parameters<typeof completeJson>[1]): Promise<unknown> {
+  try {
+    return await completeJson(llm, req);
+  } catch (error) {
+    if (!isTransient(error)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return completeJson(llm, req);
+  }
 }
 
-export async function parseIntent(command: string, context?: string): Promise<ParsedIntent> {
-  // Groq first (generous free tier), Gemini next, regex last. One LLM call
-  // now both classifies the intent AND writes the final content.
-  if (process.env.GROQ_API_KEY) {
+// "Make an issue about that": the regex can't know what "that" is, only the model can.
+const REFERENCE_ONLY = /^(that|this|it|those|these|them|the (bug|issue|thing|one|problem|idea)( we (discussed|talked about|mentioned))?)$/i;
+
+function contextOnlyReference(intent: ParsedIntent): string | null {
+  const p = intent.params;
+  const key = p.title ?? p.message ?? (p.items && p.items.length === 1 ? p.items[0] : undefined);
+  if (!key) return null;
+  const bare = key.trim().replace(/[.!?]+$/, '');
+  return REFERENCE_ONLY.test(bare) ? bare.toLowerCase() : null;
+}
+
+/**
+ * Classifies a spoken command and writes its content in one call to the
+ * workspace's own model. If the model is unreachable, the regex fallback
+ * still handles simple self-contained commands ("post the build is green to
+ * engineering"); anything it would have to guess at, like "that", is refused
+ * with the provider's error so the person knows why and can say it again.
+ */
+export async function parseIntent(command: string, context: string | undefined, llm: LlmConfig | null): Promise<ParsedIntent> {
+  let reason: string = COPY.noModel;
+  if (llm) {
     try {
-      return await parseWithGroq(command, context);
+      const raw = await completeWithRetry(llm, {
+        system: SYSTEM_PROMPT,
+        user: buildUserPrompt(command, context),
+        schema: INTENT_SCHEMA,
+      });
+      return buildIntent(raw, command, llm.provider);
     } catch (error) {
-      console.error('[Intent] Groq LLM failed, trying Gemini:', error instanceof Error ? error.message : error);
+      const detail = error instanceof LlmError ? error.message : `The AI request failed: ${error instanceof Error ? error.message : String(error)}`;
+      log.warn(`[Intent] ${llm.provider}/${llm.model} failed, trying the simple parser: ${detail}`);
+      reason = COPY.modelUnreachable(detail);
     }
   }
-  if (process.env.GOOGLE_API_KEY) {
-    try {
-      return await parseWithGemini(command, context);
-    } catch (error) {
-      // With both LLMs down the regex still catches simple commands, just with
-      // no issue bodies and no pull requests.
-      console.error('[Intent] LLM parsing failed, using regex fallback:', error instanceof Error ? error.message : error);
-    }
-  } else {
-    console.warn('[Intent] No LLM key configured, using regex fallback.');
+
+  const fallback = parseIntentSimple(command);
+  const reference = fallback.action === 'unknown' ? null : contextOnlyReference(fallback);
+  if (fallback.action === 'unknown' || reference) {
+    return {
+      action: 'unknown',
+      confidence: 0,
+      params: {
+        original: command,
+        reason: reference ? `${reason} Working out what “${reference}” means needs the AI model.` : reason,
+      },
+      source: 'fallback_regex',
+    };
   }
-  return parseIntentSimple(command);
+  return fallback;
 }

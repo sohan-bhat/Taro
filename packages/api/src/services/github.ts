@@ -1,15 +1,19 @@
 /**
  * GitHub connector backed by a GitHub App. Taro authenticates as the app
  * (a JWT signed with the app's private key), exchanges it for a short-lived
- * installation token scoped to the repos the company granted, and acts as
- * `<app>[bot]`. No human credentials are involved at any point.
+ * installation token scoped to the one repo it is acting on, and acts as
+ * `<app>[bot]`. A person's own GitHub authorization is used once, at connect
+ * time, to see which repos they can push to; it is never stored.
  */
 
 import crypto from 'crypto';
-import { env } from '../config/env';
+import { COPY, sentence } from '@taro/shared';
+import { env, githubAppConfigured } from '../config/env';
 import { GithubConnectionModel } from '../db/models';
+import { errorMessage } from '../lib/logger';
 
 const GITHUB_API = 'https://api.github.com';
+const TIMEOUT_MS = 15_000;
 
 // GitHub rejects requests without a User-Agent
 const BASE_HEADERS = {
@@ -18,21 +22,107 @@ const BASE_HEADERS = {
   'User-Agent': 'taro-meeting-assistant',
 };
 
-export interface GithubResult {
-  success: boolean;
-  /** URL of the issue or PR on success */
-  url?: string;
-  /** Issue or PR number on success */
-  number?: number;
-  error?: string;
-}
+export type GithubResult =
+  | { success: true; url: string; number: number; branch?: string }
+  // `status` is GitHub's HTTP status, present only when GitHub answered
+  | { success: false; error: string; status?: number };
 
-export function githubAppConfigured(): boolean {
-  return !!(env.githubAppId && env.githubAppSlug && env.githubAppPrivateKey);
+type GithubFailure = Extract<GithubResult, { success: false }>;
+
+/** GitHub answered with an error status. */
+class GithubHttpError extends Error {
+  constructor(
+    readonly detail: string,
+    readonly status: number,
+    context: string
+  ) {
+    super(`${context}: ${detail}`);
+    this.name = 'GithubHttpError';
+  }
 }
 
 export function githubInstallUrl(state: string): string {
   return `https://github.com/apps/${env.githubAppSlug}/installations/new?state=${encodeURIComponent(state)}`;
+}
+
+/** Authorize-only flow, for connecting an installation that already exists. */
+export function githubAuthorizeUrl(state: string): string {
+  const params = new URLSearchParams({
+    client_id: env.githubAppClientId,
+    state,
+    redirect_uri: `${env.apiUrl}/api/github/callback`,
+  });
+  return `https://github.com/login/oauth/authorize?${params}`;
+}
+
+/**
+ * Trades the OAuth code GitHub appends after install (with "Request user
+ * authorization during installation" on) for a short-lived user token. Used
+ * once, only to check which installations that person can actually access.
+ */
+export async function exchangeUserCode(code: string): Promise<string> {
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.githubAppClientId,
+      client_secret: env.githubAppClientSecret,
+      code,
+    }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const data = (await res.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error_description || `GitHub OAuth exchange failed (HTTP ${res.status})`);
+  }
+  return data.access_token;
+}
+
+export interface UserInstallation {
+  installationId: string;
+  accountLogin: string;
+}
+
+/** Installations of this app the signed-in GitHub user has access to. */
+export async function listUserInstallations(userToken: string): Promise<UserInstallation[]> {
+  const out: UserInstallation[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const res = await fetch(`${GITHUB_API}/user/installations?per_page=100&page=${page}`, {
+      headers: { ...BASE_HEADERS, Authorization: `Bearer ${userToken}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`Could not list your GitHub installations: ${await githubErrorMessage(res)}`);
+    const data = (await res.json()) as { installations?: Array<{ id: number; account?: { login?: string } }> };
+    const batch = data.installations ?? [];
+    for (const i of batch) out.push({ installationId: String(i.id), accountLogin: i.account?.login ?? 'unknown' });
+    if (batch.length < 100) break;
+  }
+  return out;
+}
+
+/**
+ * Repos in an installation this person can push to. Read access isn't enough:
+ * Taro writes with the app's permissions, so a reader must not be able to
+ * connect a repo and then write to it through Taro.
+ */
+export async function listUserPushableRepos(userToken: string, installationId: string): Promise<string[]> {
+  const out: string[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(
+      `${GITHUB_API}/user/installations/${encodeURIComponent(installationId)}/repositories?per_page=100&page=${page}`,
+      { headers: { ...BASE_HEADERS, Authorization: `Bearer ${userToken}` }, signal: AbortSignal.timeout(TIMEOUT_MS) }
+    );
+    if (!res.ok) throw new Error(`Could not list your repositories: ${await githubErrorMessage(res)}`);
+    const data = (await res.json()) as {
+      repositories?: Array<{ full_name: string; permissions?: { admin?: boolean; maintain?: boolean; push?: boolean } }>;
+    };
+    const batch = data.repositories ?? [];
+    for (const r of batch) {
+      if (r.permissions?.push || r.permissions?.maintain || r.permissions?.admin) out.push(r.full_name);
+    }
+    if (batch.length < 100) break;
+  }
+  return out;
 }
 
 async function githubErrorMessage(response: Response): Promise<string> {
@@ -49,16 +139,67 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-/** Pulls checklist items out of a PR write-up, falling back to a generic plan so the tasks commit is never empty. */
-function extractChecklist(body: string): string {
-  const items = (body || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => /^[-*]\s*(\[[ xX]\]\s*)?.+/.test(line))
-    .map((line) => line.replace(/^[-*]\s*(\[[ xX]\]\s*)?/, '').trim())
-    .filter(Boolean);
-  const list = items.length > 0 ? items : ['Implement the change', 'Add or update tests', 'Review and verify'];
-  return list.map((item) => `- [ ] ${item}`).join('\n');
+/**
+ * The task list a pull request commits: the write-up's own checklist, else the
+ * bullets under a Changes heading, else the copy deck's default plan.
+ */
+export function checklistFrom(body: string): string {
+  const tasks: string[] = [];
+  const planned: string[] = [];
+  let heading = '';
+  for (const line of body.split('\n')) {
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) {
+      heading = h[1].toLowerCase();
+      continue;
+    }
+    const task = line.match(/^\s*[-*]\s+\[[ xX]\]\s+(.+)$/);
+    if (task) tasks.push(task[1].trim());
+    else {
+      const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+      if (bullet && /change|task|plan|step/.test(heading)) planned.push(bullet[1].trim());
+    }
+  }
+  const items = tasks.length > 0 ? tasks : planned.length > 0 ? planned : [...COPY.defaultTasks];
+  return items.map((item) => `- [ ] ${item}`).join('\n');
+}
+
+// "Cache the query" reads "cache the query" in a commit subject; "API limits" stays as it is.
+const lowerFirst = (s: string) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
+
+/** Everything a new pull request is made of, from the copy deck. */
+export function pullRequestDraft(title: string, body: string) {
+  const subject = lowerFirst(title);
+  return {
+    proposal: COPY.proposalFile(title, body),
+    tasks: COPY.tasksFile(title, checklistFrom(body)),
+    proposalCommit: COPY.commitProposal(subject),
+    tasksCommit: COPY.commitTasks(subject),
+    description: `${body}${COPY.pullBodyFooter}`.trim(),
+  };
+}
+
+// GitHub's own message, then what to check when the app may have lost access.
+function withHint(detail: string, status: number, hint?: string): string {
+  const extra = status === 403 || status === 404 ? COPY.githubPermissionHint : hint;
+  return extra ? `${sentence(detail)} ${extra}` : detail;
+}
+
+async function failure(response: Response, hint?: string): Promise<GithubFailure> {
+  return { success: false, status: response.status, error: withHint(await githubErrorMessage(response), response.status, hint) };
+}
+
+function thrown(error: unknown): GithubFailure {
+  if (error instanceof GithubHttpError) {
+    return { success: false, status: error.status, error: withHint(error.detail, error.status) };
+  }
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return { success: false, error: "GitHub didn't answer in time." };
+  }
+  if (error instanceof TypeError && error.message === 'fetch failed') {
+    return { success: false, error: "Couldn't reach GitHub." };
+  }
+  return { success: false, error: errorMessage(error) };
 }
 
 /** App-level JWT (RS256), valid for 9 minutes, used to mint installation tokens */
@@ -74,19 +215,32 @@ function appJwt(): string {
 // Installation tokens live ~1h; cache and refresh a few minutes early
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-async function installationToken(installationId: string): Promise<string> {
-  const cached = tokenCache.get(installationId);
+/**
+ * A token for the installation, narrowed to one repo when `repo` is given, so
+ * even a bug elsewhere can't reach the installation's other repos.
+ */
+async function installationToken(installationId: string, repo?: string): Promise<string> {
+  const cacheKey = `${installationId}:${repo ?? '*'}`;
+  const cached = tokenCache.get(cacheKey);
   if (cached && cached.expiresAt - Date.now() > 5 * 60 * 1000) return cached.token;
 
-  const response = await fetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
+  const repoName = repo?.split('/')[1];
+  const response = await fetch(`${GITHUB_API}/app/installations/${encodeURIComponent(installationId)}/access_tokens`, {
     method: 'POST',
-    headers: { ...BASE_HEADERS, Authorization: `Bearer ${appJwt()}` },
+    headers: {
+      ...BASE_HEADERS,
+      Authorization: `Bearer ${appJwt()}`,
+      ...(repoName ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(repoName ? { body: JSON.stringify({ repositories: [repoName] }) } : {}),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Could not get an installation token: ${await githubErrorMessage(response)}`);
+    throw new GithubHttpError(await githubErrorMessage(response), response.status, 'Could not get an installation token');
   }
   const data = (await response.json()) as { token: string; expires_at: string };
-  tokenCache.set(installationId, { token: data.token, expiresAt: Date.parse(data.expires_at) });
+  if (tokenCache.size > 1000) tokenCache.clear();
+  tokenCache.set(cacheKey, { token: data.token, expiresAt: Date.parse(data.expires_at) });
   return data.token;
 }
 
@@ -94,8 +248,9 @@ async function installationToken(installationId: string): Promise<string> {
 export async function getInstallation(
   installationId: string
 ): Promise<{ ok: boolean; accountLogin?: string; error?: string }> {
-  const response = await fetch(`${GITHUB_API}/app/installations/${installationId}`, {
+  const response = await fetch(`${GITHUB_API}/app/installations/${encodeURIComponent(installationId)}`, {
     headers: { ...BASE_HEADERS, Authorization: `Bearer ${appJwt()}` },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!response.ok) {
     return { ok: false, error: await githubErrorMessage(response) };
@@ -104,11 +259,12 @@ export async function getInstallation(
   return { ok: true, accountLogin: data.account?.login };
 }
 
-/** Repos the company granted the app access to (first 100) */
+/** Repos the installation currently grants the app, with issues turned on (first 100) */
 export async function listInstallationRepos(installationId: string): Promise<string[]> {
   const token = await installationToken(installationId);
   const response = await fetch(`${GITHUB_API}/installation/repositories?per_page=100`, {
     headers: { ...BASE_HEADERS, Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`Could not list repositories: ${await githubErrorMessage(response)}`);
@@ -121,23 +277,25 @@ export class GithubService {
   constructor(
     private installationId: string,
     public repo: string,
-    public enabledActions: string[] = []
+    public enabledActions: string[] | undefined
   ) {}
 
   /** Returns null if the company hasn't installed the Taro GitHub App */
   static async fromCompanyId(companyId: string): Promise<GithubService | null> {
     if (!githubAppConfigured()) return null;
     const connection = await GithubConnectionModel.findOne({ companyId });
-    if (!connection?.installationId) return null;
+    // A soft-disconnected workspace keeps its installation for reconnecting, but must not act on it
+    if (!connection?.installationId || connection.disconnectedAt) return null;
+    const repo = connection.repo && connection.allowedRepos?.includes(connection.repo) ? connection.repo : '';
     return new GithubService(
       connection.installationId,
-      connection.repo ?? '',
-      connection.enabledActions ?? []
+      repo,
+      connection.enabledActions ? [...connection.enabledActions] : undefined
     );
   }
 
   private async request(method: string, path: string, body?: unknown): Promise<Response> {
-    const token = await installationToken(this.installationId);
+    const token = await installationToken(this.installationId, this.repo);
     return fetch(`${GITHUB_API}${path}`, {
       method,
       headers: {
@@ -146,41 +304,32 @@ export class GithubService {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-  }
-
-  private permHint(status: number): string {
-    return status === 403 || status === 404
-      ? ' (is the Taro app still installed on this repo with the right permission?)'
-      : '';
   }
 
   /** Comment on an issue or pull request (PR conversation = issue comments) */
   async commentOnIssue(issueNumber: number, body: string): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('POST', `/repos/${this.repo}/issues/${issueNumber}/comments`, { body });
-      if (!response.ok) {
-        return { success: false, error: `${await githubErrorMessage(response)}${this.permHint(response.status)}` };
-      }
+      if (!response.ok) return failure(response);
       const data = (await response.json()) as { html_url: string };
       return { success: true, url: data.html_url, number: issueNumber };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   private async setIssueState(issueNumber: number, state: 'open' | 'closed'): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('PATCH', `/repos/${this.repo}/issues/${issueNumber}`, { state });
-      if (!response.ok) {
-        return { success: false, error: `${await githubErrorMessage(response)}${this.permHint(response.status)}` };
-      }
+      if (!response.ok) return failure(response);
       const data = (await response.json()) as { html_url: string; number: number };
       return { success: true, url: data.html_url, number: data.number };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
@@ -193,90 +342,71 @@ export class GithubService {
   }
 
   async addLabels(issueNumber: number, labels: string[]): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('POST', `/repos/${this.repo}/issues/${issueNumber}/labels`, { labels });
-      if (!response.ok) {
-        return { success: false, error: `${await githubErrorMessage(response)}${this.permHint(response.status)}` };
-      }
+      if (!response.ok) return failure(response);
       return { success: true, url: `https://github.com/${this.repo}/issues/${issueNumber}`, number: issueNumber };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   async assignIssue(issueNumber: number, assignees: string[]): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('POST', `/repos/${this.repo}/issues/${issueNumber}/assignees`, { assignees });
-      if (!response.ok) {
-        return { success: false, error: `${await githubErrorMessage(response)}${this.permHint(response.status)}` };
-      }
+      if (!response.ok) return failure(response);
       return { success: true, url: `https://github.com/${this.repo}/issues/${issueNumber}`, number: issueNumber };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   async closePullRequest(prNumber: number): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('PATCH', `/repos/${this.repo}/pulls/${prNumber}`, { state: 'closed' });
-      if (!response.ok) {
-        return { success: false, error: `${await githubErrorMessage(response)}${this.permHint(response.status)}` };
-      }
+      if (!response.ok) return failure(response);
       const data = (await response.json()) as { html_url: string; number: number };
       return { success: true, url: data.html_url, number: data.number };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   async mergePullRequest(prNumber: number): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('PUT', `/repos/${this.repo}/pulls/${prNumber}/merge`, {});
-      if (!response.ok) {
-        const extra =
-          response.status === 405 ? ' (the PR may not be mergeable, it has conflicts or failing checks)' : this.permHint(response.status);
-        return { success: false, error: `${await githubErrorMessage(response)}${extra}` };
-      }
+      // 405: GitHub won't merge it as it stands
+      if (!response.ok) return failure(response, response.status === 405 ? COPY.mergeHint : undefined);
       return { success: true, url: `https://github.com/${this.repo}/pull/${prNumber}`, number: prNumber };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   async requestReviewers(prNumber: number, reviewers: string[]): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       const response = await this.request('POST', `/repos/${this.repo}/pulls/${prNumber}/requested_reviewers`, { reviewers });
-      if (!response.ok) {
-        return { success: false, error: `${await githubErrorMessage(response)}${this.permHint(response.status)}` };
-      }
+      if (!response.ok) return failure(response);
       const data = (await response.json()) as { html_url?: string };
       return { success: true, url: data.html_url ?? `https://github.com/${this.repo}/pull/${prNumber}`, number: prNumber };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   /** Each call creates one commit. */
-  private async commitFile(
-    branch: string,
-    path: string,
-    content: string,
-    message: string
-  ): Promise<GithubResult | null> {
+  private async commitFile(branch: string, path: string, content: string, message: string): Promise<GithubFailure | null> {
     const res = await this.request('PUT', `/repos/${this.repo}/contents/${path}`, {
       message: message.slice(0, 72),
       content: Buffer.from(content, 'utf8').toString('base64'),
       branch,
     });
-    if (!res.ok) {
-      return { success: false, error: `${await githubErrorMessage(res)}${this.permHint(res.status)}` };
-    }
-    return null;
+    return res.ok ? null : failure(res);
   }
 
   /**
@@ -285,15 +415,15 @@ export class GithubService {
    * so the PR reads like real staged work rather than one blob.
    */
   async openPullRequest(title: string, body: string, branchHint?: string): Promise<GithubResult> {
-    if (!this.repo) return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
       // Default branch and its head SHA (the PR base)
       const repoRes = await this.request('GET', `/repos/${this.repo}`);
-      if (!repoRes.ok) return { success: false, error: await githubErrorMessage(repoRes) };
+      if (!repoRes.ok) return failure(repoRes);
       const base = ((await repoRes.json()) as { default_branch: string }).default_branch;
 
       const refRes = await this.request('GET', `/repos/${this.repo}/git/ref/heads/${base}`);
-      if (!refRes.ok) return { success: false, error: await githubErrorMessage(refRes) };
+      if (!refRes.ok) return failure(refRes);
       const baseSha = ((await refRes.json()) as { object: { sha: string } }).object.sha;
 
       // Retry with a random suffix if the branch name is already taken
@@ -315,79 +445,43 @@ export class GithubService {
           branch = name;
           made = true;
         } else if (res.status !== 422) {
-          return { success: false, error: `${await githubErrorMessage(res)}${this.permHint(res.status)}` };
+          return failure(res);
         }
       }
-      if (!made) return { success: false, error: 'Could not create a unique branch name.' };
+      if (!made) return { success: false, error: "Couldn't find a free branch name." };
 
-      const proposal = `# ${title}\n\n${body || '_(no additional detail)_'}\n\n---\nOpened by Taro from a meeting.\n`;
-      const c1 = await this.commitFile(
-        branch,
-        `.taro/proposals/${slug}.md`,
-        proposal,
-        `docs: propose ${title}`
-      );
-      if (c1) return c1;
-
-      // Reuses the write-up's checklist items if it has any, otherwise a default plan
-      const checklist = extractChecklist(body);
-      const tasks = `# Tasks: ${title}\n\n${checklist}\n\n_Tracked by Taro from a meeting._\n`;
-      const c2 = await this.commitFile(
-        branch,
-        `.taro/tasks/${slug}.md`,
-        tasks,
-        `chore: track follow-up tasks for ${title}`
-      );
-      if (c2) return c2;
+      const draft = pullRequestDraft(title, body);
+      const proposed = await this.commitFile(branch, `.taro/proposals/${slug}.md`, draft.proposal, draft.proposalCommit);
+      if (proposed) return proposed;
+      const tracked = await this.commitFile(branch, `.taro/tasks/${slug}.md`, draft.tasks, draft.tasksCommit);
+      if (tracked) return tracked;
 
       const prRes = await this.request('POST', `/repos/${this.repo}/pulls`, {
         title,
-        body: `${body || ''}\n\n_Opened by Taro during a meeting._`.trim(),
+        body: draft.description,
         head: branch,
         base,
       });
-      if (!prRes.ok) {
-        return { success: false, error: `${await githubErrorMessage(prRes)}${this.permHint(prRes.status)}` };
-      }
+      if (!prRes.ok) return failure(prRes);
       const pr = (await prRes.json()) as { html_url: string; number: number };
-      return { success: true, url: pr.html_url, number: pr.number };
+      return { success: true, url: pr.html_url, number: pr.number, branch };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'GitHub request failed' };
+      return thrown(error);
     }
   }
 
   async createIssue(title: string, body?: string): Promise<GithubResult> {
-    if (!this.repo) {
-      return { success: false, error: 'No repository selected. Choose one in the dashboard.' };
-    }
+    if (!this.repo) return { success: false, error: COPY.noRepository };
     try {
-      const token = await installationToken(this.installationId);
-      const response = await fetch(`${GITHUB_API}/repos/${this.repo}/issues`, {
-        method: 'POST',
-        headers: {
-          ...BASE_HEADERS,
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title, ...(body ? { body } : {}) }),
+      const response = await this.request('POST', `/repos/${this.repo}/issues`, {
+        title,
+        body: `${body ?? ''}${COPY.issueFooter}`.trim(),
       });
-
-      if (!response.ok) {
-        const detail = await githubErrorMessage(response);
-        const hint =
-          response.status === 403 || response.status === 404
-            ? ' (is the Taro app still installed on this repo with Issues: Read and write?)'
-            : '';
-        return { success: false, error: `${detail}${hint}` };
-      }
-
+      if (!response.ok) return failure(response);
       const issue = (await response.json()) as { html_url: string; number: number };
       return { success: true, url: issue.html_url, number: issue.number };
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'GitHub request failed',
-      };
+      return thrown(error);
     }
   }
 }

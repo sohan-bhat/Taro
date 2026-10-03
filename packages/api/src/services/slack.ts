@@ -1,5 +1,52 @@
 import { WebClient } from '@slack/web-api';
 import { SlackConnectionModel } from '../db/models';
+import { decryptSecret, encryptSecret, isEncrypted } from '../lib/crypto';
+import { log, errorMessage } from '../lib/logger';
+
+// Bot tokens are stored encrypted with the Slack team bound as context.
+export function slackTokenContext(teamId: string): string {
+  return `slack:${teamId}`;
+}
+
+export function sealSlackToken(token: string, teamId: string): string {
+  return encryptSecret(token, slackTokenContext(teamId));
+}
+
+export function readSlackToken(connection: { accessToken: string; teamId: string }): string {
+  // Tokens saved before encryption existed are migrated at boot; read them as-is until then.
+  return isEncrypted(connection.accessToken)
+    ? decryptSecret(connection.accessToken, slackTokenContext(connection.teamId))
+    : connection.accessToken;
+}
+
+export interface SlackStanding {
+  active: boolean; // false for deactivated accounts
+  guest: boolean; // single and multi-channel guests
+  role: 'owner' | 'admin' | 'member';
+}
+
+export interface SlackPostResult {
+  success: boolean;
+  channel?: string; // where it was posted, after fuzzy matching
+  notFound?: boolean; // no public channel has that name
+  slackError?: string; // Slack's own error code when Slack answered, like not_in_channel
+  error?: string; // what went wrong, for the log
+}
+
+interface PublicChannel {
+  id: string;
+  name: string;
+  isMember: boolean;
+}
+
+// Platform errors carry Slack's error code; network failures don't.
+function slackErrorCode(error: unknown): string | undefined {
+  const code = (error as { data?: { error?: unknown } } | null)?.data?.error;
+  return typeof code === 'string' ? code : undefined;
+}
+
+// Far past any real workspace. It only stops a cursor that never ends.
+const MAX_CHANNEL_PAGES = 100;
 
 export class SlackService {
   private client: WebClient;
@@ -15,70 +62,64 @@ export class SlackService {
     if (!connection) {
       return null;
     }
-    return new SlackService(connection.accessToken, companyId);
+    return new SlackService(readSlackToken(connection), companyId);
   }
 
-  async postMessage(channel: string, text: string): Promise<{ success: boolean; error?: string }> {
+  /** Where someone stands in the Slack workspace. Null when Slack can't say (network, missing scope). */
+  async memberStanding(slackUserId: string): Promise<SlackStanding | null> {
     try {
-      const channelName = channel.replace(/^#/, '');
-
-      // Fuzzy match: "socials" resolves to "social"
-      const channelId = await this.findChannelId(channelName);
-      if (!channelId) {
-        const available = await this.listChannelNames();
-        const hint = available.length
-          ? ` Available channels: ${available.map((n) => `#${n}`).join(', ')}`
-          : '';
-        return { success: false, error: `Channel "${channelName}" not found.${hint}` };
-      }
-
-      // Try to join the channel first (in case bot isn't a member)
-      try {
-        await this.client.conversations.join({ channel: channelId });
-      } catch {
-        // Ignore, the bot might already be a member
-      }
-
-      await this.client.chat.postMessage({
-        channel: channelId,
-        text,
-      });
-
-      return { success: true };
-    } catch (error) {
-      console.error('Slack postMessage error:', error);
+      const { user } = await this.client.users.info({ user: slackUserId });
+      if (!user) return null;
       return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        active: !user.deleted && !user.is_bot,
+        guest: !!(user.is_restricted || user.is_ultra_restricted),
+        role: user.is_owner || user.is_primary_owner ? 'owner' : user.is_admin ? 'admin' : 'member',
       };
+    } catch (error) {
+      if (slackErrorCode(error) === 'user_not_found') return { active: false, guest: false, role: 'member' };
+      return null;
     }
   }
 
-  // Slack only delivers channel messages to apps that are members, so join
-  // everywhere once after OAuth install.
-  async joinAllPublicChannels(): Promise<number> {
+  /** Posts in a public channel by its spoken name ("socials" finds #social). */
+  async postMessage(channel: string, text: string): Promise<SlackPostResult> {
+    const name = channel.replace(/^#/, '').trim();
     try {
-      const result = await this.client.conversations.list({
-        types: 'public_channel',
-        exclude_archived: true,
-        limit: 200,
-      });
+      const match = await this.resolveChannel(name);
+      // The dashboard recognizes this wording, so keep it.
+      if (!match) return { success: false, notFound: true, error: `Channel "${name}" not found.` };
 
-      let joined = 0;
-      for (const ch of result.channels ?? []) {
-        if (!ch.id || ch.is_member) continue;
-        try {
-          await this.client.conversations.join({ channel: ch.id });
-          joined++;
-        } catch (error) {
-          console.error(`Slack: could not join #${ch.name}:`, error);
+      // Slack only lets members post. Joining a channel Taro is already in is harmless.
+      await this.client.conversations.join({ channel: match.id }).catch(() => {});
+      await this.client.chat.postMessage({ channel: match.id, text });
+      return { success: true, channel: match.name };
+    } catch (error) {
+      const slackError = slackErrorCode(error);
+      log.warn(`[Slack] Couldn't post in #${name}:`, slackError ?? errorMessage(error));
+      return { success: false, slackError, error: slackError ?? errorMessage(error) };
+    }
+  }
+
+  // Slack only delivers channel messages to apps that are members, so join every
+  // public channel once after install, page by page.
+  async joinAllPublicChannels(): Promise<number> {
+    let joined = 0;
+    try {
+      for await (const page of this.publicChannelPages()) {
+        for (const ch of page) {
+          if (ch.isMember) continue;
+          try {
+            await this.client.conversations.join({ channel: ch.id });
+            joined++;
+          } catch (error) {
+            log.warn(`[Slack] Could not join #${ch.name}:`, slackErrorCode(error) ?? errorMessage(error));
+          }
         }
       }
-      return joined;
     } catch (error) {
-      console.error('Slack joinAllPublicChannels error:', error);
-      return 0;
+      log.warn('[Slack] Could not list channels to join:', slackErrorCode(error) ?? errorMessage(error));
     }
+    return joined;
   }
 
   async postToChannelId(
@@ -94,79 +135,67 @@ export class SlackService {
       });
       return { success: true };
     } catch (error) {
-      console.error('Slack postToChannelId error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
+      const code = slackErrorCode(error);
+      log.warn('[Slack] Thread post failed:', code ?? errorMessage(error));
+      return { success: false, error: code ?? errorMessage(error) };
     }
   }
 
-  private async findChannelId(channelName: string): Promise<string | null> {
-    const match = await this.resolveChannel(channelName);
-    return match?.id || null;
+  /** The public channel a spoken name means, or null. Throws when Slack can't list channels. */
+  async resolveChannel(channelName: string): Promise<{ id: string; name: string; exact: boolean } | null> {
+    const channels: PublicChannel[] = [];
+    for await (const page of this.publicChannelPages()) channels.push(...page);
+    const found = matchChannel(channelName, channels);
+    if (!found) return null;
+    if (!found.exact) log.debug(`[Slack] Channel "${channelName}" not exact; using the closest match "#${found.channel.name}"`);
+    return { id: found.channel.id, name: found.channel.name, exact: found.exact };
   }
 
-  // Public channels only: requesting private_channel without the groups:read
-  // scope makes Slack reject the entire call with missing_scope.
-  async resolveChannel(
-    channelName: string
-  ): Promise<{ id: string; name: string; exact: boolean } | null> {
-    try {
+  // Public channels only: asking for private_channel without the groups:read scope makes
+  // Slack reject the whole call with missing_scope. A page holds at most 1000 channels.
+  private async *publicChannelPages(): AsyncGenerator<PublicChannel[]> {
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_CHANNEL_PAGES; page++) {
       const result = await this.client.conversations.list({
         types: 'public_channel',
         exclude_archived: true,
         limit: 1000,
+        ...(cursor ? { cursor } : {}),
       });
-
-      const channels = (result.channels ?? [])
-        .filter((ch): ch is { id: string; name: string } => !!ch.id && !!ch.name)
-        .map((ch) => ({ id: ch.id, name: ch.name }));
-
-      const target = normalizeChannel(channelName);
-
-      const exact = channels.find((ch) => normalizeChannel(ch.name) === target);
-      if (exact) return { ...exact, exact: true };
-
-      // Otherwise take the closest fuzzy match; the distance tolerance scales
-      // with name length so short names stay strict.
-      let best: { id: string; name: string } | null = null;
-      let bestDistance = Infinity;
-      for (const ch of channels) {
-        const distance = channelDistance(target, normalizeChannel(ch.name));
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = ch;
-        }
-      }
-
-      const tolerance = Math.max(1, Math.floor(target.length / 4));
-      if (best && bestDistance <= tolerance) {
-        console.log(
-          `[Slack] Channel "${channelName}" not exact; using closest match "#${best.name}" (distance ${bestDistance})`
-        );
-        return { ...best, exact: false };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Error finding channel:', error);
-      return null;
+      yield (result.channels ?? []).flatMap((ch) =>
+        ch.id && ch.name ? [{ id: ch.id, name: ch.name, isMember: !!ch.is_member }] : []
+      );
+      cursor = result.response_metadata?.next_cursor || undefined;
+      if (!cursor) return;
     }
   }
+}
 
-  async listChannelNames(): Promise<string[]> {
-    try {
-      const result = await this.client.conversations.list({
-        types: 'public_channel',
-        exclude_archived: true,
-        limit: 1000,
-      });
-      return (result.channels ?? []).map((ch) => ch.name).filter((n): n is string => !!n);
-    } catch {
-      return [];
+/**
+ * The channel a spoken name means: an exact match first, then the closest one,
+ * within a tolerance that grows with the name so short names stay strict.
+ */
+export function matchChannel<T extends { name: string }>(
+  spoken: string,
+  channels: readonly T[]
+): { channel: T; exact: boolean } | null {
+  const target = normalizeChannel(spoken);
+  if (!target) return null;
+
+  const exact = channels.find((ch) => normalizeChannel(ch.name) === target);
+  if (exact) return { channel: exact, exact: true };
+
+  let best: T | null = null;
+  let bestDistance = Infinity;
+  for (const ch of channels) {
+    const distance = channelDistance(target, normalizeChannel(ch.name));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = ch;
     }
   }
+  const tolerance = Math.max(1, Math.floor(target.length / 4));
+  return best && bestDistance <= tolerance ? { channel: best, exact: false } : null;
 }
 
 // Slack channel names are lowercase, hyphenated, no spaces/underscores.

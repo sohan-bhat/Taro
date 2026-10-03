@@ -1,21 +1,45 @@
 /**
- * Voice-command execution: parse intent, perform the Slack action, log it.
- * Shared by the realtime pipeline (mid-meeting) and the post-meeting
- * webhook fallback.
+ * Runs one spoken request: works out what was asked, does it in Slack or
+ * GitHub, and logs how it went. Shared by the realtime pipeline (mid-meeting)
+ * and the end-of-call sweep. Every sentence it returns or stores comes from
+ * the copy deck, through ./outcomes.
  */
 
+import {
+  COPY,
+  DEFAULT_GITHUB_ACTIONS,
+  INTENTS,
+  isGithubAction,
+  sentence,
+  type ActionOutcome,
+  type GithubAction,
+  type IntentParams,
+  type ParsedIntent,
+} from '@taro/shared';
 import { ActionLogModel } from '../db/models';
-import { SlackService } from './slack';
-import { GithubService } from './github';
+import { log, errorMessage } from '../lib/logger';
+import { SlackService, normalizeChannel } from './slack';
+import { GithubService, type GithubResult } from './github';
 import { parseIntent } from './intent';
-import { INTENTS, DEFAULT_GITHUB_ACTIONS, GITHUB_CAPABILITIES } from '@taro/shared';
-
-const GITHUB_ACTIONS = new Set(GITHUB_CAPABILITIES.map((c) => c.action));
-const ACTION_LABEL = Object.fromEntries(GITHUB_CAPABILITIES.map((c) => [c.action, c.label]));
+import type { LlmConfig } from './llm';
+import {
+  cleanParams,
+  done,
+  failed,
+  githubDone,
+  githubFailed,
+  missingDetail,
+  needsYou,
+  quoted,
+  slackFailed,
+  turnedOff,
+  type Settled,
+} from './outcomes';
 
 export interface ExecutionResult {
-  status: 'success' | 'failed' | 'clarification_needed';
-  /** One-line human-readable summary for Slack thread reports */
+  status: Settled['status'];
+  outcome: ActionOutcome;
+  /** The sentence Taro posts in the meeting's Slack thread */
   summary: string;
 }
 
@@ -24,268 +48,104 @@ export async function executeCommand(
   companyId: string,
   command: string,
   mode: 'live' | 'post_meeting',
-  meetingContext?: string
+  meetingContext: string | undefined,
+  llm: LlmConfig | null
 ): Promise<ExecutionResult> {
+  let intent: ParsedIntent = { action: INTENTS.UNKNOWN, confidence: 0, params: {} };
+  let settled: Settled;
   try {
-    const intent = await parseIntent(command, meetingContext);
-    console.log(`[Executor:${mode}] Parsed intent:`, JSON.stringify(intent));
+    const parsed = await parseIntent(command, meetingContext, llm);
+    intent = { ...parsed, params: cleanParams(parsed.params) };
+    log.debug(`[Executor:${mode}] Parsed intent:`, JSON.stringify(intent));
+    settled = await perform(companyId, command, intent);
+  } catch (error) {
+    log.error(`[Executor:${mode}] Command execution error:`, error);
+    settled = failed(COPY.unexpected(quoted(command)), errorMessage(error));
+  }
 
-    let status: ExecutionResult['status'] = 'failed';
-    let result: string | undefined;
-    let errorMessage: string | undefined;
-    let summary = '';
-
-    switch (intent.action) {
-      case INTENTS.POST_MESSAGE: {
-        const { channel, message } = intent.params;
-
-        if (!channel || !message) {
-          status = 'clarification_needed';
-          summary = `❓ Couldn't tell the channel or message from: "${command.slice(0, 80)}"`;
-          break;
-        }
-
-        const slack = await SlackService.fromCompanyId(companyId);
-        if (!slack) {
-          status = 'failed';
-          errorMessage = 'Slack not connected';
-          summary = '❌ Slack is not connected for this workspace.';
-          break;
-        }
-
-        const slackResult = await slack.postMessage(channel, message);
-        if (slackResult.success) {
-          status = 'success';
-          result = `Posted "${message}" to #${channel}`;
-          summary = `✅ Posted your message to #${channel}`;
-        } else {
-          status = 'failed';
-          errorMessage = slackResult.error;
-          summary = `❌ Couldn't post to #${channel}: ${slackResult.error}`;
-        }
-        break;
-      }
-
-      case INTENTS.CREATE_TODO_LIST: {
-        const { channel, title, items } = intent.params;
-
-        if (!channel || !items || items.length === 0) {
-          status = 'clarification_needed';
-          summary = `❓ Couldn't tell the channel or list items from: "${command.slice(0, 80)}"`;
-          break;
-        }
-
-        const slack = await SlackService.fromCompanyId(companyId);
-        if (!slack) {
-          status = 'failed';
-          errorMessage = 'Slack not connected';
-          summary = '❌ Slack is not connected for this workspace.';
-          break;
-        }
-
-        const lines = items.map((item) => `☐ ${item}`).join('\n');
-        const text = `📋 *${title || 'Todo List'}*\n${lines}`;
-
-        const slackResult = await slack.postMessage(channel, text);
-        if (slackResult.success) {
-          status = 'success';
-          result = `Created todo list (${items.length} items) in #${channel}`;
-          summary = `✅ Created a todo list with ${items.length} item${items.length === 1 ? '' : 's'} in #${channel}`;
-        } else {
-          status = 'failed';
-          errorMessage = slackResult.error;
-          summary = `❌ Couldn't create the todo list in #${channel}: ${slackResult.error}`;
-        }
-        break;
-      }
-
-      case INTENTS.CREATE_GITHUB_ISSUE:
-      case INTENTS.COMMENT_GITHUB:
-      case INTENTS.CLOSE_GITHUB_ISSUE:
-      case INTENTS.REOPEN_GITHUB_ISSUE:
-      case INTENTS.LABEL_GITHUB_ISSUE:
-      case INTENTS.ASSIGN_GITHUB_ISSUE:
-      case INTENTS.CLOSE_PULL_REQUEST:
-      case INTENTS.MERGE_PULL_REQUEST:
-      case INTENTS.REQUEST_GITHUB_REVIEW:
-      case INTENTS.CREATE_PULL_REQUEST: {
-        const github = await GithubService.fromCompanyId(companyId);
-        if (!github) {
-          status = 'failed';
-          errorMessage = 'GitHub not connected';
-          summary = '❌ GitHub is not connected. Install the Taro app in the dashboard first.';
-          break;
-        }
-
-        // The company must have this action enabled, regardless of what the
-        // GitHub App is technically permitted to do.
-        const enabled =
-          github.enabledActions.length > 0 ? github.enabledActions : DEFAULT_GITHUB_ACTIONS;
-        if (!enabled.includes(intent.action)) {
-          status = 'clarification_needed';
-          summary = `🔒 "${ACTION_LABEL[intent.action]}" is turned off for your workspace. Enable it in the dashboard if you want Taro to do that.`;
-          break;
-        }
-
-        const p = intent.params;
-        const n = p.issueNumber;
-        const repo = github.repo;
-        // Actions that operate on an existing issue/PR need a number
-        const needsNumber =
-          intent.action !== INTENTS.CREATE_GITHUB_ISSUE &&
-          intent.action !== INTENTS.CREATE_PULL_REQUEST;
-        if (needsNumber && !n) {
-          status = 'clarification_needed';
-          summary = `❓ Couldn't tell which issue/PR number from: "${command.slice(0, 80)}"`;
-          break;
-        }
-
-        let gh: { success: boolean; url?: string; number?: number; error?: string };
-        let verb: string;
-
-        switch (intent.action) {
-          case INTENTS.CREATE_GITHUB_ISSUE: {
-            if (!p.title) {
-              status = 'clarification_needed';
-              summary = `❓ Couldn't tell the issue title from: "${command.slice(0, 80)}"`;
-              gh = { success: false };
-              verb = 'create';
-              break;
-            }
-            const issueBody = `${p.body || ''}\n\n---\n_Filed by Taro during a meeting._`.trim();
-            gh = await github.createIssue(p.title, issueBody);
-            verb = 'Opened issue';
-            break;
-          }
-          case INTENTS.COMMENT_GITHUB: {
-            if (!p.body) {
-              status = 'clarification_needed';
-              summary = `❓ Couldn't tell the comment text from: "${command.slice(0, 80)}"`;
-              gh = { success: false };
-              verb = 'comment';
-              break;
-            }
-            gh = await github.commentOnIssue(n!, p.body);
-            verb = 'Commented on';
-            break;
-          }
-          case INTENTS.CLOSE_GITHUB_ISSUE:
-            gh = await github.closeIssue(n!);
-            verb = 'Closed issue';
-            break;
-          case INTENTS.REOPEN_GITHUB_ISSUE:
-            gh = await github.reopenIssue(n!);
-            verb = 'Reopened issue';
-            break;
-          case INTENTS.LABEL_GITHUB_ISSUE:
-            if (!p.labels || p.labels.length === 0) {
-              status = 'clarification_needed';
-              summary = `❓ Couldn't tell which labels to add from: "${command.slice(0, 80)}"`;
-              gh = { success: false };
-              verb = 'label';
-              break;
-            }
-            gh = await github.addLabels(n!, p.labels);
-            verb = `Labeled (${p.labels.join(', ')})`;
-            break;
-          case INTENTS.ASSIGN_GITHUB_ISSUE:
-            if (!p.assignees || p.assignees.length === 0) {
-              status = 'clarification_needed';
-              summary = `❓ Couldn't tell who to assign from: "${command.slice(0, 80)}"`;
-              gh = { success: false };
-              verb = 'assign';
-              break;
-            }
-            gh = await github.assignIssue(n!, p.assignees);
-            verb = `Assigned (${p.assignees.join(', ')}) to`;
-            break;
-          case INTENTS.CLOSE_PULL_REQUEST:
-            gh = await github.closePullRequest(n!);
-            verb = 'Closed PR';
-            break;
-          case INTENTS.MERGE_PULL_REQUEST:
-            gh = await github.mergePullRequest(n!);
-            verb = 'Merged PR';
-            break;
-          case INTENTS.CREATE_PULL_REQUEST:
-            if (!p.title) {
-              status = 'clarification_needed';
-              summary = `❓ Couldn't tell the pull request title from: "${command.slice(0, 80)}"`;
-              gh = { success: false };
-              verb = 'pull request';
-              break;
-            }
-            gh = await github.openPullRequest(p.title, p.body || '', p.branch);
-            verb = 'Opened PR';
-            break;
-          case INTENTS.REQUEST_GITHUB_REVIEW:
-            if (!p.reviewers || p.reviewers.length === 0) {
-              status = 'clarification_needed';
-              summary = `❓ Couldn't tell who to request review from in: "${command.slice(0, 80)}"`;
-              gh = { success: false };
-              verb = 'request review';
-              break;
-            }
-            gh = await github.requestReviewers(n!, p.reviewers);
-            verb = `Requested review (${p.reviewers.join(', ')}) on`;
-            break;
-          default:
-            gh = { success: false, error: 'Unsupported action' };
-            verb = 'do';
-        }
-
-        // A clarification set above (missing param) short-circuits here
-        if (status === 'clarification_needed') break;
-
-        if (gh.success) {
-          status = 'success';
-          const ref = gh.number ? `#${gh.number}` : '';
-          result = `${verb} ${ref} in ${repo}: ${gh.url}`;
-          summary = `✅ ${verb} <${gh.url}|${ref || repo}> in ${repo}`;
-        } else {
-          status = 'failed';
-          errorMessage = gh.error;
-          summary = `❌ Couldn't ${ACTION_LABEL[intent.action].toLowerCase()}: ${gh.error}`;
-        }
-        break;
-      }
-
-      default: {
-        status = 'clarification_needed';
-        summary = intent.params.reason
-          ? `❓ ${intent.params.reason}`
-          : `❓ Heard "${command.slice(0, 80)}" but didn't understand what to do.`;
-      }
-    }
-
+  try {
     await ActionLogModel.create({
       meetingId,
       companyId,
       command,
       intent,
-      status,
       mode,
-      result,
-      errorMessage,
+      status: settled.status,
+      outcome: settled.outcome,
+      summary: settled.summary,
+      result: settled.result,
+      errorMessage: settled.errorMessage,
+      branch: settled.branch,
     });
-
-    return { status, summary };
   } catch (error) {
-    console.error(`[Executor:${mode}] Command execution error:`, error);
+    // The thread still hears how it went, even if the dashboard won't.
+    log.error(`[Executor:${mode}] Could not save the action log:`, errorMessage(error));
+  }
 
-    await ActionLogModel.create({
-      meetingId,
-      companyId,
-      command,
-      intent: { action: INTENTS.UNKNOWN, confidence: 0, params: {} },
-      status: 'failed',
-      mode,
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+  return { status: settled.status, outcome: settled.outcome, summary: settled.summary };
+}
+
+async function perform(companyId: string, command: string, intent: ParsedIntent): Promise<Settled> {
+  const { action, params: p } = intent;
+  if (action === INTENTS.UNKNOWN) return needsYou(p.reason ? sentence(p.reason) : COPY.heardUnclear(quoted(command)));
+
+  if (action === INTENTS.POST_MESSAGE || action === INTENTS.CREATE_TODO_LIST) {
+    const question = missingDetail(action, p);
+    if (question) return needsYou(question);
+    const slack = await SlackService.fromCompanyId(companyId);
+    if (!slack) return failed(COPY.slackNotConnected, 'Slack not connected');
+
+    // The name as it was asked for, for "Couldn't post in #..."
+    const asked = normalizeChannel(p.channel!) || p.channel!.replace(/^#/, '');
+    if (action === INTENTS.POST_MESSAGE) {
+      const post = await slack.postMessage(asked, p.message!);
+      if (!post.success || !post.channel) return slackFailed(asked, post);
+      return done(COPY.posted(post.channel), { result: `Posted "${p.message}" to #${post.channel}` });
+    }
+    const items = p.items!;
+    const post = await slack.postMessage(asked, COPY.checklist(p.title, items));
+    if (!post.success || !post.channel) return slackFailed(asked, post);
+    return done(COPY.postedChecklist(items.length, post.channel), {
+      result: `Created todo list (${items.length} items) in #${post.channel}`,
     });
+  }
 
-    return {
-      status: 'failed',
-      summary: `❌ Something went wrong executing: "${command.slice(0, 80)}"`,
-    };
+  if (!isGithubAction(action)) return needsYou(COPY.heardUnclear(quoted(command)));
+  const github = await GithubService.fromCompanyId(companyId);
+  if (!github) return failed(COPY.githubNotConnected, 'GitHub not connected');
+  // The workspace's own policy, inside whatever the GitHub App may technically do
+  if (!(github.enabledActions ?? DEFAULT_GITHUB_ACTIONS).includes(action)) return turnedOff(action);
+  if (!github.repo) return failed(COPY.noRepository, 'No repository selected');
+  const question = missingDetail(action, p);
+  if (question) return needsYou(question);
+
+  const gh = await runGithub(github, action, p);
+  return gh.success ? githubDone(action, gh, github.repo, p) : githubFailed(action, p.issueNumber, gh);
+}
+
+// missingDetail has already checked every field used here.
+function runGithub(github: GithubService, action: GithubAction, p: IntentParams): Promise<GithubResult> {
+  const n = p.issueNumber!;
+  switch (action) {
+    case 'create_github_issue':
+      return github.createIssue(p.title!, p.body);
+    case 'create_pull_request':
+      return github.openPullRequest(p.title!, p.body ?? '', p.branch);
+    case 'comment_github':
+      return github.commentOnIssue(n, p.body!);
+    case 'label_github_issue':
+      return github.addLabels(n, p.labels!);
+    case 'assign_github_issue':
+      return github.assignIssue(n, p.assignees!);
+    case 'request_github_review':
+      return github.requestReviewers(n, p.reviewers!);
+    case 'close_github_issue':
+      return github.closeIssue(n);
+    case 'reopen_github_issue':
+      return github.reopenIssue(n);
+    case 'close_pull_request':
+      return github.closePullRequest(n);
+    case 'merge_pull_request':
+      return github.mergePullRequest(n);
   }
 }

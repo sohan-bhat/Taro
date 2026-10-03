@@ -1,32 +1,72 @@
 import { Schema, model } from 'mongoose';
-import type { Meeting } from '@taro/shared';
+import type { MeetingPlatform, MeetingStatus } from '@taro/shared';
 import { MEETING_STATUS } from '@taro/shared';
 
-const meetingSchema = new Schema<Meeting>(
+export interface MeetingDoc {
+  companyId: string;
+  meetUrl: string;
+  platform?: MeetingPlatform;
+  status: MeetingStatus;
+  source?: 'slack' | 'dashboard' | 'extension' | 'calendar' | 'slack_command';
+  botId?: string; // MeetingBaas bot ID
+  // Hash of the per-meeting secret MeetingBaas presents on its audio socket and webhooks
+  secretHash?: string;
+  slackChannelId?: string; // where the link was posted, for threading results back
+  slackThreadTs?: string;
+  slackChannelName?: string; // resolved at launch, for "Priya, from #product"
+  title?: string; // reserved for calendar event titles
+  startedByName?: string;
+  startedByUserId?: string; // Taro user, when the person has signed in to Taro
+  startedBySlackUserId?: string; // Slack user, for launches from Slack
+  errorMessage?: string;
+  errorCode?: string; // MeetingBaas error_code from bot.failed
+  archivedAt?: Date; // cleared from the main history, kept forever
+  transcript?: string;
+  liveTranscript?: string; // what realtime transcription has heard so far
+  lastAudioAt?: Date; // last time audio reached the realtime pipeline
+  commandsProcessedAt?: Date; // claimed atomically so the end-of-call sweep runs once
+  startedAt?: Date;
+  endedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const meetingSchema = new Schema<MeetingDoc>(
   {
     companyId: { type: String, required: true, ref: 'Company' },
     meetUrl: { type: String, required: true },
+    platform: { type: String, enum: ['google_meet', 'zoom', 'teams'] },
     status: {
       type: String,
       enum: Object.values(MEETING_STATUS),
       default: MEETING_STATUS.PENDING,
     },
-    botId: { type: String }, // MeetingBaas bot ID
-    slackChannelId: { type: String }, // Channel where the meet link was detected
-    slackThreadTs: { type: String }, // Message ts, for threading results back
-    startedByName: { type: String }, // Slack display name of whoever posted the link
+    source: { type: String, enum: ['slack', 'dashboard', 'extension', 'calendar', 'slack_command'] },
+    botId: { type: String },
+    secretHash: { type: String, select: false },
+    slackChannelId: { type: String },
+    slackThreadTs: { type: String },
+    slackChannelName: { type: String },
+    title: { type: String },
+    startedByName: { type: String },
     startedByUserId: { type: String },
-    archivedAt: { type: Date }, // cleared from main history, kept forever
-    transcript: { type: String }, // Full transcript once the meeting completes
-    liveTranscript: { type: String }, // What the realtime ASR has heard so far
-    lastAudioAt: { type: Date }, // Last time meeting audio reached the realtime pipeline
-    commandsProcessedAt: { type: Date }, // Claimed atomically to prevent double execution
+    startedBySlackUserId: { type: String },
+    errorMessage: { type: String },
+    errorCode: { type: String },
+    archivedAt: { type: Date },
+    transcript: { type: String },
+    liveTranscript: { type: String },
+    lastAudioAt: { type: Date },
+    commandsProcessedAt: { type: Date },
     startedAt: { type: Date },
     endedAt: { type: Date },
   },
   { timestamps: true }
 );
 
+meetingSchema.index({ companyId: 1, createdAt: -1 });
 meetingSchema.index({ companyId: 1, status: 1 });
+meetingSchema.index({ botId: 1 }, { sparse: true });
+meetingSchema.index({ meetUrl: 1, status: 1 });
 
-export const MeetingModel = model<Meeting>('Meeting', meetingSchema);
+export const MeetingModel = model<MeetingDoc>('Meeting', meetingSchema);

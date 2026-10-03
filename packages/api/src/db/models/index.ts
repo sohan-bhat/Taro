@@ -1,7 +1,9 @@
 export { CompanyModel } from './Company';
+export { UserModel } from './User';
+export { SessionModel } from './Session';
+export { LoginCodeModel } from './LoginCode';
 export { SlackConnectionModel } from './SlackConnection';
 export { GithubConnectionModel } from './GithubConnection';
-export { LicenseModel } from './License';
-export { AccessTokenModel } from './AccessToken';
+export { GithubGrantModel } from './GithubGrant';
 export { MeetingModel } from './Meeting';
 export { ActionLogModel } from './ActionLog';

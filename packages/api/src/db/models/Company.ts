@@ -1,15 +1,93 @@
 import { Schema, model } from 'mongoose';
-import type { Company } from '@taro/shared';
 
-const companySchema = new Schema<Company>(
+// A provider key encrypted at rest; only the hint is ever shown back to anyone.
+export interface StoredKey {
+  keyEnc: string;
+  keyHint: string;
+  validatedAt?: Date;
+}
+
+export interface LlmConfigDoc extends StoredKey {
+  provider: string;
+  model: string;
+  baseUrl?: string;
+}
+
+export interface SttConfigDoc {
+  provider: string;
+  model?: string;
+  // Reuse the AI model's key (same provider) instead of storing a second copy
+  useLlmKey?: boolean;
+  keyEnc?: string;
+  keyHint?: string;
+  validatedAt?: Date;
+}
+
+// A Taro workspace. Internally still "company" (the collection predates workspaces).
+export interface CompanyDoc {
+  name: string;
+  slackTeamId?: string;
+  slackTeamDomain?: string;
+  botName?: string;
+  onboardedAt?: Date;
+  // Set once, atomically, when the first owner is decided
+  ownerClaimedAt?: Date;
+  providers?: {
+    meetingBaas?: StoredKey;
+    llm?: LlmConfigDoc;
+    stt?: SttConfigDoc;
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const storedKey = {
+  keyEnc: { type: String, required: true },
+  keyHint: { type: String, required: true },
+  validatedAt: { type: Date },
+};
+
+const companySchema = new Schema<CompanyDoc>(
   {
     name: { type: String, required: true },
-    domain: { type: String, required: true, unique: true },
-    // sparse: legacy docs get a key backfilled at boot
-    licenseKey: { type: String, unique: true, sparse: true },
+    slackTeamId: { type: String },
+    slackTeamDomain: { type: String },
+    botName: { type: String },
     onboardedAt: { type: Date },
+    ownerClaimedAt: { type: Date },
+    providers: {
+      meetingBaas: { type: new Schema(storedKey, { _id: false }), default: undefined },
+      llm: {
+        type: new Schema(
+          {
+            ...storedKey,
+            provider: { type: String, required: true },
+            model: { type: String, required: true },
+            baseUrl: { type: String },
+          },
+          { _id: false }
+        ),
+        default: undefined,
+      },
+      stt: {
+        type: new Schema(
+          {
+            provider: { type: String, required: true },
+            model: { type: String },
+            useLlmKey: { type: Boolean },
+            keyEnc: { type: String },
+            keyHint: { type: String },
+            validatedAt: { type: Date },
+          },
+          { _id: false }
+        ),
+        default: undefined,
+      },
+    },
   },
   { timestamps: true }
 );
 
-export const CompanyModel = model<Company>('Company', companySchema);
+companySchema.index({ slackTeamId: 1 }, { unique: true, partialFilterExpression: { slackTeamId: { $type: 'string' } } });
+
+export const CompanyModel = model<CompanyDoc>('Company', companySchema);

@@ -1,171 +1,143 @@
 /**
- * MeetingBaas API service - handles meeting bot deployment via external API.
- * Coded against the v1 API: https://docs.meetingbaas.com
+ * MeetingBaas v2, called with each workspace's own API key. v2 is the only
+ * version that streams live meeting audio, which live commands depend on.
  */
 
+import { COPY, cleanDashes, sentence } from '@taro/shared';
 import { env } from '../config/env';
+import { log, errorMessage } from '../lib/logger';
+import type { KeyCheck } from './llm';
 
-const MEETINGBAAS_API = 'https://api.meetingbaas.com';
+const API = 'https://api.meetingbaas.com/v2';
+const TIMEOUT_MS = 20_000;
 
-interface JoinMeetingParams {
-  meetingUrl: string;
-  botName?: string;
-  webhookUrl: string;
-  /** Our meeting ID, used to route the realtime audio WebSockets */
-  meetingId?: string;
-  /** Public https base URL (converted to wss for streaming endpoints) */
-  publicBaseUrl?: string;
-  /** Public https URL of the avatar the bot shows in the meeting */
-  botImage?: string;
+export class MeetingBaasError extends Error {
+  constructor(
+    message: string,
+    public status?: number
+  ) {
+    super(message);
+    this.name = 'MeetingBaasError';
+  }
 }
 
-/**
- * The avatar the meeting bot shows in Google Meet / Zoom / Teams. MeetingBaas
- * fetches this over the public internet from its own servers, so it must be a
- * reachable https URL (localhost won't work). Order of preference:
- *   1. explicit BOT_IMAGE_URL
- *   2. the API host itself (/taro-bot.jpg), already public and proven
- *      reachable by MeetingBaas since webhooks and the audio stream land here
- *   3. the web app on Vercel (/taro-bot.jpg in its public dir)
- */
-function defaultBotImage(): string {
+/** Avatar shown in the call; MeetingBaas fetches it server-side, so it must be public https. */
+function botImage(): string | undefined {
   if (env.botImageUrl.startsWith('https://')) return env.botImageUrl;
-  if (env.apiUrl.startsWith('https://')) return `${env.apiUrl.replace(/\/$/, '')}/taro-bot.jpg`;
-  if (env.appUrl.startsWith('https://')) return `${env.appUrl.replace(/\/$/, '')}/taro-bot.jpg`;
-  return '';
+  if (env.apiUrl.startsWith('https://')) return `${env.apiUrl}/taro-bot.jpg`;
+  return undefined;
 }
 
-interface MeetingBaasBot {
-  bot_id: string;
-  [key: string]: unknown;
+function friendlyError(status: number, detail: string): MeetingBaasError {
+  if (status === 401 || status === 403) return new MeetingBaasError(COPY.meetingBaasKeyRejected, status);
+  if (status === 402 || /credit|token|balance|quota/i.test(detail)) return new MeetingBaasError(COPY.meetingBaasNoCredit, status);
+  if (status === 429) return new MeetingBaasError(COPY.meetingBaasRateLimited, status);
+  const said = cleanDashes(detail);
+  return new MeetingBaasError(`MeetingBaas returned an error (${status}).${said ? ` ${sentence(said)}` : ''}`, status);
 }
 
-export class MeetingBaasService {
-  private apiKey: string;
+// Node's own wording ("fetch failed") means nothing to a person, so only a timeout gets a detail.
+function unreachable(error: unknown): MeetingBaasError {
+  const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+  return new MeetingBaasError(COPY.meetingBaasUnreachable(timedOut ? "It didn't answer in time." : undefined));
+}
 
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
+export class MeetingBaasClient {
+  constructor(private readonly apiKey: string) {}
+
+  private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    let res: Response;
+    try {
+      res = await fetch(`${API}${path}`, {
+        method,
+        headers: {
+          'x-meeting-baas-api-key': this.apiKey,
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (error) {
+      log.warn(`[MeetingBaas] ${method} ${path.split('?')[0]} failed:`, errorMessage(error));
+      throw unreachable(error);
+    }
+    const text = await res.text();
+    if (!res.ok) {
+      let detail = text.slice(0, 200);
+      try {
+        const parsed = JSON.parse(text) as { message?: string; error?: string };
+        detail = parsed.message || parsed.error || detail;
+      } catch {
+        // not JSON
+      }
+      throw friendlyError(res.status, detail);
+    }
+    return (text ? JSON.parse(text) : {}) as T;
   }
 
-  async joinMeeting({
-    meetingUrl,
-    botName = 'Taro Assistant',
-    webhookUrl,
-    meetingId,
-    publicBaseUrl,
-    botImage,
-  }: JoinMeetingParams): Promise<MeetingBaasBot> {
-    console.log(`[MeetingBaas] Joining meeting: ${meetingUrl}`);
-
-    const image = botImage || defaultBotImage();
-    if (image) console.log(`[MeetingBaas] Bot avatar: ${image}`);
-
-    const useV2 = env.meetingBaasApiVersion === 'v2';
-    const streamOk = meetingId && publicBaseUrl?.startsWith('https://');
-    if (meetingId && !streamOk) {
-      console.warn(
-        `[MeetingBaas] API_URL is not https (${publicBaseUrl}) - realtime streaming disabled, post-meeting fallback only`
-      );
+  /**
+   * Sends a bot to the meeting with audio streaming into this server. The
+   * per-meeting secret rides in the socket path and as the callback secret,
+   * so only MeetingBaas, holding this bot's secret, can feed audio or report
+   * results for this meeting.
+   */
+  async joinMeeting(opts: {
+    meetingUrl: string;
+    botName: string;
+    meetingId: string;
+    secret: string;
+  }): Promise<{ botId: string }> {
+    const streaming = env.apiUrl.startsWith('https://');
+    if (!streaming) {
+      log.warn('[MeetingBaas] API_URL is not https, so live audio streaming is off for this meeting.');
     }
-    const wssBase = streamOk
-      ? publicBaseUrl!.replace(/^https:\/\//, 'wss://').replace(/\/$/, '')
-      : '';
-    const inUrl = `${wssBase}/ws/audio-in/${meetingId}`;
-    const outUrl = `${wssBase}/ws/audio-out/${meetingId}`;
+    const wss = env.apiUrl.replace(/^https:\/\//, 'wss://');
+    const image = botImage();
 
-    let url: string;
-    let body: Record<string, unknown>;
-
-    if (useV2) {
-      // v2 is the API version that actually delivers realtime audio, matching the
-      // MeetingBaas reference bot's shape (streaming_config, integer Hz, no transcription).
-      url = `${MEETINGBAAS_API}/v2/bots`;
-      body = {
-        meeting_url: meetingUrl,
-        bot_name: botName,
-        ...(image ? { bot_image: image } : {}),
-        entry_message: 'Taro Assistant has joined - say "Hey Taro, ..." to give me a command',
-        recording_mode: 'speaker_view',
-        reserved: false,
-        ...(streamOk
-          ? {
-              streaming_enabled: true,
-              streaming_config: {
-                input_url: inUrl,
-                output_url: outUrl,
-                audio_frequency: 16000,
-              },
-            }
-          : {}),
-        ...(webhookUrl ? { callback_enabled: true, callback_config: { url: webhookUrl } } : {}),
-      };
-      if (streamOk) console.log(`[MeetingBaas] (v2) Streaming: in=${inUrl} out=${outUrl}`);
-    } else {
-      // v1 does not deliver streaming audio (confirmed empirically), but is kept
-      // so the post-meeting path works without a v2 key.
-      url = `${MEETINGBAAS_API}/bots`;
-      body = {
-        meeting_url: meetingUrl,
-        bot_name: botName,
-        ...(image ? { bot_image: image } : {}),
-        recording_mode: 'speaker_view',
-        entry_message: 'Taro Assistant has joined - say "Hey Taro, ..." to give me a command',
-        automatic_leave: { waiting_room_timeout: 600, noone_joined_timeout: 600 },
-        ...(streamOk
-          ? { streaming: { input: inUrl, output: outUrl, audio_frequency: '16khz' } }
-          : {}),
-        webhook_url: webhookUrl,
-      };
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-meeting-baas-api-key': this.apiKey,
+    const data = await this.call<{ success?: boolean; data?: { bot_id?: string } }>('POST', '/bots', {
+      meeting_url: opts.meetingUrl,
+      bot_name: opts.botName,
+      ...(image ? { bot_image: image } : {}),
+      entry_message: COPY.meetingChatGreeting(opts.botName),
+      recording_mode: 'speaker_view',
+      timeout_config: { waiting_room_timeout: 600, no_one_joined_timeout: 300 },
+      ...(streaming
+        ? {
+            streaming_enabled: true,
+            streaming_config: {
+              input_url: `${wss}/ws/audio-in/${opts.meetingId}/${opts.secret}`,
+              output_url: `${wss}/ws/audio-out/${opts.meetingId}/${opts.secret}`,
+              audio_frequency: 16000,
+            },
+          }
+        : {}),
+      callback_enabled: true,
+      callback_config: {
+        url: `${env.apiUrl}/api/webhooks/meetingbaas`,
+        method: 'POST',
+        secret: opts.secret,
       },
-      body: JSON.stringify(body),
+      extra: { taroMeetingId: opts.meetingId },
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error(`[MeetingBaas] Join failed (${env.meetingBaasApiVersion}): ${error}`);
-      throw new Error(`MeetingBaas API error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-    // v1 returns { bot_id }; v2 returns { data: { bot_id } }
-    const botId = data.bot_id ?? data.data?.bot_id;
-    console.log(`[MeetingBaas] Bot deployed (${env.meetingBaasApiVersion}): ${botId}`);
-    return { ...data, bot_id: botId };
+    const botId = data.data?.bot_id;
+    if (!botId) throw new MeetingBaasError("MeetingBaas didn't send back a bot ID.");
+    return { botId };
   }
 
-  async leaveBot(botId: string): Promise<void> {
-    console.log(`[MeetingBaas] Removing bot: ${botId}`);
+  async leave(botId: string): Promise<void> {
+    await this.call('POST', `/bots/${encodeURIComponent(botId)}/leave`);
+  }
 
-    const base = env.meetingBaasApiVersion === 'v2' ? `${MEETINGBAAS_API}/v2` : MEETINGBAAS_API;
-    const response = await fetch(`${base}/bots/${botId}`, {
-      method: 'DELETE',
-      headers: { 'x-meeting-baas-api-key': this.apiKey },
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error(`[MeetingBaas] Leave failed: ${error}`);
-      throw new Error(`MeetingBaas API error: ${response.status}`);
+  /** Listing bots is free and answers 401 for a bad key. */
+  static async validate(apiKey: string): Promise<KeyCheck> {
+    try {
+      await new MeetingBaasClient(apiKey).call('GET', '/bots?limit=1');
+      return { ok: true };
+    } catch (error) {
+      // The key dialog is already on the Setup page, so "update it in Setup" would read oddly there.
+      const rejected = error instanceof MeetingBaasError && (error.status === 401 || error.status === 403);
+      return { ok: false, error: rejected ? 'MeetingBaas rejected this key.' : errorMessage(error) };
     }
   }
-}
-
-let instance: MeetingBaasService | null = null;
-
-export function getMeetingBaasService(): MeetingBaasService {
-  if (!instance) {
-    const apiKey = process.env.MEETINGBAAS_API_KEY;
-    if (!apiKey) {
-      throw new Error('MEETINGBAAS_API_KEY is not set');
-    }
-    instance = new MeetingBaasService(apiKey);
-  }
-  return instance;
 }

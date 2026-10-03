@@ -1,25 +1,18 @@
 /**
- * Realtime diagnostics: a JSON-lines log plus a short raw-audio capture per
- * meeting, so a failed live test can be analyzed after the fact. Both files
- * are gitignored.
+ * Realtime diagnostics, off unless REALTIME_DEBUG=1: a JSON-lines trace of
+ * sockets, utterances, and commands, so a failed live test can be analyzed
+ * afterwards. It contains meeting text, so never enable it on a shared server.
+ * The file lands in the working directory and is gitignored. Audio is never
+ * written anywhere.
  */
 import fs from 'fs';
 import path from 'path';
+import { env } from '../config/env';
 
-const LOG_PATH = path.resolve(__dirname, '../../realtime-debug.log');
+const LOG_PATH = path.resolve(process.cwd(), 'realtime-debug.log');
 
 export function debugLog(entry: Record<string, unknown>) {
+  if (!env.realtimeDebug) return;
   const line = `${JSON.stringify({ t: new Date().toISOString(), ...entry })}\n`;
   fs.appendFile(LOG_PATH, line, () => {});
-}
-
-// First ~20s of raw audio per meeting (16 kHz s16le mono would be 640 KB)
-const CAPTURE_CAP_BYTES = 16000 * 2 * 20;
-const captured = new Map<string, number>();
-
-export function captureAudio(meetingId: string, chunk: Buffer) {
-  const written = captured.get(meetingId) ?? 0;
-  if (written >= CAPTURE_CAP_BYTES) return;
-  captured.set(meetingId, written + chunk.length);
-  fs.appendFile(path.resolve(__dirname, `../../audio-probe-${meetingId}.raw`), chunk, () => {});
 }
