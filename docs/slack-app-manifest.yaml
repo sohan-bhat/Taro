@@ -1,15 +1,17 @@
 # Slack app manifest for Taro.
-# Usage: api.slack.com/apps → Create New App → "From an app manifest"
-#        → pick your workspace → paste this file.
-# ⚠️ Replace YOUR-NGROK-DOMAIN with your static ngrok domain first.
-# After creating: Basic Information → App-Level Tokens → create a token
-# with the connections:write scope (this is SLACK_APP_TOKEN).
-# If you later change scopes, you must REINSTALL the app to the workspace.
+# api.slack.com/apps, then Create New App, then "From an app manifest", then paste this.
+# Replace YOUR-API-DOMAIN with the host from API_URL first.
+#
+# After creating it:
+#  1. Basic Information, App-Level Tokens: create one with connections:write (SLACK_APP_TOKEN).
+#  2. Basic Information, App Credentials: copy Client ID and Client Secret.
+#  3. Manage Distribution: activate public distribution so other Slack workspaces
+#     can sign in and add Taro. Skip this if only your own workspace will use it.
 
 display_information:
   name: Taro
-  description: Voice-activated meeting assistant
-  background_color: "#0ea5e9"
+  description: Say it in the meeting. Done before you hang up.
+  background_color: "#4e3564"
 
 features:
   bot_user:
@@ -18,7 +20,10 @@ features:
 
 oauth_config:
   redirect_urls:
-    - https://YOUR-NGROK-DOMAIN.ngrok-free.app/api/slack/callback
+    # Adding Taro to Slack
+    - https://YOUR-API-DOMAIN/api/slack/callback
+    # Sign in with Slack
+    - https://YOUR-API-DOMAIN/api/auth/slack/callback
   scopes:
     bot:
       - chat:write
@@ -26,6 +31,10 @@ oauth_config:
       - channels:join
       - channels:history
       - users:read
+    user:
+      - openid
+      - email
+      - profile
 
 settings:
   event_subscriptions:

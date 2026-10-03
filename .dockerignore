@@ -1,0 +1,26 @@
+# Keep images small and, more importantly, keep secrets and meeting data out of them.
+.git
+.claude
+**/.DS_Store
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/coverage
+**/*.log
+
+# Secrets
+**/.env
+**/.env.*
+!**/.env.example
+packages/api/test.env
+
+# Local realtime diagnostics contain raw meeting audio and transcripts
+packages/api/audio-probe-*.raw
+packages/api/realtime-debug.log
+
+# Local transcription models (hundreds of MB) and the optional Python server
+packages/api/models
+packages/api/stt-server
+
+docs

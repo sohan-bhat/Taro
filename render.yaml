@@ -1,0 +1,41 @@
+# Render Blueprint for the Taro API (render.com: New, then Blueprint, then pick this repo).
+# The dashboard deploys to Vercel; see docs/DEPLOY.md for the whole setup.
+# Free instances sleep after 15 minutes without requests, and a sleeping API misses
+# meeting links. Keep it awake with an uptime monitor on /health every 5 minutes
+# (docs/DEPLOY.md), or change the plan to starter, which never sleeps.
+
+services:
+  - type: web
+    name: taro-api
+    runtime: docker
+    dockerfilePath: ./packages/api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: API_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: SLACK_CLIENT_ID
+        sync: false
+      - key: SLACK_CLIENT_SECRET
+        sync: false
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_SLUG
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_APP_CLIENT_ID
+        sync: false
+      - key: GITHUB_APP_CLIENT_SECRET
+        sync: false

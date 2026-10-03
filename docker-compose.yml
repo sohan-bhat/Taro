@@ -1,0 +1,42 @@
+# Run all of Taro on one machine: database, API, and dashboard.
+#   cp .env.example .env   # fill it in (see docs/DEPLOY.md)
+#   docker compose up --build
+# The API still needs a public https URL (API_URL) for Slack, GitHub, and MeetingBaas
+# to reach it; put it behind a reverse proxy or tunnel that terminates TLS.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/taro
+      PORT: '4000'
+    ports:
+      - '4000:4000'
+    depends_on:
+      - mongo
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_SITE_URL: ${APP_URL:-http://localhost:3000}
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+
+volumes:
+  mongo-data:
