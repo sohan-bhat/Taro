@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { newLoginNonce } from '@/lib/session';
+import { newLoginNonce, rememberLoginNext } from '@/lib/session';
 import { Button, type ButtonProps } from '@/components/ui/button';
 import { SlackMark } from '@/components/brand';
 import { cn } from '@/lib/utils';
@@ -14,6 +14,7 @@ export function SignInWithSlackButton({
   size = 'lg',
   variant = 'primary',
   compact = false,
+  next,
   className,
 }: {
   label?: string;
@@ -22,6 +23,8 @@ export function SignInWithSlackButton({
   variant?: ButtonProps['variant'];
   // "Sign in" below 640px, where the full label crowds the nav
   compact?: boolean;
+  // A page on this site to land on after signing in, instead of the dashboard
+  next?: string | null;
   className?: string;
 }) {
   const [leaving, setLeaving] = useState(false);
@@ -43,6 +46,7 @@ export function SignInWithSlackButton({
       pending={leaving}
       onClick={() => {
         setLeaving(true);
+        rememberLoginNext(next);
         window.location.href = api.auth.slackStartUrl(newLoginNonce());
       }}
     >

@@ -4,6 +4,7 @@
 
 const TOKEN_KEY = 'taro.session';
 const NONCE_KEY = 'taro.loginNonce';
+const NEXT_KEY = 'taro.loginNext';
 // Left over from the license era; cleared so old browsers start clean.
 const LEGACY_KEYS = ['taro.accessToken', 'taro.licenseKey'];
 
@@ -53,4 +54,35 @@ export function takeLoginNonce(): string | null {
   const nonce = session?.getItem(NONCE_KEY) ?? null;
   session?.removeItem(NONCE_KEY);
   return nonce;
+}
+
+/**
+ * A page on this site to return to after signing in, or null. Anything that
+ * could leave the site (another origin, a protocol-relative path) is refused,
+ * so a crafted sign-in link can't send someone elsewhere afterward.
+ */
+export function safeNextPath(next: string | null | undefined): string | null {
+  if (typeof window === 'undefined' || !next) return null;
+  if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || /[\u0000-\u001f]/.test(next)) return null;
+  try {
+    const url = new URL(next, window.location.origin);
+    return url.origin === window.location.origin ? url.pathname + url.search : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Kept for this tab only, next to the nonce, and read once by the callback. */
+export function rememberLoginNext(next: string | null | undefined) {
+  const safe = safeNextPath(next);
+  const session = storage('session');
+  if (safe) session?.setItem(NEXT_KEY, safe);
+  else session?.removeItem(NEXT_KEY);
+}
+
+export function takeLoginNext(): string | null {
+  const session = storage('session');
+  const next = session?.getItem(NEXT_KEY) ?? null;
+  session?.removeItem(NEXT_KEY);
+  return safeNextPath(next);
 }

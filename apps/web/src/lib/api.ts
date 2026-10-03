@@ -2,6 +2,7 @@
 // so no call takes a workspace ID.
 
 import type {
+  ConnectedSession,
   GithubAccountChoice,
   GithubStatus,
   LlmProviderId,
@@ -130,6 +131,17 @@ export const api = {
     reconnect: () => request<{ connected: boolean }>('/api/github/reconnect', { method: 'POST' }),
     disconnect: () => request<{ connected: boolean }>('/api/github', { method: 'DELETE' }),
   },
+
+  extension: {
+    // A limited token for the Google Meet button: it can send Taro, check on it, and make it leave.
+    token: (label: string) =>
+      request<{ token: string; label: string }>('/api/extension/token', { method: 'POST', body: { label } }),
+  },
+
+  sessions: {
+    list: () => request<{ sessions: ConnectedSession[] }>('/api/sessions'),
+    revoke: (id: string) => request<{ revoked: boolean }>(`/api/sessions/${id}`, { method: 'DELETE' }),
+  },
 };
 
-export type { GithubStatus, Meeting, MeetingDetail, ProviderSettings, User, Workspace, WorkspaceOverview };
+export type { ConnectedSession, GithubStatus, Meeting, MeetingDetail, ProviderSettings, User, Workspace, WorkspaceOverview };
