@@ -32,70 +32,84 @@ export const INTENTS = {
 } as const;
 
 // GitHub capabilities a company can turn on/off for Taro; the GitHub App permission is the ceiling, this is the company's policy within it.
+// In the order the dashboard lists them. `gerund` names a refused action: "Merging is turned off for this workspace."
 export const GITHUB_CAPABILITIES = [
   {
     action: 'create_github_issue',
     label: 'Create issues',
-    description: 'File new issues from voice commands',
+    description: 'File new issues from what people ask for',
+    gerund: 'Filing issues',
     permission: 'Issues: Read and write',
   },
   {
     action: 'comment_github',
-    label: 'Comment on issues & pull requests',
-    description: 'Add a comment to an issue or PR by number',
+    label: 'Comment on issues and pull requests',
+    description: 'Add a comment by number',
+    gerund: 'Commenting',
     permission: 'Issues: Read and write',
   },
   {
-    action: 'close_github_issue',
-    label: 'Close issues',
-    description: 'Close an issue by number',
-    permission: 'Issues: Read and write',
-  },
-  {
-    action: 'reopen_github_issue',
-    label: 'Reopen issues',
-    description: 'Reopen a closed issue by number',
-    permission: 'Issues: Read and write',
+    action: 'create_pull_request',
+    label: 'Open pull requests',
+    description: 'Make a branch, commit a short plan, and open a pull request',
+    gerund: 'Opening pull requests',
+    permission: 'Contents + Pull requests: Read and write',
   },
   {
     action: 'label_github_issue',
     label: 'Label issues',
     description: 'Add labels to an issue',
+    gerund: 'Labeling issues',
     permission: 'Issues: Read and write',
   },
   {
     action: 'assign_github_issue',
     label: 'Assign issues',
     description: 'Assign teammates to an issue',
+    gerund: 'Assigning issues',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'request_github_review',
+    label: 'Request reviews',
+    description: 'Ask teammates to review a pull request',
+    gerund: 'Requesting reviews',
+    permission: 'Pull requests: Read and write',
+  },
+  {
+    action: 'close_github_issue',
+    label: 'Close issues',
+    description: 'Close an issue by number',
+    gerund: 'Closing issues',
+    permission: 'Issues: Read and write',
+  },
+  {
+    action: 'reopen_github_issue',
+    label: 'Reopen issues',
+    description: 'Reopen a closed issue by number',
+    gerund: 'Reopening issues',
     permission: 'Issues: Read and write',
   },
   {
     action: 'close_pull_request',
     label: 'Close pull requests',
-    description: 'Close a PR by number',
+    description: 'Close a pull request by number',
+    gerund: 'Closing pull requests',
     permission: 'Pull requests: Read and write',
   },
   {
     action: 'merge_pull_request',
     label: 'Merge pull requests',
-    description: 'Merge a PR by number (powerful, off by default)',
+    description: 'Merge a pull request into its base branch',
+    gerund: 'Merging',
     permission: 'Pull requests + Contents: Read and write',
-  },
-  {
-    action: 'request_github_review',
-    label: 'Request PR reviews',
-    description: 'Request reviewers on a pull request',
-    permission: 'Pull requests: Read and write',
-  },
-  {
-    action: 'create_pull_request',
-    label: 'Create pull requests',
-    description: 'Open a new branch and pull request from a meeting request',
-    permission: 'Contents + Pull requests: Read and write',
   },
 ] as const;
 
 export type GithubAction = (typeof GITHUB_CAPABILITIES)[number]['action'];
+
+export const isGithubAction = (action: string): action is GithubAction =>
+  GITHUB_CAPABILITIES.some((c) => c.action === action);
 
 // Safe, non-destructive defaults; a PR is just a proposal against a new branch, it never touches main. Powerful actions like merge and close stay opt-in.
 export const DEFAULT_GITHUB_ACTIONS: GithubAction[] = [
@@ -114,6 +128,12 @@ export const MEETING_STATUS = {
 
 export const API_ROUTES = {
   HEALTH: '/health',
-  COMPANIES: '/api/companies',
-  MEETINGS: '/api/meetings',
+  READY: '/ready',
+} as const;
+
+// Meetings Taro can join, matched against links posted in Slack or pasted in the dashboard.
+export const MEETING_PLATFORMS = {
+  google_meet: 'Google Meet',
+  zoom: 'Zoom',
+  teams: 'Microsoft Teams',
 } as const;
