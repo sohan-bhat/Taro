@@ -1,0 +1,29 @@
+@font-face { font-family: 'Taro Record'; src: url('../fonts/SchibstedGrotesk-SemiBold.woff2') format('woff2'); font-weight: 600; }
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { width: 320px; margin: 0; background: #F4F0F6; color: #1D1724; font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+.head { display: flex; align-items: center; gap: 7px; padding: 14px 16px; background: #FFFFFF; border-bottom: 1px solid #E2DBE7; color: #4E3564; }
+.word { font-family: 'Taro Record', ui-sans-serif, system-ui, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.035em; color: #1D1724; }
+main { display: grid; gap: 14px; padding: 16px; }
+section { display: grid; gap: 8px; }
+.title { margin: 0; font-family: 'Taro Record', ui-sans-serif, system-ui, sans-serif; font-weight: 600; font-size: 15px; }
+.note { margin: 0; color: #4A4255; }
+.row { display: flex; gap: 8px; }
+button { height: 36px; padding: 0 14px; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; border: 1.5px solid transparent; }
+button:disabled { opacity: 0.45; cursor: default; }
+.primary { background: #4E3564; color: #FFFFFF; }
+.primary:hover:not(:disabled) { background: #5E4377; }
+.secondary { background: transparent; color: #1D1724; border-color: #8F879A; }
+.secondary:hover:not(:disabled) { background: #FFFFFF; }
+button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid #4E3564; outline-offset: 2px; }
+.settings { border-top: 1px solid #E2DBE7; padding-top: 12px; }
+.settings summary { cursor: pointer; font-weight: 600; color: #4A4255; }
+.settings[open] { display: grid; gap: 8px; }
+.field { display: grid; gap: 6px; font-weight: 600; }
+.field input { height: 36px; padding: 0 10px; border: 1px solid #8F879A; border-radius: 10px; background: #FFFFFF; font: 13px/1 ui-monospace, Menlo, monospace; color: #1D1724; }
+.field input:disabled { opacity: 0.6; }
+.check { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.check input { width: 16px; height: 16px; accent-color: #4E3564; }
+.error { margin: 0; padding-left: 12px; border-left: 3px solid #A3244B; color: #1D1724; }
+footer { padding: 0 16px 14px; }
+footer a { color: #4E3564; font-weight: 600; text-underline-offset: 3px; }

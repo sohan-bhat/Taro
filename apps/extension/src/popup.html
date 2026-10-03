@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Taro</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <header class="head">
+      <svg viewBox="0 0 32 42" width="15" height="20" aria-hidden="true" class="mark">
+        <g fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="M16 9V2"/><path d="M16 5.2L11.4 2"/><path d="M16 5.2L20.6 2"/></g>
+        <path fill="currentColor" fill-rule="evenodd" d="M16 8.42C21.63 8.81 28.93 16.49 28.93 25.96C28.93 34.66 22.91 41.06 16 41.06C9.09 41.06 3.07 34.66 3.07 25.96C3.07 16.49 10.37 8.81 16 8.42Z M8.9 22.7a1.7 1.7 0 0 1 3.4 0v4.6a1.7 1.7 0 0 1 -3.4 0Z M14.3 20.1a1.7 1.7 0 0 1 3.4 0v9.8a1.7 1.7 0 0 1 -3.4 0Z M19.7 22.7a1.7 1.7 0 0 1 3.4 0v4.6a1.7 1.7 0 0 1 -3.4 0Z"/>
+      </svg>
+      <span class="word">taro</span>
+    </header>
+
+    <main>
+      <section id="meeting" hidden>
+        <h1 class="title">This meeting</h1>
+        <p class="note" id="meeting-status"></p>
+        <button type="button" class="primary" id="invite">Invite Taro</button>
+      </section>
+
+      <section>
+        <h1 class="title" id="account-title">Not connected</h1>
+        <p class="note" id="account-note">Connect this browser to your Taro workspace, then invite Taro from any Google Meet call.</p>
+        <div class="row">
+          <button type="button" class="primary" id="connect">Connect this browser</button>
+          <button type="button" class="secondary" id="disconnect" hidden>Disconnect</button>
+        </div>
+      </section>
+
+      <details class="settings">
+        <summary>Settings</summary>
+        <label class="field">
+          <span>Taro address</span>
+          <input id="app-url" type="url" inputmode="url" spellcheck="false" autocomplete="off" />
+        </label>
+        <p class="note" id="app-url-note">The dashboard this browser connects to.</p>
+        <label class="check">
+          <input id="show-button" type="checkbox" checked />
+          <span>Show the Taro button in Google Meet</span>
+        </label>
+        <button type="button" class="secondary" id="save" disabled>Save</button>
+      </details>
+
+      <p class="error" id="error" role="alert" hidden></p>
+    </main>
+
+    <footer><a id="open" href="#">Open Taro</a></footer>
+  </body>
+</html>

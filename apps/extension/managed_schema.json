@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "appUrl": {
+      "title": "Taro dashboard address",
+      "description": "The Taro dashboard people connect to, for example https://taro.example.com.",
+      "type": "string"
+    },
+    "showButton": {
+      "title": "Show the Invite Taro button in Google Meet",
+      "description": "Turn off to keep only the toolbar button.",
+      "type": "boolean"
+    }
+  }
+}
