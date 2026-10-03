@@ -136,7 +136,7 @@ async function openInTaro(code) {
   const { appUrl } = await settings();
   const meeting = code ? await tracked(code) : null;
   const url = new URL('/dashboard', appUrl);
-  if (meeting) url.searchParams.set('meeting', meeting.id);
+  if (meeting) url.searchParams.set('m', meeting.id);
   await chrome.tabs.create({ url: url.toString() });
 }
 
