@@ -6,15 +6,27 @@ import type { LlmProviderId, SttProviderId } from './providers';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member';
 
-// A Taro workspace maps one-to-one to a Slack workspace (team).
+// The accounts people sign in to Taro with.
+export type SignInProvider = 'slack' | 'google' | 'microsoft';
+
+// A Taro workspace is one Slack workspace (team), one company that signs in with Google or Microsoft
+// (a Google Workspace domain or a Microsoft tenant), or one person's own Google or Microsoft account.
 export interface Workspace {
   _id: string;
   name: string;
+  // How people get in. Slack is required for Slack workspaces and optional for the others.
+  signInWith: SignInProvider;
+  // Google workspaces: the Google Workspace domain everyone here signs in from
+  domain?: string;
+  // One person's own Google or Microsoft account, so nobody else joins
+  personal?: boolean;
+  // The Slack team: who belongs, for a Slack workspace; the one connected, for the others
   slackTeamId?: string;
   slackTeamDomain?: string;
   botName: string;
   onboardedAt?: string;
-  // False until someone adds Taro to Slack; that person becomes the owner.
+  // False until someone adds Taro to Slack; that person becomes the owner. Google and Microsoft
+  // workspaces are claimed by the first person to sign in.
   claimed: boolean;
   createdAt: string;
 }
@@ -117,11 +129,11 @@ export interface Meeting {
   meetUrl: string;
   platform?: MeetingPlatform;
   status: MeetingStatus;
-  // calendar, slack_command, and extension are reserved for the next ways in.
+  // slack_command is reserved for the next way in.
   source?: 'slack' | 'dashboard' | 'calendar' | 'slack_command' | 'extension';
   startedByName?: string;
   slackChannelName?: string; // resolved at launch, for "Priya, from #product"
-  title?: string; // reserved for calendar event titles
+  title?: string; // the calendar event's title
   errorMessage?: string;
   errorCode?: string; // MeetingBaas error_code from bot.failed
   tally?: MeetingTally; // filled in by GET /api/meetings
@@ -209,9 +221,32 @@ export interface ConnectedSession {
 // What the server operator has configured, so the UI can hide what isn't available.
 export interface ServerMeta {
   slackSignIn: boolean;
+  // True once the server has that provider's client ID and secret
+  googleSignIn: boolean;
+  microsoftSignIn: boolean;
   githubApp: boolean;
   serverStt: boolean;
-  // Reserved for calendar invitations and the Google Meet button; unset means off.
+  // Calendar invitations and the Google Meet button; unset means off.
   calendarInvites?: boolean;
   meetExtension?: boolean;
+}
+
+// A meeting Taro was invited to by calendar, before it starts. One per occurrence of a series.
+export interface UpcomingMeeting {
+  _id: string;
+  title?: string;
+  startsAt: string;
+  endsAt: string;
+  meetUrl: string;
+  platform: MeetingPlatform;
+  // scheduled: Taro joins at the start. needs_approval: an owner or admin approves it first.
+  // skipped: someone skipped this one occurrence.
+  status: 'scheduled' | 'needs_approval' | 'skipped';
+  recurring: boolean;
+  organizerName?: string;
+  organizerEmail?: string;
+  // For meetings waiting for approval: the address the invitation came from
+  sentBy?: string;
+  // Why Taro can't join as things stand: missing setup, or MeetingBaas refusing to schedule it
+  problem?: string;
 }

@@ -1,7 +1,8 @@
 /**
  * Sends Taro into a meeting. Shared by the Slack listener (a link posted in a
- * channel) and the dashboard ("Send Taro to a meeting"), so both paths get the
- * same readiness checks, de-duplication, concurrency cap, and error handling.
+ * channel), the dashboard ("Send Taro to a meeting"), and calendar invitations,
+ * so every path gets the same readiness checks, de-duplication, concurrency
+ * cap, and error handling.
  */
 
 import { COPY } from '@taro/shared';
@@ -24,7 +25,9 @@ export type LaunchErrorCode = 'not_ready' | 'limit' | 'provider' | 'not_found';
 export class LaunchError extends Error {
   constructor(
     message: string,
-    public code: LaunchErrorCode
+    public code: LaunchErrorCode,
+    // Set when the failed meeting was recorded, so callers can point at it
+    public meetingId?: string
   ) {
     super(message);
     this.name = 'LaunchError';
@@ -63,13 +66,17 @@ export function missingSetup(p: { meetingBaasKey: unknown; llm: unknown; stt: un
 export async function launchMeeting(opts: {
   companyId: string;
   link: MeetingLink;
-  source: 'slack' | 'dashboard' | 'extension';
+  source: 'slack' | 'dashboard' | 'extension' | 'calendar';
   slackChannelId?: string;
   slackChannelName?: string;
   slackThreadTs?: string;
   startedByName?: string;
   startedByUserId?: string;
   startedBySlackUserId?: string;
+  // The calendar event's title
+  title?: string;
+  // A bot MeetingBaas already has scheduled for this meeting: recorded as is, not sent again
+  scheduledBot?: { meetingId: string; botId: string; secretHash: string };
 }): Promise<LaunchResult> {
   const company = await CompanyModel.findById(opts.companyId);
   if (!company) throw new LaunchError('Workspace not found.', 'not_found');
@@ -106,13 +113,16 @@ export async function launchMeeting(opts: {
       );
     }
 
+    const scheduled = opts.scheduledBot;
     const created = await MeetingModel.create({
+      ...(scheduled ? { _id: scheduled.meetingId, botId: scheduled.botId } : {}),
       companyId: opts.companyId,
       meetUrl: opts.link.url,
       platform: opts.link.platform,
       source: opts.source,
+      title: opts.title,
       status: 'pending',
-      secretHash: sha256(secret),
+      secretHash: scheduled ? scheduled.secretHash : sha256(secret),
       slackChannelId: opts.slackChannelId,
       slackChannelName: opts.slackChannelName,
       slackThreadTs: opts.slackThreadTs,
@@ -124,6 +134,10 @@ export async function launchMeeting(opts: {
   });
   if (claimed.existing) return { meeting: claimed.existing, alreadyActive: true };
   const meeting = claimed.created!;
+  if (opts.scheduledBot) {
+    log.info(`[Launcher] Scheduled bot ${opts.scheduledBot.botId} confirmed for ${opts.link.platform} meeting ${meeting._id}`);
+    return { meeting, alreadyActive: false };
+  }
 
   try {
     const client = new MeetingBaasClient(providers.meetingBaasKey!);
@@ -144,6 +158,6 @@ export async function launchMeeting(opts: {
     meeting.errorMessage = message;
     await meeting.save();
     log.warn(`[Launcher] Join failed for meeting ${meeting._id}: ${error instanceof Error ? error.message : error}`);
-    throw new LaunchError(message, 'provider');
+    throw new LaunchError(message, 'provider', meeting._id.toString());
   }
 }

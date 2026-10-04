@@ -7,7 +7,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { GithubAccountChoice, Meeting, MeetingDetail, ServerMeta, WorkspaceOverview } from '@taro/shared';
+import type { GithubAccountChoice, Meeting, MeetingDetail, ServerMeta, UpcomingMeeting, WorkspaceOverview } from '@taro/shared';
 import { api, ApiError, isSessionError } from '@/lib/api';
 import { nextTail, type TailState } from '@/lib/live-tail';
 import { isLive, missingToJoin, setupSteps, sortMeetings } from '@/lib/meeting-state';
@@ -28,6 +28,7 @@ import {
   UpcomingInvites,
   type ListMode,
   type SendResult,
+  type UpcomingAction,
 } from './meetings';
 import { SetupView } from './setup';
 import { MembersDialog, SettingsDialog } from './workspace-dialogs';
@@ -39,6 +40,8 @@ const RETURN_ERRORS: Record<string, string> = {
   slack_missing_code: "Slack didn't finish adding Taro. Try again.",
   slack_failed: "Slack didn't finish adding Taro. Try again.",
   slack_team_mismatch: 'Taro was added to a different Slack workspace than the one you signed in with. Add it to this one instead.',
+  slack_team_taken: "That Slack workspace already belongs to another Taro workspace, so it can't be added here.",
+  slack_other_team: 'This workspace is already connected to a different Slack workspace. Remove that one in Setup first.',
   workspace_not_found: 'That workspace no longer exists.',
   github_expired: 'Connecting GitHub took too long. Try again.',
   github_unverified: "This Taro server can't verify GitHub installations yet. Ask whoever runs it to finish the GitHub app setup.",
@@ -92,6 +95,9 @@ export function DashboardApp() {
   const [overview, setOverview] = React.useState<WorkspaceOverview | null>(null);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [meta, setMeta] = React.useState<ServerMeta | null>(null);
+  // Meetings Taro is invited to by calendar; null until loaded, and while the server doesn't take invitations
+  const [upcoming, setUpcoming] = React.useState<UpcomingMeeting[] | null>(null);
+  const [upcomingPending, setUpcomingPending] = React.useState<{ id: string; action: UpcomingAction } | null>(null);
   const [meetings, setMeetings] = React.useState<Meeting[] | null>(null);
   const [meetingsError, setMeetingsError] = React.useState('');
   const [archived, setArchived] = React.useState<Meeting[] | null>(null);
@@ -175,6 +181,17 @@ export function DashboardApp() {
     }
   }, [handleError]);
 
+  const loadUpcoming = React.useCallback(async () => {
+    if (exiting.current) return;
+    try {
+      const { upcoming: list } = await api.calendar.upcoming();
+      if (!exiting.current) setUpcoming(list);
+    } catch (error) {
+      // The list is extra; when it can't load, the rest of the page carries on without it.
+      handleError(error);
+    }
+  }, [handleError]);
+
   // First load. No token means nobody is signed in here.
   React.useEffect(() => {
     if (!getToken()) {
@@ -237,6 +254,22 @@ export function DashboardApp() {
     }, anyLive ? FAST_POLL : SLOW_POLL);
     return () => window.clearInterval(timer);
   }, [loaded, anyLive, loadMeetings]);
+
+  // Upcoming calendar meetings refresh every 30 seconds, and when the tab comes back.
+  const calendarInvites = !!meta?.calendarInvites;
+  React.useEffect(() => {
+    if (!loaded || !calendarInvites) return;
+    loadUpcoming();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadUpcoming();
+    };
+    const timer = window.setInterval(onVisible, SLOW_POLL);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loaded, calendarInvites, loadUpcoming]);
 
   // Hidden tabs skip their polls, so a tab coming back catches up at once.
   React.useEffect(() => {
@@ -492,6 +525,37 @@ export function DashboardApp() {
     }
   };
 
+  const actOnUpcoming = async (meeting: UpcomingMeeting, action: UpcomingAction) => {
+    setUpcomingPending({ id: meeting._id, action });
+    try {
+      const { upcoming: list } = await api.calendar.act(meeting._id, action);
+      setUpcoming(list);
+      const many = meeting.recurring;
+      showToast(
+        action === 'skip'
+          ? "Skipped. Taro won't join that one."
+          : action === 'restore'
+            ? 'Taro will join that one at the start.'
+            : action === 'approve'
+              ? many
+                ? 'Approved. Taro joins each one at the start.'
+                : 'Approved. Taro joins at the start.'
+              : many
+                ? "Declined. Taro won't join any of them."
+                : "Declined. Taro won't join."
+      );
+      // One about to start can turn into a meeting at any moment.
+      loadMeetings();
+    } catch (error) {
+      if (!handleError(error)) showToast(errorText(error, "Couldn't change that meeting. Try again."), 'error');
+      loadUpcoming();
+    } finally {
+      setUpcomingPending(null);
+      // The row's buttons change or go away with it.
+      focusIfLost('upcoming-title');
+    }
+  };
+
   const changeMode = (next: ListMode) => {
     if (next === mode) return;
     setMode(next);
@@ -615,7 +679,12 @@ export function DashboardApp() {
                   canJoin={ready.canJoinMeetings}
                   missing={missingToJoin(ready)}
                   slackConnected={slack.connected}
-                  upcoming={meta?.calendarInvites ? <UpcomingInvites events={[]} onSkip={() => {}} /> : null}
+                  calendarInvites={calendarInvites}
+                  upcoming={
+                    calendarInvites ? (
+                      <UpcomingInvites meetings={upcoming} canDecide={canEdit} onAction={actOnUpcoming} pending={upcomingPending} now={now} />
+                    ) : null
+                  }
                   onSent={onSent}
                   onNotReady={loadOverview}
                 />
@@ -642,6 +711,7 @@ export function DashboardApp() {
                       onArchive={archiveFinished}
                       archiving={archiving}
                       error={mode === 'archive' ? archiveError : meetingsError}
+                      calendarInvites={calendarInvites}
                       now={now}
                     />
                   </div>
@@ -653,7 +723,7 @@ export function DashboardApp() {
         )}
       </main>
 
-      <MembersDialog open={dialog === 'members'} me={me} onClose={() => setDialog(null)} />
+      <MembersDialog open={dialog === 'members'} me={me} workspace={workspace} onClose={() => setDialog(null)} />
       <SettingsDialog
         open={dialog === 'settings'}
         workspace={workspace}

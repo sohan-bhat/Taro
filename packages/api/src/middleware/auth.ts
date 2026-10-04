@@ -119,10 +119,14 @@ async function checkSession(req: AuthedRequest, res: Response, next: NextFunctio
     ).catch(() => {});
     UserModel.updateOne({ _id: session.userId }, { lastSeenAt: new Date(now) }).catch(() => {});
   }
-  if (!user.slackCheckedAt || now - user.slackCheckedAt.getTime() > TOUCH_INTERVAL_MS) {
+  // Only people who signed in with Slack answer to Slack; Google and Microsoft accounts have no Slack identity.
+  const slackUserId = user.slackUserId;
+  if (slackUserId && (!user.slackCheckedAt || now - user.slackCheckedAt.getTime() > TOUCH_INTERVAL_MS)) {
     // Mark first so concurrent requests don't all ask Slack
     UserModel.updateOne({ _id: user._id }, { slackCheckedAt: new Date(now) }).catch(() => {});
-    recheckSlackMembership(user).catch((error) => log.warn('[Auth] Slack membership check failed:', errorMessage(error)));
+    recheckSlackMembership({ _id: user._id, companyId: user.companyId, role: user.role, slackUserId }).catch((error) =>
+      log.warn('[Auth] Slack membership check failed:', errorMessage(error))
+    );
   }
   next();
 }

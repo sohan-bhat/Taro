@@ -21,6 +21,7 @@ import { publicUser, publicWorkspace } from '../lib/views';
 import { log, errorMessage } from '../lib/logger';
 import { providerReadiness, providerSettings } from '../services/workspaceProviders';
 import { readSlackToken } from '../services/slack';
+import { forgetWorkspace } from '../services/calendar/invitations';
 import { WebClient } from '@slack/web-api';
 
 export const workspaceRouter: RouterType = Router();
@@ -193,6 +194,8 @@ workspaceRouter.delete(
         log.warn('[Workspace] Slack token revoke failed during delete:', errorMessage(error));
       }
     }
+    // Calendar meetings first, while the MeetingBaas key is still there to cancel their scheduled bots
+    await forgetWorkspace(companyId).catch((error) => log.warn('[Workspace] Calendar cleanup failed during delete:', errorMessage(error)));
     await Promise.all([
       MeetingModel.deleteMany({ companyId }),
       ActionLogModel.deleteMany({ companyId }),

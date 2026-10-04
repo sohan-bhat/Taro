@@ -129,7 +129,23 @@ function Identity({ user, isMe }: { user: User; isMe: boolean }) {
 const roleNoun = (role: WorkspaceRole) => (role === 'owner' ? 'an owner' : role === 'admin' ? 'an admin' : 'a member');
 
 /** Everyone who has signed in. Owners change roles, remove people, and restore them; everyone else reads the list. */
-export function MembersDialog({ open, me, onClose }: { open: boolean; me: User; onClose: () => void }) {
+/** Who can sign in to this workspace, and who decides roles. */
+function membersNote(workspace: Workspace): string {
+  if (workspace.personal) {
+    const account = workspace.signInWith === 'microsoft' ? 'Microsoft' : 'Google';
+    return `This workspace belongs to your personal ${account} account, so only you can sign in to it.`;
+  }
+  switch (workspace.signInWith) {
+    case 'google':
+      return `Anyone who signs in with a Google account at ${workspace.domain ?? 'your company'} joins as a member. Owners change roles here, and owners and admins manage keys and connections.`;
+    case 'microsoft':
+      return 'Anyone who signs in with a work or school account from your organization joins as a member. Owners change roles here, and owners and admins manage keys and connections.';
+    default:
+      return "Full members of your Slack workspace can sign in. Guests can't. Slack owners and admins get the same role here, and they manage keys and connections.";
+  }
+}
+
+export function MembersDialog({ open, me, workspace, onClose }: { open: boolean; me: User; workspace: Workspace; onClose: () => void }) {
   const guard = useSessionGuard();
   const [members, setMembers] = React.useState<User[] | null>(null);
   const [loadError, setLoadError] = React.useState('');
@@ -235,10 +251,7 @@ export function MembersDialog({ open, me, onClose }: { open: boolean; me: User; 
     <Dialog open={open} onClose={onClose}>
       <DialogHeader>
         <DialogTitle>Members</DialogTitle>
-        <DialogDescription>
-          Full members of your Slack workspace can sign in. Guests can&apos;t. Slack owners and admins get the same role here, and
-          they manage keys and connections.
-        </DialogDescription>
+        <DialogDescription>{membersNote(workspace)}</DialogDescription>
       </DialogHeader>
       <DialogBody>
         {loadError ? (

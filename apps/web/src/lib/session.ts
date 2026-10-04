@@ -1,6 +1,6 @@
 // Browser-side session storage. The session token lives in localStorage; the
-// one-time sign-in nonce lives in sessionStorage, so a Slack sign-in can only
-// be completed in the tab that started it.
+// one-time sign-in nonce lives in sessionStorage, so a sign-in can only be
+// completed in the tab that started it.
 
 const TOKEN_KEY = 'taro.session';
 const NONCE_KEY = 'taro.loginNonce';

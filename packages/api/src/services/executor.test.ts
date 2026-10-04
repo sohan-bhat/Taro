@@ -94,11 +94,17 @@ test('Slack problems say what failed', async (t) => {
   assert.equal(missing.saved[0].errorMessage, 'Channel "marketing" not found.');
 });
 
-test('without Slack, a post fails plainly', async (t) => {
-  fakeWorkspace(t);
-  const result = await executeCommand('m1', 'c1', 'post hello to general', 'post_meeting', undefined, null);
-  assert.equal(result.summary, COPY.slackNotConnected);
-  assert.equal(result.outcome, 'failed');
+test('without Slack, posts and checklists say Slack is off for the workspace instead of failing', async (t) => {
+  const { saved } = fakeWorkspace(t);
+  const slackOff = { status: 'clarification_needed', outcome: 'turned_off', summary: COPY.slackNotConnected };
+  assert.deepEqual(await executeCommand('m1', 'c1', 'post hello to general', 'post_meeting', undefined, null), slackOff);
+  const checklist = 'make a todo list in launch about the store screenshots, the press note and the beta email';
+  assert.deepEqual(await executeCommand('m1', 'c1', checklist, 'live', undefined, null), slackOff);
+  assert.deepEqual(
+    saved.map((log) => log.outcome),
+    ['turned_off', 'turned_off']
+  );
+  assert.match(COPY.slackNotConnected, /add Taro to Slack in Setup/);
 });
 
 test('a done GitHub request links its number and stores a result the dashboard reads', async (t) => {

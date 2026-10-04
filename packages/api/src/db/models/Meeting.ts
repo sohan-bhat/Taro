@@ -14,7 +14,7 @@ export interface MeetingDoc {
   slackChannelId?: string; // where the link was posted, for threading results back
   slackThreadTs?: string;
   slackChannelName?: string; // resolved at launch, for "Priya, from #product"
-  title?: string; // reserved for calendar event titles
+  title?: string; // the calendar event's title
   startedByName?: string;
   startedByUserId?: string; // Taro user, when the person has signed in to Taro
   startedBySlackUserId?: string; // Slack user, for launches from Slack

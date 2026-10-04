@@ -48,6 +48,14 @@ export const turnedOff = (action: string): Settled => ({
   summary: COPY.turnedOff(action),
 });
 
+// Posts and checklists need Slack. Slack is optional for Google and Microsoft workspaces, so without it
+// these are off for the workspace, the way a GitHub action it turned off is, rather than a failure.
+export const slackOff = (): Settled => ({
+  status: 'clarification_needed',
+  outcome: 'turned_off',
+  summary: COPY.slackNotConnected,
+});
+
 export const failed = (summary: string, errorMessage?: string): Settled => ({
   status: 'failed',
   outcome: 'failed',

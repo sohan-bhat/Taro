@@ -316,7 +316,7 @@ export const FAQ = {
     },
     {
       q: 'What do I need to get started?',
-      a: 'A Slack workspace where you can add apps, a MeetingBaas API key, and a key for an AI model. A Groq or OpenAI key can cover transcription too.',
+      a: 'A Google, Microsoft, or Slack account to sign in with, a MeetingBaas API key, and a key for an AI model. A Groq or OpenAI key can cover transcription too. Slack and GitHub are optional.',
     },
     {
       q: 'Which meetings can Taro join?',
@@ -336,7 +336,7 @@ export const FAQ = {
 export const CLOSING = {
   label: 'Get started',
   said: 'Hey Taro, join our next meeting.',
-  answer: "Sign in with Slack, and I'll take it from there.",
+  answer: "Sign in, and I'll take it from there.",
   demoTitle: 'Look around first.',
   demoBody: 'See a real Taro workspace. No sign-in needed.',
   demo: 'See the demo',

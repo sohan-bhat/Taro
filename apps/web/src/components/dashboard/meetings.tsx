@@ -6,10 +6,21 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import type { Meeting, MeetingDetail, MeetingPlatform } from '@taro/shared';
+import type { Meeting, MeetingDetail, UpcomingMeeting } from '@taro/shared';
 import { api, ApiError } from '@/lib/api';
 import { explainBotError } from '@/lib/bot-errors';
-import { daysBefore, formatClock, formatDate, listJoin, meetingTitle, platformLabel, timeAgo, whoAndWhere, type Zone } from '@/lib/format';
+import {
+  daysBefore,
+  formatClock,
+  formatDate,
+  formatUpcoming,
+  listJoin,
+  meetingTitle,
+  platformLabel,
+  timeAgo,
+  whoAndWhere,
+  type Zone,
+} from '@/lib/format';
 import type { TailState } from '@/lib/live-tail';
 import {
   isHearing,
@@ -30,7 +41,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Status } from '@/components/ui/status';
 import { Segmented } from '@/components/ui/tabs';
-import { LiveClock, Time } from '@/components/ui/time';
+import { LiveClock } from '@/components/ui/time';
 import { showToast } from '@/components/ui/toast-store';
 import { errorText, focusIfLost, useMediaQuery, useNow, useSessionGuard } from './common';
 import { RequestsSection } from './request-row';
@@ -55,13 +66,14 @@ export function toastSent({ alreadyActive }: Pick<SendResult, 'alreadyActive'>) 
 // Ways in
 
 /**
- * "Send Taro to a meeting": the link form and the Slack line. It is a slot for every way in;
- * `upcoming` is where calendar invitations land when they ship.
+ * "Send Taro to a meeting": the link form and the line about the other ways in. It is a slot for
+ * every way in; `upcoming` lists the meetings Taro is invited to by calendar.
  */
 export function MeetingSources({
   canJoin,
   missing,
   slackConnected,
+  calendarInvites = false,
   upcoming,
   onSent,
   onNotReady,
@@ -71,6 +83,8 @@ export function MeetingSources({
   // What sending still needs, in order: "a meeting bot key", "an AI model", "transcription"
   missing: string[];
   slackConnected: boolean;
+  // The server takes calendar invitations, so the line mentions them
+  calendarInvites?: boolean;
   upcoming?: React.ReactNode;
   onSent: (result: SendResult) => void;
   // The API answered 412: the workspace changed since the overview loaded
@@ -178,7 +192,17 @@ export function MeetingSources({
         </p>
       ) : slackConnected ? (
         <p id="send-line" className="mt-2.5 text-sm text-ash">
-          Or post the link in any Slack channel Taro is in. It replies in the thread.
+          {calendarInvites
+            ? 'Or invite Taro from your calendar, or post the link in any Slack channel Taro is in.'
+            : 'Or post the link in any Slack channel Taro is in. It replies in the thread.'}
+        </p>
+      ) : calendarInvites ? (
+        <p id="send-line" className="mt-2.5 text-sm text-ash">
+          Or invite Taro from your calendar with its address in{' '}
+          <Link href="/dashboard?view=setup" scroll={false} onClick={onSetupLink} className={LINK}>
+            Setup
+          </Link>
+          .
         </p>
       ) : (
         <p id="send-line" className="mt-2.5 text-sm text-ash">
@@ -194,43 +218,143 @@ export function MeetingSources({
   );
 }
 
-export interface UpcomingEvent {
-  id: string;
-  title: string;
-  startsAt: string;
-  platform?: MeetingPlatform;
-  meetUrl: string;
+export type UpcomingAction = 'skip' | 'restore' | 'approve' | 'decline';
+
+const UPCOMING_SHOWN = 6;
+const GOOGLE_CALENDAR = 'calendar-notification@google.com';
+
+// "Bob Lee (bob@partner.example)", or whichever half the invitation had
+function personLabel(name?: string, email?: string): string | undefined {
+  return name && email ? `${name} (${email})` : name || email;
 }
 
-/** Reserved for calendar invitations (section 12): meetings Taro is invited to. Renders nothing until there are some. */
-export function UpcomingInvites({
-  events,
-  onSkip,
+/** For invitations waiting for approval: who sent it, and whom it names as organizer when that's someone else. */
+function sentByLine(meeting: UpcomingMeeting): string | undefined {
+  const organizer = personLabel(meeting.organizerName, meeting.organizerEmail);
+  if (!meeting.sentBy) return organizer ? `Organized by ${organizer}.` : undefined;
+  if (meeting.sentBy === GOOGLE_CALENDAR) return organizer ? `Sent by Google Calendar for ${organizer}.` : 'Sent by Google Calendar.';
+  if (!organizer || meeting.organizerEmail === meeting.sentBy) return `Sent by ${organizer ?? meeting.sentBy}.`;
+  return `Sent by ${meeting.sentBy}, naming ${organizer} as the organizer.`;
+}
+
+function UpcomingRow({
+  meeting,
+  canDecide,
+  busy,
+  onAction,
+  now,
   timeZone,
 }: {
-  events: readonly UpcomingEvent[];
-  onSkip: (id: string) => void;
+  meeting: UpcomingMeeting;
+  canDecide: boolean;
+  // The action running on this row
+  busy: UpcomingAction | null;
+  onAction: (meeting: UpcomingMeeting, action: UpcomingAction) => void;
+  now: number;
   timeZone?: string;
 }) {
-  if (events.length === 0) return null;
+  const { title, code } = meetingTitle(meeting);
+  const waiting = meeting.status === 'needs_approval';
+  const skipped = meeting.status === 'skipped';
+  // Approve and Decline need room: below the text on phones, beside it from 768px. A lone Skip sits beside it.
+  const deciding = waiting && canDecide;
+  const button = (action: UpcomingAction, label: string, working: string, variant: 'primary' | 'secondary' | 'ghost') => (
+    <Button variant={variant} size="sm" onClick={() => onAction(meeting, action)} pending={busy === action} disabled={!!busy && busy !== action}>
+      {busy === action ? working : label}
+    </Button>
+  );
   return (
-    <div className="mt-4 border-t border-rule-soft pt-3">
-      <h3 className="text-meta font-semibold text-ash">Upcoming</h3>
-      <ul className="list-none">
-        {events.map((event) => (
-          <li key={event.id} className="flex items-center justify-between gap-3 border-b border-rule-soft py-2.5 last:border-b-0">
-            <div className="min-w-0">
-              <p className="truncate text-ui font-semibold text-ink">{event.title}</p>
-              <p className="text-meta text-ash">
-                <Time iso={event.startsAt} format="clock" timeZone={timeZone} /> · {platformLabel(event.platform, event.meetUrl)}
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => onSkip(event.id)}>
-              Skip
-            </Button>
-          </li>
+    <li
+      className={cn(
+        'border-b border-rule-soft py-3 last:border-b-0',
+        deciding ? 'grid gap-y-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-x-5' : 'flex items-start justify-between gap-3'
+      )}
+    >
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-baseline gap-x-2.5">
+          <p className="min-w-0 truncate text-ui font-semibold text-ink">
+            {title}
+            {code && <span className="ml-1.5 font-normal text-ash">{code}</span>}
+          </p>
+          {waiting && (
+            <Status tone="attention" className="shrink-0">
+              Needs approval
+            </Status>
+          )}
+          {skipped && (
+            <Status tone="ended" className="shrink-0">
+              Skipped
+            </Status>
+          )}
+        </div>
+        <p className="mt-0.5 text-meta text-ash">
+          {formatUpcoming(meeting.startsAt, { now, timeZone })} · {platformLabel(meeting.platform, meeting.meetUrl)}
+          {meeting.recurring ? ' · Repeats' : ''}
+        </p>
+        {waiting && (
+          <p className="mt-1 text-sm text-ink-2">
+            {sentByLine(meeting)}
+            {canDecide ? null : ' An owner or admin can approve it.'}
+          </p>
+        )}
+        {meeting.problem && <p className="mt-1 text-sm text-ink-2">{meeting.problem}</p>}
+      </div>
+      <div className={cn('flex flex-wrap gap-2', deciding ? 'md:justify-end md:pt-0.5' : 'shrink-0')}>
+        {deciding && button('approve', 'Approve', 'Approving', 'primary')}
+        {deciding && button('decline', 'Decline', 'Declining', 'secondary')}
+        {skipped ? button('restore', 'Undo', 'Undoing', 'ghost') : button('skip', 'Skip', 'Skipping', 'ghost')}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Meetings Taro is invited to by calendar, soonest first, under the link form. Rows follow the
+ * meeting row: the event title and room code, then when and where. Anyone can skip one occurrence;
+ * owners and admins approve or decline invitations nobody in the workspace vouched for. Renders
+ * nothing until there are some.
+ */
+export function UpcomingInvites({
+  meetings,
+  canDecide,
+  onAction,
+  pending,
+  now,
+  timeZone,
+}: {
+  meetings: readonly UpcomingMeeting[] | null;
+  canDecide: boolean;
+  onAction: (meeting: UpcomingMeeting, action: UpcomingAction) => void;
+  pending?: { id: string; action: UpcomingAction } | null;
+  now: number;
+  timeZone?: string;
+}) {
+  const [showAll, setShowAll] = React.useState(false);
+  if (!meetings || meetings.length === 0) return null;
+  const shown = showAll ? meetings : meetings.slice(0, UPCOMING_SHOWN);
+  return (
+    <div className="mt-5 border-t border-rule-soft pt-4">
+      <h3 id="upcoming-title" tabIndex={-1} className="text-meta font-semibold text-ash">
+        Upcoming
+      </h3>
+      <ul aria-labelledby="upcoming-title" className="mt-1 list-none">
+        {shown.map((meeting) => (
+          <UpcomingRow
+            key={meeting._id}
+            meeting={meeting}
+            canDecide={canDecide}
+            busy={pending?.id === meeting._id ? pending.action : null}
+            onAction={onAction}
+            now={now}
+            timeZone={timeZone}
+          />
         ))}
       </ul>
+      {meetings.length > UPCOMING_SHOWN && (
+        <Button variant="link" size="sm" className="mt-1" onClick={() => setShowAll((all) => !all)}>
+          {showAll ? 'Show fewer' : `Show all ${meetings.length}`}
+        </Button>
+      )}
     </div>
   );
 }
@@ -352,6 +476,7 @@ export function MeetingList({
   onArchive,
   archiving = false,
   error,
+  calendarInvites = false,
   now,
   timeZone,
   maxDurationMs,
@@ -369,6 +494,8 @@ export function MeetingList({
   archiving?: boolean;
   // Shown in place of the rows when the list couldn't load
   error?: string;
+  // The server takes calendar invitations, so the empty list mentions them
+  calendarInvites?: boolean;
   now: number;
   timeZone?: string;
   maxDurationMs?: number;
@@ -381,11 +508,14 @@ export function MeetingList({
   if (!rows) {
     body = error ? <p className="px-5 py-6 text-sm text-ink-2">{error}</p> : null;
   } else if (meetings && meetings.length === 0) {
+    // Slack is optional, so the line under the link field is what mentions it, when it's connected
     body = (
       <p className="px-5 py-6 text-sm text-ink-2">
-        {mode === 'recent'
-          ? 'No meetings yet. Paste a link above or post one in Slack, then say “Hey Taro.”'
-          : 'Nothing archived yet. Archived meetings stay here for good.'}
+        {mode === 'archive'
+          ? 'Nothing archived yet. Archived meetings stay here for good.'
+          : calendarInvites
+            ? 'No meetings yet. Invite Taro from your calendar or paste a link above, then say “Hey Taro.”'
+            : 'No meetings yet. Paste a link above, then say “Hey Taro.”'}
       </p>
     );
   } else if (rows.length > 0) {

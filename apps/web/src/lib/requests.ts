@@ -36,7 +36,7 @@ export interface RequestView {
   detail?: string;
   // Pull requests: the branch, set in mono
   branch?: string;
-  // "View on GitHub", or "Change GitHub permissions" for owners and admins
+  // "View on GitHub", or for owners and admins "Change GitHub permissions" or "Set up Slack"
   link?: { label: string; href: string; external: boolean };
   outcome: ActionOutcome;
   // None for done work
@@ -170,8 +170,13 @@ export function describeRequest(
   } else if (outcome === 'needs_you') {
     answer = summary?.text ?? (p.reason ? sentence(p.reason) : "Taro couldn't tell what to do with this one.");
   } else if (outcome === 'turned_off') {
-    answer = summary?.text ?? COPY.turnedOff(action);
-    if (canEdit) link = { label: 'Change GitHub permissions', href: '?view=setup&open=permissions', external: false };
+    // A post or checklist is off when the workspace hasn't added Slack; anything else, by its GitHub permissions
+    answer = summary?.text ?? (slackAction ? COPY.slackNotConnected : COPY.turnedOff(action));
+    if (canEdit) {
+      link = slackAction
+        ? { label: 'Set up Slack', href: '?view=setup', external: false }
+        : { label: 'Change GitHub permissions', href: '?view=setup&open=permissions', external: false };
+    }
   } else if (summary) {
     [answer, detail] = firstSentence(summary.text);
   } else {

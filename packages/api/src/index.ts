@@ -18,6 +18,10 @@ import { githubRouter } from './routes/github';
 import { webhooksRouter } from './routes/webhooks';
 import { metaRouter } from './routes/meta';
 import { extensionRouter, sessionsRouter } from './routes/extension';
+import { inboundRouter } from './routes/inbound';
+import { calendarRouter } from './routes/calendar';
+import { calendarTick } from './services/calendar/scheduler';
+import { calendarInvitesConfigured } from './lib/inviteAddress';
 import { slackListener } from './services/slackListener';
 import { realtimeSessions, type Direction } from './services/realtime';
 import { errorHandler } from './middleware/errorHandler';
@@ -44,6 +48,8 @@ app.use(
     maxAge: 600,
   })
 );
+// Invitation mail is read by its own route, with its own size cap, before the JSON parser sees it.
+app.use('/api/inbound', inboundRouter);
 app.use(express.json({ limit: '1mb' }));
 
 app.get(API_ROUTES.HEALTH, (_req, res) => {
@@ -73,6 +79,7 @@ app.use('/api/github', githubRouter);
 app.use('/api/webhooks', webhooksRouter);
 app.use('/api/extension', extensionRouter);
 app.use('/api/sessions', sessionsRouter);
+app.use('/api/calendar', calendarRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
@@ -133,6 +140,12 @@ setInterval(() => {
   if (mongoose.connection.readyState !== 1) return;
   realtimeSessions.sweepStale().catch((error) => log.warn('[Realtime] Stale meeting sweep failed:', errorMessage(error)));
 }, 2 * 60 * 1000).unref();
+
+// Calendar invitations: confirms and sends bots for meetings about to start, and keeps MeetingBaas in step.
+setInterval(() => {
+  if (mongoose.connection.readyState !== 1 || !calendarInvitesConfigured()) return;
+  calendarTick().catch((error) => log.warn('[Calendar] Tick failed:', errorMessage(error)));
+}, 30 * 1000).unref();
 
 async function start() {
   try {

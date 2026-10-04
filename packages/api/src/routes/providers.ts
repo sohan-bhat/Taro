@@ -18,6 +18,7 @@ import { assertEndpointAllowed } from '../services/llm/safeFetch';
 import { validateSttKey } from '../services/stt';
 import { MeetingBaasClient } from '../services/meetingbaas';
 import { keyContext, providerSettings, resolveProviders } from '../services/workspaceProviders';
+import { afterProvidersChange } from '../services/calendar/bots';
 
 export const providersRouter: RouterType = Router();
 providersRouter.use(requireAuth, requireAdmin);
@@ -58,12 +59,15 @@ providersRouter.put(
     if (!check.ok) return res.status(400).json({ error: check.error, code: 'KEY_REJECTED' });
 
     const company = await loadCompany(req);
+    const replaced = resolveProviders(company).meetingBaasKey;
     company.set('providers.meetingBaas', {
       keyEnc: encryptSecret(apiKey, keyContext(req.companyId!, 'meetingBaas')),
       keyHint: keyHint(apiKey),
       validatedAt: new Date(),
     });
     await company.save();
+    // Bots already scheduled for calendar meetings were made with the old key; it cancels them.
+    afterProvidersChange(req.companyId!, replaced && replaced !== apiKey ? replaced : null);
     res.json({ providers: providerSettings(company) });
   })
 );
@@ -113,6 +117,7 @@ providersRouter.put(
       validatedAt: new Date(),
     });
     await company.save();
+    afterProvidersChange(req.companyId!);
     res.json({ providers: providerSettings(company) });
   })
 );
@@ -130,6 +135,7 @@ providersRouter.put(
       if (!serverSttAvailable()) throw new ValidationError('This server does not host transcription.');
       company.set('providers.stt', { provider: 'server' });
       await company.save();
+      afterProvidersChange(req.companyId!);
       return res.json({ providers: providerSettings(company) });
     }
 
@@ -140,6 +146,7 @@ providersRouter.put(
       }
       company.set('providers.stt', { provider: info.id, model: info.defaultModel, useLlmKey: true });
       await company.save();
+      afterProvidersChange(req.companyId!);
       return res.json({ providers: providerSettings(company) });
     }
 
@@ -161,6 +168,7 @@ providersRouter.put(
       validatedAt: new Date(),
     });
     await company.save();
+    afterProvidersChange(req.companyId!);
     res.json({ providers: providerSettings(company) });
   })
 );
@@ -173,8 +181,11 @@ providersRouter.delete(
     const slot = SLOTS[req.params.slot];
     if (!slot) throw new NotFoundError('Provider');
     const company = await loadCompany(req);
+    const removedKey = slot === 'meetingBaas' ? resolveProviders(company).meetingBaasKey : null;
     company.set(`providers.${slot}`, undefined);
     await company.save();
+    // Without the key or another piece, Taro can't join meetings, so scheduled calendar bots are canceled.
+    afterProvidersChange(req.companyId!, removedKey);
     res.json({ providers: providerSettings(company) });
   })
 );

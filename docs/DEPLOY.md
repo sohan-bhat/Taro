@@ -33,9 +33,13 @@ openssl rand -base64 32
 
 That is `ENCRYPTION_KEY`. It encrypts every stored provider key and signs sign-in state. Keep it in your host's secret store and back it up: if it is lost or changed, every workspace has to re-enter its keys.
 
-## 3. Slack app
+## 3. Sign-in and Slack
 
-Slack powers sign in, meeting discovery, and result posting.
+People sign in with Google, Microsoft, or Slack, and the sign-in page shows only the ones you set up. Whoever signs in with a Google Workspace account joins the Taro workspace for that domain, a Microsoft work or school account joins the one for its organization, and a Slack account joins the one for its Slack workspace. Personal Google and Microsoft accounts each get a workspace of their own. The Slack app is required; Google and Microsoft are optional.
+
+### Slack app
+
+Slack powers Slack sign-in, meeting links posted in channels, and result posting. Workspaces made by Google or Microsoft sign-in can add it from Setup whenever they like.
 
 1. Open `docs/slack-app-manifest.yaml`, replace `YOUR-API-DOMAIN` with your API host, then go to [api.slack.com/apps](https://api.slack.com/apps), choose **Create New App**, **From an app manifest**, and paste it.
 2. **Basic Information**, **App-Level Tokens**: generate a token with the `connections:write` scope. That is `SLACK_APP_TOKEN` (starts with `xapp-`).
@@ -43,6 +47,30 @@ Slack powers sign in, meeting discovery, and result posting.
 4. **Manage Distribution**: activate public distribution so people outside your own Slack workspace can sign in and add Taro. Skip this if Taro is only for your team.
 
 Taro uses Socket Mode, so Slack needs no public events URL; only the two OAuth redirect URLs in the manifest must point at your API.
+
+### Sign in with Google (optional)
+
+Taro asks Google only for the three basic sign-in scopes, so Google doesn't need to review the app.
+
+1. In the [Google Cloud console](https://console.cloud.google.com), create a project for Taro, or pick an existing one.
+2. Open **Google Auth Platform** (it was **APIs & Services**, **OAuth consent screen**). Under **Branding**, give the app a name (Taro), a support email, and your dashboard's address as its home page.
+3. Under **Audience**, choose **External**, then **Publish app** so its status is **In production**. While it's in testing, only the test users you list there can sign in.
+4. Under **Data Access**, add only `openid`, `.../auth/userinfo.email`, and `.../auth/userinfo.profile`. All three are non-sensitive.
+5. Under **Clients**, **Create client**: choose **Web application**, and add `API_URL/api/auth/google/callback` under **Authorized redirect URIs**, for example `https://api.your-domain.com/api/auth/google/callback`.
+6. Copy the client ID and client secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+
+Google shows your app's name and logo on its sign-in screen once the brand is verified (under **Branding**). Sign-in works before that.
+
+### Sign in with Microsoft (optional)
+
+1. In the [Microsoft Entra admin center](https://entra.microsoft.com), go to **Entra ID**, **App registrations**, **New registration**.
+2. Name it Taro. Under **Supported account types**, choose any organizational directory and personal Microsoft accounts. The page lists it as **Any Entra ID Tenant + Personal Microsoft accounts** (older versions: "Accounts in any organizational directory and personal Microsoft accounts").
+3. Under **Redirect URI**, choose **Web** and enter `API_URL/api/auth/microsoft/callback`, then **Register**. (You can also add it later under **Authentication**, **Add a platform**, **Web**.)
+4. On the app's **Overview**, copy the **Application (client) ID** into `MICROSOFT_CLIENT_ID`.
+5. **Certificates & secrets**, **Client secrets**, **New client secret**. Copy its **Value** (not the Secret ID) into `MICROSOFT_CLIENT_SECRET` right away; it's shown only once. Secrets expire, at most 24 months out, so note the date and replace it before then.
+6. Leave `MICROSOFT_AUTHORITY` unset to let in work, school, and personal accounts (`common`). Set it to `organizations` for work and school accounts only, `consumers` for personal accounts only, or one tenant ID to allow a single organization.
+
+Taro asks Microsoft only for `openid`, `email`, and `profile`. Some organizations let people approve only apps from verified publishers, so the first person there sees "Need admin approval". An admin of that organization can approve Taro once for everyone by signing in to Taro with Microsoft and choosing to consent on behalf of the organization. Verifying your publisher (the app's **Branding & properties**, with a Microsoft Partner ID) avoids the prompt in most organizations.
 
 ## 4. GitHub App (optional)
 
@@ -105,9 +133,12 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `API_URL` | yes | Public https URL of the API |
 | `APP_URL` | yes | Public URL of the dashboard |
 | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | yes | Section 3 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in | Section 3 |
+| `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | for Microsoft sign-in | Section 3. `MICROSOFT_AUTHORITY` is optional: `common` (default), `organizations`, `consumers`, or a tenant ID |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | for GitHub | Section 4 |
 | `WEB_ORIGINS` | no | Extra trusted dashboard origins, comma separated |
 | `EXTENSION_IDS` | for the Meet button | Chrome and Edge extension IDs allowed to call the API (section 7) |
+| `INVITE_ADDRESS`, `INBOUND_SECRET` | for calendar invitations | Section 9 |
 | `TRUST_PROXY_HOPS` | no | Proxies in front of the API. Default 1, right for Render, Railway, and Fly; 0 when clients connect directly |
 | `MAX_ACTIVE_MEETINGS_PER_WORKSPACE` | no | Default 5 |
 | `BOT_NAME`, `BOT_IMAGE_URL` | no | Defaults: `Taro`, and the logo served by the API |
@@ -139,14 +170,62 @@ The extension gets a limited connection: it can send Taro to a meeting, check on
 ## 8. Check it end to end
 
 1. `API_URL/ready` answers `ready`.
-2. Open the dashboard and choose **Sign in with Slack**.
-3. Follow **Set up Taro**: add Taro to Slack (whoever does becomes the workspace's owner), paste a MeetingBaas key, choose an AI model, turn on transcription.
+2. Open the dashboard and sign in with Google, Microsoft, or Slack.
+3. Follow **Setup**: paste a MeetingBaas key, choose an AI model, turn on transcription. In a Slack workspace, add Taro to Slack first (whoever does becomes the workspace's owner). In a Google or Microsoft workspace, the first person to sign in is the owner, and adding Slack is optional.
 4. Post a Google Meet, Zoom, or Teams link in a public channel, admit Taro from the lobby, and say "Hey Taro, post hello to general".
+
+## 9. Calendar invitations (optional)
+
+People add their workspace's Taro address to a meeting invite, once for a recurring series, and Taro joins at the start. Taro never reads anyone's calendar. The invitation email that every calendar sends its guests carries a calendar file saying when and where, and updates and cancellations arrive the same way. It works with Google Calendar and Outlook, and with Google Meet, Zoom, and Microsoft Teams links.
+
+How it works:
+
+- Each workspace has its own address: `INVITE_ADDRESS` with a long random token in place of `{token}`. Everyone sees it in **Setup** under **Calendar**, with **Copy address**; owners and admins can **Rotate** it, which retires the old one at once.
+- Mail to those addresses reaches `POST API_URL/api/inbound/email`, guarded by `INBOUND_SECRET`, sent as the password of HTTP basic auth or in an `X-Inbound-Secret` header.
+- An invitation joins on its own when a member of the workspace sent it, or organized it and the mail came from them (or from Google Calendar on their behalf). A member is someone signed in to Taro with that email, anyone at a Google workspace's own domain, or, when Taro's Slack bot has `users:read.email`, a full member of the connected Slack workspace. Everything else waits under **Upcoming** in **Meetings** for an owner or admin to approve or decline it.
+- For each meeting it will join, Taro schedules a MeetingBaas bot with the workspace's own key, and MeetingBaas sends it in at the start. When a meeting moves, is canceled, or someone clicks **Skip**, the bot moves or is canceled. Removing one of the workspace's keys cancels its bots, and a new MeetingBaas key replaces them. Five minutes before the start Taro confirms the bot, and sends one itself if the scheduled bot failed. A meeting more than 10 minutes past its start is skipped rather than joined late.
+
+Generate the secret first. It's hex so it can sit in a URL:
+
+```bash
+openssl rand -hex 32
+```
+
+You need one of the two ways below to receive the mail. Neither needs anything from Google or Microsoft. Choose before people start using it: changing `INVITE_ADDRESS` later changes every workspace's address, and meetings that list an old address stop getting updates.
+
+### Option A: Postmark inbound (no domain needed)
+
+1. Create a [Postmark](https://postmarkapp.com) account and a server, and open its **Default Inbound Stream**.
+2. Its **Settings** show the stream's inbound address, like `abc123def456@inbound.postmarkapp.com`. Set `INVITE_ADDRESS` to that address with `+{token}` before the @: `abc123def456+{token}@inbound.postmarkapp.com`. Postmark delivers every plus address to the same stream.
+3. Set the stream's **Webhook URL** to `https://taro:YOUR_INBOUND_SECRET@your-api-host/api/inbound/email`. The secret is the basic auth password; the user name can be anything.
+4. Turn on the setting that includes the raw email content in the JSON payload. Outlook puts its invitation inside the message rather than attaching a file, and the raw message is how Taro finds it.
+5. Set `INVITE_ADDRESS` and `INBOUND_SECRET` on the API and redeploy. The dashboard shows the **Calendar** row in **Setup** once both are set.
+
+Postmark bills by message, and each invitation, update, and cancellation is one message.
+
+### Option B: your own domain with Cloudflare Email Routing
+
+1. Pick a domain or subdomain whose DNS is on Cloudflare, for example `invite.your-domain.com`. In the Cloudflare dashboard, open **Email Routing** (under **Compute**, **Email Service**), enable it, and add the DNS records it asks for. For a subdomain, open the main domain's Email Routing **Settings** and add it under **Subdomains**.
+2. Create a Worker from `docs/calendar-email-worker.js`. Give it the variable `TARO_INBOUND_URL` = `https://your-api-host/api/inbound/email` and the secret `TARO_INBOUND_SECRET` = your `INBOUND_SECRET` (with Wrangler: `wrangler secret put TARO_INBOUND_SECRET`).
+3. In Email Routing's **Routing rules**, turn on the **Catch-all address** with the action **Send to a Worker**, and choose the worker.
+4. Set `INVITE_ADDRESS={token}@invite.your-domain.com` and `INBOUND_SECRET` on the API, and redeploy.
+
+The worker posts each message on unchanged, with the address it was delivered to. It turns away addresses that can't be a Taro address, so the catch-all doesn't forward everything sent to the domain, and messages over 10 MB.
+
+To use plus addressing on a domain you already receive mail on instead: turn on subaddressing in Email Routing's settings, add a rule sending `taro@your-domain.com` to the worker, set the worker's `TARO_ADDRESS_PATTERN` to `^taro\+[0-9a-z]{20}@`, and set `INVITE_ADDRESS=taro+{token}@your-domain.com`.
+
+### What people see
+
+- **Organizers** add the address as a guest. Google Calendar may warn that it's outside the organization; confirm. Some companies' admins block outside guests, and then Taro can't be invited; post the link or paste it in the dashboard instead.
+- **Guests** see Taro's address on the guest list like any other guest. Taro doesn't reply to the invitation.
+- **At the start**, Taro asks to join from the lobby, like any guest, under the workspace's bot name, and someone in the meeting admits it. Inside the call nothing changes: "Hey Taro" and a request.
+- **In the dashboard**, the meeting appears in **Meetings** with the event's title and "from the calendar". If the workspace isn't set up when the meeting starts, the meeting says what's missing instead of quietly not happening.
 
 ## Running at scale
 
 - **One API instance per deployment.** A meeting's realtime session lives in the memory of the instance MeetingBaas connects to. Transcription and reasoning run on each workspace's own cloud providers, so a single instance mostly relays audio and handles many concurrent meetings; scale it up (CPU and memory) rather than out. If you do run several, route each meeting's sockets to one instance with sticky sessions.
 - **Slack Socket Mode** delivers each event to one open connection, so extra instances never double handle a link.
+- **Calendar invitations**: every API instance runs the calendar's 30 second clock, and each due meeting is taken with one atomic database update, so two instances never send Taro twice. Recurring series are kept two weeks ahead and extended daily; old invitation records expire a week after their meetings end.
 - **Per-workspace limits**: `MAX_ACTIVE_MEETINGS_PER_WORKSPACE` and per-workspace rate limits on sending Taro to meetings protect each workspace's own MeetingBaas bill.
 - **Database**: indexes cover every hot query (sessions, meetings by workspace, bot lookups). Expired sessions and sign-in codes are removed automatically by TTL indexes.
 - **Deploys**: on shutdown Taro closes live sessions cleanly, but a meeting in progress can lose its audio connection, so deploy between meetings when you can.
@@ -154,8 +233,11 @@ The extension gets a limited connection: it can send Taro to a meeting, check on
 ## Security notes
 
 - Provider keys are validated with the provider, encrypted with AES-256-GCM (bound to their workspace), and never sent back to a browser.
-- Only owners and admins change keys and connections. Whoever adds Taro to Slack becomes the owner, Slack owners and admins are promoted to match, and owners manage everyone else from **Members**. Slack guests can't sign in, and someone deactivated in Slack is signed out within the hour. Sessions last 30 days from last use and 90 days at most.
+- Only owners and admins change keys and connections. In a Slack workspace, whoever adds Taro to Slack becomes the owner, Slack owners and admins are promoted to match, and owners manage everyone else from **Members**. Slack guests can't sign in, and someone deactivated in Slack is signed out within the hour. In a Google or Microsoft workspace, the first person to sign in is the owner and everyone after joins as a member until an owner promotes them. Sessions last 30 days from last use and 90 days at most.
+- Sign-in is authentication only. Taro asks Google, Microsoft, and Slack for `openid`, `email`, and `profile`, checks that each ID token was issued to Taro for that very sign-in, and keeps no provider access token. Google and Microsoft workspaces are matched by the Google Workspace domain and the Microsoft tenant ID in the token, never by an email address.
+- A Slack workspace belongs to one Taro workspace at most. A Google or Microsoft workspace can't add a Slack workspace that another Taro workspace already has, and someone signing in with Slack from a Slack workspace that a Google or Microsoft workspace added is sent to sign in with Google or Microsoft instead.
 - GitHub actions only reach repositories the person who connected GitHub can push to, using tokens limited to the one repository Taro is working in.
 - Every MeetingBaas callback and audio socket carries a per-meeting secret; nothing else can feed audio into a meeting or report results for it.
+- The calendar webhook is public, so it treats every message as hostile. It checks `INBOUND_SECRET` in constant time before reading anything, caps message size, reads only calendar parts, follows no links, and routes mail only by the token in the address it was sent to, so one workspace's mail never reaches another. Invitations nobody in the workspace vouched for wait for approval, and so do changes to an approved meeting's time or link that arrive in such mail. For each invitation Taro keeps the title, times, link, organizer, and sender, never the description or guest list.
 - Custom AI endpoints are limited to public https addresses, checked when the connection opens, so a workspace can't point Taro at your internal network.
 - If a MeetingBaas or other provider key was ever committed to git (an old `.env.example` in this repository contained one), rotate it with the provider.

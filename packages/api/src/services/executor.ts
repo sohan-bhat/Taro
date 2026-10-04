@@ -32,6 +32,7 @@ import {
   needsYou,
   quoted,
   slackFailed,
+  slackOff,
   turnedOff,
   type Settled,
 } from './outcomes';
@@ -93,7 +94,7 @@ async function perform(companyId: string, command: string, intent: ParsedIntent)
     const question = missingDetail(action, p);
     if (question) return needsYou(question);
     const slack = await SlackService.fromCompanyId(companyId);
-    if (!slack) return failed(COPY.slackNotConnected, 'Slack not connected');
+    if (!slack) return slackOff();
 
     // The name as it was asked for, for "Couldn't post in #..."
     const asked = normalizeChannel(p.channel!) || p.channel!.replace(/^#/, '');

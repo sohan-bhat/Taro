@@ -10,8 +10,8 @@ import { AUTH_BODY, AUTH_TITLE, AuthSplit, LINK } from './auth-split';
 
 const SLOW_MS = 10_000;
 
-// Slack sends the browser here with a one-time code. It's only accepted if the
-// nonce matches the one this tab stored when sign-in started.
+// The API sends the browser here with a one-time code once Google, Microsoft, or Slack has
+// answered. It's only accepted if the nonce matches the one this tab stored when sign-in started.
 export function CallbackView() {
   const router = useRouter();
   const started = useRef(false);
@@ -64,7 +64,7 @@ export function CallbackView() {
       <AuthSplit>
         <div aria-live="polite">
           <h1 className={AUTH_TITLE}>Signing you in</h1>
-          <p className={AUTH_BODY}>Slack sent you back. Taro is checking it now.</p>
+          <p className={AUTH_BODY}>Taro is finishing your sign-in now.</p>
         </div>
         {slow && (
           <Alert tone="info" className="mt-6">

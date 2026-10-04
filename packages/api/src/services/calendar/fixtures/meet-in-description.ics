@@ -1,0 +1,15 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example Corp//Scheduler 4.2//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:20261012T0800-berlin-planning@example.com
+DTSTAMP:20261005T080000Z
+DTSTART;TZID=Europe/Berlin:20261012T090000
+DTEND;TZID=Europe/Berlin:20261012T093000
+ORGANIZER;CN="Leo Martins":mailto:leo@northwind.dev
+SUMMARY:Planning
+DESCRIPTION:<p>Agenda in the doc.</p><p><a href="https://meet.google.com/ab
+ c-defg-hij">Join the call</a></p>
+END:VEVENT
+END:VCALENDAR

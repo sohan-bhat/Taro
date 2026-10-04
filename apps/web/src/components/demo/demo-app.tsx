@@ -11,7 +11,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { Meeting } from '@taro/shared';
 import { demo, MAX_DURATION_MS } from '@/demo/adapt';
 import { cn } from '@/lib/utils';
-import { SignInWithSlackButton } from '@/components/sign-in';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import type { ViewTab } from '@/components/ui/tabs';
@@ -71,7 +70,7 @@ function NoticeBar() {
           href="/signin"
           className="inline-flex min-h-11 items-center rounded-sm font-semibold text-white underline decoration-white/60 underline-offset-[3px] hover:decoration-white md:min-h-0"
         >
-          Sign in with Slack
+          Get started
         </Link>
       </div>
     </div>
@@ -114,7 +113,9 @@ function DemoMeetings({
         {/* In place of "Send Taro to a meeting": the demo can't send Taro anywhere. */}
         <Card className="mt-5 flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between md:p-6">
           <p className="text-ui text-ink-2">In your own workspace, you paste a meeting link here or post it in Slack.</p>
-          <SignInWithSlackButton size="sm" className="w-full md:w-auto" />
+          <Button asChild size="sm" className="w-full md:w-auto">
+            <Link href="/signin">Get started</Link>
+          </Button>
         </Card>
       </div>
       {own && !missing && (

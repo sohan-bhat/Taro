@@ -17,6 +17,10 @@ export function publicWorkspace(c: WithId<CompanyDoc>): Workspace {
   return {
     _id: String(c._id),
     name: c.name,
+    // Workspaces from before Google and Microsoft sign-in have no signInWith, and are all Slack's
+    signInWith: c.signInWith ?? 'slack',
+    ...(c.signInWith === 'google' && !c.personal && c.directoryId ? { domain: c.directoryId } : {}),
+    ...(c.personal ? { personal: true } : {}),
     slackTeamId: c.slackTeamId,
     slackTeamDomain: c.slackTeamDomain,
     botName: c.botName || env.defaultBotName,

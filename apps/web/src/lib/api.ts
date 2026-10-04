@@ -10,7 +10,9 @@ import type {
   MeetingDetail,
   ProviderSettings,
   ServerMeta,
+  SignInProvider,
   SttProviderId,
+  UpcomingMeeting,
   User,
   Workspace,
   WorkspaceOverview,
@@ -67,8 +69,9 @@ export const api = {
   meta: () => request<ServerMeta>('/api/meta'),
 
   auth: {
-    slackStartUrl: (nonce: string) =>
-      `${API_URL}/api/auth/slack/start?${new URLSearchParams({ n: nonce, returnTo: origin() })}`,
+    // Where "Sign in with Google", "with Microsoft", or "with Slack" sends the browser
+    startUrl: (provider: SignInProvider, nonce: string) =>
+      `${API_URL}/api/auth/${provider}/start?${new URLSearchParams({ n: nonce, returnTo: origin() })}`,
     exchange: (code: string) => request<{ token: string }>('/api/auth/exchange', { method: 'POST', body: { code } }),
     session: () => request<{ workspace: Workspace; me: User }>('/api/auth/session'),
     logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
@@ -143,6 +146,16 @@ export const api = {
     list: () => request<{ sessions: ConnectedSession[] }>('/api/sessions'),
     revoke: (id: string) => request<{ revoked: boolean }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
+
+  // Calendar invitations: the workspace's Taro address and the meetings it's invited to. Each
+  // action answers with the refreshed list.
+  calendar: {
+    address: () => request<{ address: string }>('/api/calendar'),
+    rotate: () => request<{ address: string }>('/api/calendar/rotate', { method: 'POST' }),
+    upcoming: () => request<{ upcoming: UpcomingMeeting[] }>('/api/calendar/upcoming'),
+    act: (id: string, action: 'skip' | 'restore' | 'approve' | 'decline') =>
+      request<{ upcoming: UpcomingMeeting[] }>(`/api/calendar/upcoming/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+  },
 };
 
-export type { ConnectedSession, GithubStatus, Meeting, MeetingDetail, ProviderSettings, User, Workspace, WorkspaceOverview };
+export type { ConnectedSession, GithubStatus, Meeting, MeetingDetail, ProviderSettings, UpcomingMeeting, User, Workspace, WorkspaceOverview };

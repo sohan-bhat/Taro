@@ -160,6 +160,14 @@ export interface SetupStep {
 }
 
 /**
+ * Slack is how people get into a Slack workspace, so it's required there. Google and Microsoft
+ * workspaces can add it or not. A server from before those existed sends no signInWith: Slack.
+ */
+export function slackRequired(workspace: Pick<WorkspaceOverview['workspace'], 'signInWith'>): boolean {
+  return workspace.signInWith !== 'google' && workspace.signInWith !== 'microsoft';
+}
+
+/**
  * The required set, in its one order. `todo` drives the Setup tab ("2 to finish"), the Required
  * card header, and the default view; `next` is the row that gets the Taro rule.
  */
@@ -169,7 +177,7 @@ export function setupSteps(o: Pick<WorkspaceOverview, 'slack' | 'workspace' | 'r
   next?: SetupStepId;
 } {
   const steps: SetupStep[] = [
-    { id: 'slack', label: 'Slack', done: o.slack.connected && o.workspace.claimed },
+    ...(slackRequired(o.workspace) ? [{ id: 'slack' as const, label: 'Slack', done: o.slack.connected && o.workspace.claimed }] : []),
     { id: 'meetingBot', label: 'Meeting bot', done: o.ready.meetingBot },
     { id: 'llm', label: 'AI model', done: o.ready.llm },
     { id: 'stt', label: 'Transcription', done: o.ready.stt },

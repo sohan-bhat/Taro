@@ -26,12 +26,20 @@ export interface SttConfigDoc {
 // A Taro workspace. Internally still "company" (the collection predates workspaces).
 export interface CompanyDoc {
   name: string;
+  // A Slack workspace's own team. A Google or Microsoft workspace's is the team it added Taro to, if any.
   slackTeamId?: string;
   slackTeamDomain?: string;
+  // Workspaces made by Google or Microsoft sign-in; unset for Slack workspaces. directoryId says whose
+  // accounts belong: a Google Workspace domain, a Microsoft tenant ID, or "user:<id>" for one personal account.
+  signInWith?: 'google' | 'microsoft';
+  directoryId?: string;
+  personal?: boolean;
   botName?: string;
   onboardedAt?: Date;
   // Set once, atomically, when the first owner is decided
   ownerClaimedAt?: Date;
+  // The unguessable part of this workspace's Taro address for calendar invitations
+  inviteToken?: string;
   providers?: {
     meetingBaas?: StoredKey;
     llm?: LlmConfigDoc;
@@ -52,9 +60,13 @@ const companySchema = new Schema<CompanyDoc>(
     name: { type: String, required: true },
     slackTeamId: { type: String },
     slackTeamDomain: { type: String },
+    signInWith: { type: String, enum: ['google', 'microsoft'] },
+    directoryId: { type: String },
+    personal: { type: Boolean },
     botName: { type: String },
     onboardedAt: { type: Date },
     ownerClaimedAt: { type: Date },
+    inviteToken: { type: String },
     providers: {
       meetingBaas: { type: new Schema(storedKey, { _id: false }), default: undefined },
       llm: {
@@ -89,5 +101,7 @@ const companySchema = new Schema<CompanyDoc>(
 );
 
 companySchema.index({ slackTeamId: 1 }, { unique: true, partialFilterExpression: { slackTeamId: { $type: 'string' } } });
+companySchema.index({ signInWith: 1, directoryId: 1 }, { unique: true, partialFilterExpression: { directoryId: { $type: 'string' } } });
+companySchema.index({ inviteToken: 1 }, { unique: true, partialFilterExpression: { inviteToken: { $type: 'string' } } });
 
 export const CompanyModel = model<CompanyDoc>('Company', companySchema);

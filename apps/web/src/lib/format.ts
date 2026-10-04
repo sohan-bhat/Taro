@@ -67,6 +67,23 @@ export function formatDay(t: When, { now = Date.now(), ...z }: Zone & { now?: Wh
   return formatDate(t, { ...z, now });
 }
 
+const weekdays = new Map<string, Intl.DateTimeFormat>();
+
+/** When an upcoming meeting starts: "Today at 2:00 PM", "Tomorrow at 9:30 AM", "Thursday at 9:00 AM", "Oct 22 at 9:00 AM". */
+export function formatUpcoming(t: When, { now = Date.now(), ...z }: Zone & { now?: When } = {}): string {
+  const ahead = -daysBefore(t, now, z);
+  const clock = formatClock(t, z);
+  if (ahead <= 0) return `Today at ${clock}`;
+  if (ahead === 1) return `Tomorrow at ${clock}`;
+  if (ahead < 7) {
+    const key = `${localeOf(z) ?? ''}|${z.timeZone ?? ''}`;
+    let f = weekdays.get(key);
+    if (!f) weekdays.set(key, (f = new Intl.DateTimeFormat(localeOf(z), { weekday: 'long', timeZone: z.timeZone })));
+    return `${f.format(toMs(t))} at ${clock}`;
+  }
+  return `${formatDate(t, { ...z, now })} at ${clock}`;
+}
+
 /** "Under a minute", "26 min", "1 hr 4 min", "13 hr 19 min". */
 export function formatDuration(ms: number): string {
   if (ms < 60_000) return 'Under a minute';

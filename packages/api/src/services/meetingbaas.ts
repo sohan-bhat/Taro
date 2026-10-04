@@ -81,48 +81,45 @@ export class MeetingBaasClient {
    * so only MeetingBaas, holding this bot's secret, can feed audio or report
    * results for this meeting.
    */
-  async joinMeeting(opts: {
-    meetingUrl: string;
-    botName: string;
-    meetingId: string;
-    secret: string;
-  }): Promise<{ botId: string }> {
-    const streaming = env.apiUrl.startsWith('https://');
-    if (!streaming) {
-      log.warn('[MeetingBaas] API_URL is not https, so live audio streaming is off for this meeting.');
-    }
-    const wss = env.apiUrl.replace(/^https:\/\//, 'wss://');
-    const image = botImage();
-
-    const data = await this.call<{ success?: boolean; data?: { bot_id?: string } }>('POST', '/bots', {
-      meeting_url: opts.meetingUrl,
-      bot_name: opts.botName,
-      ...(image ? { bot_image: image } : {}),
-      entry_message: COPY.meetingChatGreeting(opts.botName),
-      recording_mode: 'speaker_view',
-      timeout_config: { waiting_room_timeout: 600, no_one_joined_timeout: 300 },
-      ...(streaming
-        ? {
-            streaming_enabled: true,
-            streaming_config: {
-              input_url: `${wss}/ws/audio-in/${opts.meetingId}/${opts.secret}`,
-              output_url: `${wss}/ws/audio-out/${opts.meetingId}/${opts.secret}`,
-              audio_frequency: 16000,
-            },
-          }
-        : {}),
-      callback_enabled: true,
-      callback_config: {
-        url: `${env.apiUrl}/api/webhooks/meetingbaas`,
-        method: 'POST',
-        secret: opts.secret,
-      },
-      extra: { taroMeetingId: opts.meetingId },
-    });
-
+  async joinMeeting(opts: BotOptions): Promise<{ botId: string }> {
+    const data = await this.call<{ success?: boolean; data?: { bot_id?: string } }>('POST', '/bots', botConfig(opts));
     const botId = data.data?.bot_id;
     if (!botId) throw new MeetingBaasError("MeetingBaas didn't send back a bot ID.");
     return { botId };
+  }
+
+  /**
+   * The same bot, set up now and sent in by MeetingBaas at `joinAt`, so it arrives on time.
+   * MeetingBaas reuses the returned ID as the bot's own once it joins.
+   */
+  async scheduleBot(opts: BotOptions & { joinAt: Date }): Promise<{ botId: string }> {
+    const { joinAt, ...bot } = opts;
+    const data = await this.call<{ success?: boolean; data?: { bot_id?: string } }>('POST', '/bots/scheduled', {
+      ...botConfig(bot),
+      join_at: joinAt.toISOString(),
+    });
+    const botId = data.data?.bot_id;
+    if (!botId) throw new MeetingBaasError("MeetingBaas didn't send back a bot ID.");
+    return { botId };
+  }
+
+  /** Moves a scheduled bot or points it at a new link. MeetingBaas refuses (409) within 4 minutes of its join time. */
+  async moveScheduledBot(botId: string, changes: { joinAt?: Date; meetingUrl?: string }): Promise<void> {
+    await this.call('PATCH', `/bots/scheduled/${encodeURIComponent(botId)}`, {
+      ...(changes.joinAt ? { join_at: changes.joinAt.toISOString() } : {}),
+      ...(changes.meetingUrl ? { meeting_url: changes.meetingUrl } : {}),
+    });
+  }
+
+  /** Cancels a scheduled bot. 404: it's gone already. 409: it's locked or already done. */
+  async cancelScheduledBot(botId: string): Promise<void> {
+    await this.call('DELETE', `/bots/scheduled/${encodeURIComponent(botId)}`);
+  }
+
+  /** Where a scheduled bot stands: scheduled, cancelled, completed (sent in), or failed. */
+  async scheduledBotStatus(botId: string): Promise<string | undefined> {
+    const data = await this.call<{ data?: { status?: unknown } }>('GET', `/bots/scheduled/${encodeURIComponent(botId)}`);
+    return typeof data.data?.status === 'string' ? data.data.status : undefined;
   }
 
   async leave(botId: string): Promise<void> {
@@ -140,4 +137,46 @@ export class MeetingBaasClient {
       return { ok: false, error: rejected ? 'MeetingBaas rejected this key.' : errorMessage(error) };
     }
   }
+}
+
+export interface BotOptions {
+  meetingUrl: string;
+  botName: string;
+  meetingId: string;
+  secret: string;
+}
+
+// Shared by bots sent now and bots scheduled for later, so both stream and report the same way.
+function botConfig(opts: BotOptions) {
+  const streaming = env.apiUrl.startsWith('https://');
+  if (!streaming) {
+    log.warn('[MeetingBaas] API_URL is not https, so live audio streaming is off for this meeting.');
+  }
+  const wss = env.apiUrl.replace(/^https:\/\//, 'wss://');
+  const image = botImage();
+  return {
+    meeting_url: opts.meetingUrl,
+    bot_name: opts.botName,
+    ...(image ? { bot_image: image } : {}),
+    entry_message: COPY.meetingChatGreeting(opts.botName),
+    recording_mode: 'speaker_view',
+    timeout_config: { waiting_room_timeout: 600, no_one_joined_timeout: 300 },
+    ...(streaming
+      ? {
+          streaming_enabled: true,
+          streaming_config: {
+            input_url: `${wss}/ws/audio-in/${opts.meetingId}/${opts.secret}`,
+            output_url: `${wss}/ws/audio-out/${opts.meetingId}/${opts.secret}`,
+            audio_frequency: 16000,
+          },
+        }
+      : {}),
+    callback_enabled: true,
+    callback_config: {
+      url: `${env.apiUrl}/api/webhooks/meetingbaas`,
+      method: 'POST',
+      secret: opts.secret,
+    },
+    extra: { taroMeetingId: opts.meetingId },
+  };
 }

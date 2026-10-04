@@ -1,8 +1,9 @@
 'use client';
 
 // The Setup view (9.5): the required set in its one order (Slack, meeting bot, AI model,
-// transcription), then the optional connections. Rows and cards are exported so the demo can
-// build its read-only version from the same pieces.
+// transcription), then the optional connections. Slack is required only in Slack workspaces;
+// Google and Microsoft workspaces find it first under Optional. Rows and cards are exported so
+// the demo can build its read-only version from the same pieces.
 
 import * as React from 'react';
 import Link from 'next/link';
@@ -17,7 +18,7 @@ import {
 } from '@taro/shared';
 import { api, ApiError } from '@/lib/api';
 import { daysBefore, timeAgo } from '@/lib/format';
-import { setupSteps, type SetupStepId } from '@/lib/meeting-state';
+import { setupSteps, slackRequired, type SetupStepId } from '@/lib/meeting-state';
 import { cn } from '@/lib/utils';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,7 @@ import { errorText, focusIfLost, useSessionGuard } from './common';
 import { DisconnectGithubDialog, PermissionsDialog } from './github-dialogs';
 import { KeyDialogs, type KeySlot } from './key-dialogs';
 import { ROW_BUTTON } from './styles';
-import { RemoveSlackDialog } from './workspace-dialogs';
+import { ConfirmDialog, RemoveSlackDialog } from './workspace-dialogs';
 
 // ---------------------------------------------------------------------------------------------
 // Pieces
@@ -164,6 +165,7 @@ export function SetupView({
   const { workspace, me, providers, slack, github } = overview;
   const canEdit = me.role !== 'member';
   const claimed = workspace.claimed;
+  const slackIsRequired = slackRequired(workspace);
   const { steps, todo, next } = setupSteps(overview);
   const done = (id: SetupStepId) => steps.find((s) => s.id === id)?.done ?? false;
 
@@ -269,7 +271,7 @@ export function SetupView({
       )}
 
       <SetupCard id="required-title" title="Required" aside={todo ? `${todo} to finish` : 'All set'} footer={requiredFooter} className="mt-6">
-        {slack.connected && claimed ? (
+        {!slackIsRequired ? null : slack.connected && claimed ? (
           <SetupRow
             id="setup-slack"
             label="Slack"
@@ -384,6 +386,19 @@ export function SetupView({
       )}
 
       <SetupCard id="optional-title" title="Optional" className="mt-5">
+        {!slackIsRequired && (
+          <SetupRow
+            id="setup-slack"
+            label="Slack"
+            state={slack.connected ? `In ${slack.teamName ?? 'Slack'}` : 'Not connected'}
+            purpose={
+              slack.connected
+                ? 'Taro watches public channels for meeting links and replies in the thread.'
+                : 'Add Taro to Slack to hear meeting links in channels and post updates.'
+            }
+            actions={slackActionsFor()}
+          />
+        )}
         <GithubRow
           overview={overview}
           canEdit={canEdit}
@@ -397,8 +412,7 @@ export function SetupView({
           onChanged={onChanged}
         />
         {meta?.meetExtension && <MeetButtonRow canEdit={canEdit} />}
-        {/* Reserved for calendar invitations (section 12); the server sends no address yet, so it renders nothing. */}
-        {meta?.calendarInvites && <CalendarRow />}
+        {meta?.calendarInvites && <CalendarRow canEdit={canEdit} />}
       </SetupCard>
 
       <KeyDialogs
@@ -642,44 +656,100 @@ function GithubRow({
 }
 
 // ---------------------------------------------------------------------------------------------
-// Calendar invitations (section 12, Phase 1): reserved. Its words arrive with the feature.
+// Calendar invitations
 
-export function CalendarRow({
-  address,
-  purpose,
-  meta,
-}: {
-  // Taro's own address for meeting invites
-  address?: string;
-  purpose?: React.ReactNode;
-  // Who may invite Taro
-  meta?: React.ReactNode;
-}) {
+/**
+ * The workspace's Taro address. Adding it to a meeting invite, once for a recurring series, brings
+ * Taro to the meeting at its start. Everyone can see and copy it; owners and admins can rotate it
+ * when it ends up somewhere it shouldn't.
+ */
+export function CalendarRow({ canEdit }: { canEdit: boolean }) {
+  const guard = useSessionGuard();
+  const [address, setAddress] = React.useState<string | null>(null);
+  const [error, setError] = React.useState('');
   const [copied, setCopied] = React.useState(false);
-  if (!address) return null;
+  const [confirming, setConfirming] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.calendar
+      .address()
+      .then(({ address }) => {
+        if (cancelled) return;
+        setAddress(address);
+        setError('');
+      })
+      .catch((e) => {
+        if (!cancelled && !guard(e)) setError(errorText(e, "Couldn't load Taro's address."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [guard]);
+
+  // "Copied" stays a moment, then the button reads as before.
+  React.useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const copy = async () => {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+    } catch {
+      showToast("Couldn't copy it. Select the address and copy it yourself.", 'error');
+    }
+  };
+
   return (
-    <SetupRow
-      id="setup-calendar"
-      label="Calendar"
-      state={<span className="font-mono text-[0.88em] wrap-anywhere">{address}</span>}
-      purpose={purpose}
-      meta={meta}
-      actions={
-        <Button
-          variant="secondary"
-          size="sm"
-          className={ROW_BUTTON}
-          onClick={() => {
-            navigator.clipboard
-              ?.writeText(address)
-              .then(() => setCopied(true))
-              .catch(() => {});
-          }}
-        >
-          {copied ? 'Copied' : 'Copy address'}
-        </Button>
-      }
-    />
+    <>
+      <SetupRow
+        id="setup-calendar"
+        label="Calendar"
+        state={address ? <span className="font-mono text-[0.88em] wrap-anywhere">{address}</span> : undefined}
+        purpose={
+          error ||
+          (address ? (
+            'Add this address to a meeting invite, once for a recurring series, and Taro joins at the start.'
+          ) : (
+            <span className="text-meta text-ash">Loading the address</span>
+          ))
+        }
+        meta={address ? 'Invites from members join on their own. Invites from anyone else wait for an owner or admin to approve them in Meetings.' : null}
+        actions={
+          address ? (
+            <>
+              <Button variant="secondary" size="sm" className={ROW_BUTTON} onClick={copy}>
+                {copied ? 'Copied' : 'Copy address'}
+              </Button>
+              {canEdit && (
+                <Button variant="ghost" size="sm" className={ROW_BUTTON} onClick={() => setConfirming(true)}>
+                  Rotate
+                </Button>
+              )}
+            </>
+          ) : null
+        }
+      />
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title="Rotate Taro's address?"
+        body="Taro gets a new address, and the old one stops working at once, even for meetings that already list it. Meetings in Upcoming stay scheduled. Add the new address to the invites Taro should keep joining."
+        confirmLabel="Rotate address"
+        pendingLabel="Rotating"
+        fallback="Couldn't rotate the address."
+        onConfirm={async () => {
+          const { address } = await api.calendar.rotate();
+          setAddress(address);
+          setConfirming(false);
+          showToast('New address ready. Copy it into your invites.');
+        }}
+      />
+    </>
   );
 }
 

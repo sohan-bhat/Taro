@@ -7,6 +7,8 @@
 import { mongoose } from './mongo';
 import {
   ActionLogModel,
+  CalendarOccurrenceModel,
+  CalendarSeriesModel,
   CompanyModel,
   GithubConnectionModel,
   GithubGrantModel,
@@ -84,6 +86,12 @@ export async function runMigrations(): Promise<void> {
     if (result.modifiedCount) log.info(`[Migrate] Recorded owners for ${result.modifiedCount} workspace(s)`);
   });
 
+  await once('2026-10-google-microsoft-sign-in', async () => {
+    // People who sign in with Google or Microsoft have no Slack identity, so the unique Slack identity
+    // index becomes a partial one. Dropped here; createIndexes below builds the new one.
+    await dropIndexIfPresent('users', 'slackTeamId_1_slackUserId_1');
+  });
+
   // Build any indexes the models declare (unique, TTL) before serving traffic.
   const models = [
     CompanyModel,
@@ -95,6 +103,8 @@ export async function runMigrations(): Promise<void> {
     GithubGrantModel,
     MeetingModel,
     ActionLogModel,
+    CalendarSeriesModel,
+    CalendarOccurrenceModel,
   ];
   await Promise.all(models.map((model) => model.createIndexes()));
 }

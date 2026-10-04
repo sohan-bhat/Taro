@@ -1,55 +1,76 @@
 /**
- * Sign in with Slack (OpenID Connect).
+ * Sign in with Slack, Google, or Microsoft (OpenID Connect). All three run the same way:
  *
  *  1. The dashboard stores a random nonce in sessionStorage and sends the
- *     browser to /slack/start with it.
- *  2. We sign {returnTo, nonce} into the OAuth state and redirect to Slack.
- *  3. Slack calls back; we exchange the code, verify the ID token, and mint a
- *     single-use login code (2 minutes, stored hashed).
+ *     browser to /<provider>/start with it.
+ *  2. We sign {returnTo, nonce} into the OAuth state and redirect to the provider.
+ *  3. The provider calls back; we exchange the code, check the ID token, and mint
+ *     a single-use login code (2 minutes, stored hashed).
  *  4. We redirect to the dashboard's /auth/callback with the code and nonce.
  *     The dashboard only accepts it if the nonce matches what it stored, so a
  *     sign-in can't be completed in a browser that didn't start it.
  *  5. The dashboard trades the code for a session token at /exchange.
+ *
+ * Sign-in is authentication only: Taro asks for openid, email, and profile, and
+ * never keeps a provider's access token.
  */
 
-import { Router, type Router as RouterType } from 'express';
+import { Router, type Request, type Response, type Router as RouterType } from 'express';
 import { CompanyModel, LoginCodeModel, SessionModel, UserModel } from '../db/models';
-import { env } from '../config/env';
+import { env, googleSignInConfigured, microsoftSignInConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createSession, requireAuth, type AuthedRequest } from '../middleware/auth';
 import { randomToken, sha256, signToken, verifyToken } from '../lib/crypto';
+import { checkGoogleIdToken, checkMicrosoftIdToken, decodeJwtPayload, IdTokenRejected, oidcNonce, type Claims } from '../lib/oidc';
 import { resolveReturnTo } from '../lib/origins';
 import { rateLimit } from '../lib/rateLimit';
 import { log, errorMessage } from '../lib/logger';
 import { publicUser, publicWorkspace } from '../lib/views';
-import { signInWithSlack, SignInRefused } from '../services/accounts';
+import {
+  googleIdentity,
+  microsoftIdentity,
+  signInWithDirectory,
+  signInWithSlack,
+  SignInRefused,
+  type DirectoryIdentity,
+  type DirectoryProvider,
+} from '../services/accounts';
 
 export const authRouter: RouterType = Router();
 
 const authLimiter = rateLimit({ windowMs: 60_000, max: 30 });
 const LOGIN_CODE_TTL_MS = 2 * 60 * 1000;
+const STATE_TTL_S = 10 * 60;
+const SCOPES = 'openid email profile';
 const REDIRECT_URI = () => `${env.apiUrl}/api/auth/slack/callback`;
 
-// Derived from the signed state, so the OIDC nonce needs no server-side storage.
-const oidcNonce = (state: string) => sha256(`oidc:${state}`).slice(0, 32);
+/** The dashboard's nonce for this tab, or '' when the request didn't come from the dashboard. */
+function browserNonce(value: unknown): string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value) ? value : '';
+}
 
-function decodeJwtPayload(jwt: string): Record<string, unknown> {
-  const part = jwt.split('.')[1];
-  if (!part) throw new Error('Malformed ID token');
-  return JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as Record<string, unknown>;
+async function loginCodeFor(userId: string, companyId: string): Promise<string> {
+  const loginCode = randomToken(32);
+  await LoginCodeModel.create({
+    codeHash: sha256(loginCode),
+    userId,
+    companyId,
+    expiresAt: new Date(Date.now() + LOGIN_CODE_TTL_MS),
+  });
+  return loginCode;
 }
 
 authRouter.get('/slack/start', authLimiter, (req, res) => {
   const returnTo = resolveReturnTo(req.query.returnTo);
-  const nonce = typeof req.query.n === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(req.query.n) ? req.query.n : '';
+  const nonce = browserNonce(req.query.n);
   if (!nonce) {
     return res.redirect(`${returnTo}/auth/callback?error=start_from_taro`);
   }
 
-  const state = signToken('login', { r: returnTo, n: nonce }, 10 * 60);
+  const state = signToken('login', { r: returnTo, n: nonce }, STATE_TTL_S);
   const params = new URLSearchParams({
     response_type: 'code',
-    scope: 'openid email profile',
+    scope: SCOPES,
     client_id: env.slackClientId,
     redirect_uri: REDIRECT_URI(),
     state,
@@ -129,14 +150,7 @@ authRouter.get(
         avatarUrl: typeof info.picture === 'string' ? info.picture : undefined,
       });
 
-      const loginCode = randomToken(32);
-      await LoginCodeModel.create({
-        codeHash: sha256(loginCode),
-        userId: user._id.toString(),
-        companyId: company._id.toString(),
-        expiresAt: new Date(Date.now() + LOGIN_CODE_TTL_MS),
-      });
-      back({ code: loginCode, n: state.n });
+      back({ code: await loginCodeFor(user._id.toString(), company._id.toString()), n: state.n });
     } catch (error) {
       if (error instanceof SignInRefused) return back({ error: error.code });
       log.warn('[Auth] Slack sign-in failed:', errorMessage(error));
@@ -144,6 +158,141 @@ authRouter.get(
     }
   })
 );
+
+// ---------------------------------------------------------------------------------------------
+// Sign in with Google and with Microsoft: the same code flow, against each provider's own endpoints.
+
+interface DirectorySignIn {
+  name: string;
+  configured: () => boolean;
+  clientId: () => string;
+  clientSecret: () => string;
+  authorizeUrl: () => string;
+  tokenUrl: () => string;
+  // Checks the ID token and says which workspace the account belongs to
+  identity: (claims: Claims, nonce: string) => DirectoryIdentity;
+}
+
+const MICROSOFT_LOGIN = () => `https://login.microsoftonline.com/${env.microsoftAuthority}/oauth2/v2.0`;
+
+const DIRECTORY: Record<DirectoryProvider, DirectorySignIn> = {
+  google: {
+    name: 'Google',
+    configured: googleSignInConfigured,
+    clientId: () => env.googleClientId,
+    clientSecret: () => env.googleClientSecret,
+    authorizeUrl: () => 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: () => 'https://oauth2.googleapis.com/token',
+    identity: (claims, nonce) => googleIdentity(checkGoogleIdToken(claims, { clientId: env.googleClientId, nonce })),
+  },
+  microsoft: {
+    name: 'Microsoft',
+    configured: microsoftSignInConfigured,
+    clientId: () => env.microsoftClientId,
+    clientSecret: () => env.microsoftClientSecret,
+    authorizeUrl: () => `${MICROSOFT_LOGIN()}/authorize`,
+    tokenUrl: () => `${MICROSOFT_LOGIN()}/token`,
+    identity: (claims, nonce) =>
+      microsoftIdentity(
+        checkMicrosoftIdToken(claims, { clientId: env.microsoftClientId, nonce, authority: env.microsoftAuthority })
+      ),
+  },
+};
+
+const directoryRedirectUri = (provider: DirectoryProvider) => `${env.apiUrl}/api/auth/${provider}/callback`;
+
+/**
+ * What the dashboard says when the provider sent back an error instead of a code. Microsoft reports an
+ * organization that only lets admins approve new apps with these AADSTS codes.
+ */
+function providerRefusal(provider: DirectoryProvider, error: string, description: string): string {
+  if (provider === 'microsoft' && /AADSTS(65001|90094|90095)\b/.test(description)) return 'microsoft_admin_consent';
+  return error === 'access_denied' ? `${provider}_denied` : `${provider}_error`;
+}
+
+function startDirectorySignIn(provider: DirectoryProvider) {
+  return (req: Request, res: Response) => {
+    const returnTo = resolveReturnTo(req.query.returnTo);
+    const nonce = browserNonce(req.query.n);
+    if (!nonce) return res.redirect(`${returnTo}/auth/callback?error=start_from_taro`);
+    const flow = DIRECTORY[provider];
+    if (!flow.configured()) return res.redirect(`${returnTo}/auth/callback?error=${provider}_unavailable`);
+
+    // Its own typ, so a state from one provider's sign-in can't finish another's
+    const state = signToken(`login:${provider}`, { r: returnTo, n: nonce }, STATE_TTL_S);
+    const params = new URLSearchParams({
+      response_type: 'code',
+      scope: SCOPES,
+      client_id: flow.clientId(),
+      redirect_uri: directoryRedirectUri(provider),
+      state,
+      nonce: oidcNonce(state),
+      // People often have a work and a personal account; let them choose instead of using whichever is signed in
+      prompt: 'select_account',
+    });
+    res.redirect(`${flow.authorizeUrl()}?${params}`);
+  };
+}
+
+function finishDirectorySignIn(provider: DirectoryProvider) {
+  const flow = DIRECTORY[provider];
+  return async (req: Request, res: Response) => {
+    const stateParam = typeof req.query.state === 'string' ? req.query.state : '';
+    const state = verifyToken<{ r: string; n: string }>(`login:${provider}`, stateParam);
+    if (!state) {
+      return res.redirect(`${resolveReturnTo(undefined)}/auth/callback?error=expired`);
+    }
+    // Re-checked against the allowlist even though we signed it, in case the allowlist changed
+    const returnTo = resolveReturnTo(state.r);
+    const back = (params: Record<string, string>) =>
+      res.redirect(`${returnTo}/auth/callback?${new URLSearchParams(params)}`);
+
+    if (typeof req.query.error === 'string') {
+      const description = typeof req.query.error_description === 'string' ? req.query.error_description : '';
+      log.info(`[Auth] ${flow.name} sign-in came back with ${req.query.error}${description ? `: ${description.slice(0, 300)}` : ''}`);
+      return back({ error: providerRefusal(provider, req.query.error, description) });
+    }
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    if (!code) return back({ error: `${provider}_failed` });
+    if (!flow.configured()) return back({ error: `${provider}_unavailable` });
+
+    try {
+      const tokenRes = await fetch(flow.tokenUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body: new URLSearchParams({
+          code,
+          client_id: flow.clientId(),
+          client_secret: flow.clientSecret(),
+          redirect_uri: directoryRedirectUri(provider),
+          grant_type: 'authorization_code',
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      // Only the ID token is read. The access token that comes with it is never used or kept.
+      const tokens = (await tokenRes.json().catch(() => ({}))) as { id_token?: string; error?: string };
+      if (!tokenRes.ok || !tokens.id_token) {
+        throw new Error(`${flow.name} token exchange failed: ${tokens.error ?? tokenRes.status}`);
+      }
+
+      const identity = flow.identity(decodeJwtPayload(tokens.id_token), oidcNonce(stateParam));
+      const { company, user } = await signInWithDirectory(identity);
+      back({ code: await loginCodeFor(user._id.toString(), company._id.toString()), n: state.n });
+    } catch (error) {
+      if (error instanceof SignInRefused) return back({ error: error.code });
+      if (error instanceof IdTokenRejected && error.reason === 'unverified_email') return back({ error: 'unverified_email' });
+      log.warn(`[Auth] ${flow.name} sign-in failed:`, errorMessage(error));
+      back({ error: `${provider}_failed` });
+    }
+  };
+}
+
+authRouter.get('/google/start', authLimiter, startDirectorySignIn('google'));
+authRouter.get('/google/callback', authLimiter, asyncHandler(finishDirectorySignIn('google')));
+authRouter.get('/microsoft/start', authLimiter, startDirectorySignIn('microsoft'));
+authRouter.get('/microsoft/callback', authLimiter, asyncHandler(finishDirectorySignIn('microsoft')));
+
+// ---------------------------------------------------------------------------------------------
 
 authRouter.post(
   '/exchange',

@@ -8,6 +8,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import type { User, Workspace } from '@taro/shared';
 import { Wordmark } from '@/components/brand';
+import { slackRequired } from '@/lib/meeting-state';
 import { Avatar } from '@/components/ui/avatar';
 import { Menu, MenuHeader, MenuItem, MenuLink, MenuPopover, MenuSeparator, MenuTrigger } from '@/components/ui/menu';
 import { ViewTabs, type ViewTab } from '@/components/ui/tabs';
@@ -70,7 +71,10 @@ export function DashboardHeader({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
-  const domain = workspace.slackTeamDomain ? `${workspace.slackTeamDomain}.slack.com` : null;
+  // A Google workspace's own domain, or a Slack workspace's Slack address. Not repeated when it's also the name.
+  const address =
+    workspace.domain ?? (slackRequired(workspace) && workspace.slackTeamDomain ? `${workspace.slackTeamDomain}.slack.com` : null);
+  const domain = address && address !== workspace.name ? address : null;
   return (
     <WorkspaceHeader
       name={workspace.name}

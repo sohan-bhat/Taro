@@ -103,6 +103,8 @@ export const COPY = {
   // Turned off for the workspace
   turnedOff: (action: string) =>
     `${GITHUB_CAPABILITIES.find((c) => c.action === action)?.gerund ?? 'That'} is turned off for this workspace.`,
+  // Posts and checklists, in a workspace that hasn't added Taro to Slack
+  slackNotConnected: `Slack isn't connected. An owner or admin can add Taro to Slack in Setup.`,
 
   // Needs you: a question back
   askPost: `Which channel should I post in, and what should it say? Try “tell engineering the deploy is done.”`,
@@ -119,7 +121,6 @@ export const COPY = {
   modelUnreachable: (detail?: string) => withDetail(`I couldn't reach your AI model.`, detail),
 
   // Failed
-  slackNotConnected: `Slack isn't connected for this workspace.`,
   channelNotFound: (channel: string) => `Couldn't post in #${channel}. Slack says there's no channel with that name.`,
   slackFailed: (channel: string, error?: string) =>
     withDetail(`Couldn't post in #${channel}.`, error?.trim() && `Slack says: ${error.trim()}`),

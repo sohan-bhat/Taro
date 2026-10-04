@@ -7,3 +7,5 @@ export { GithubConnectionModel } from './GithubConnection';
 export { GithubGrantModel } from './GithubGrant';
 export { MeetingModel } from './Meeting';
 export { ActionLogModel } from './ActionLog';
+export { CalendarSeriesModel } from './CalendarSeries';
+export { CalendarOccurrenceModel } from './CalendarOccurrence';

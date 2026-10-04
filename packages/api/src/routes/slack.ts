@@ -4,7 +4,7 @@ import { CompanyModel, SlackConnectionModel, UserModel } from '../db/models';
 import { env } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { requireAdmin, requireAuth, type AuthedRequest } from '../middleware/auth';
-import { claimOwnership } from '../services/accounts';
+import { claimOwnership, linkSlackTeam, unlinkSlackTeam } from '../services/accounts';
 import { signToken, verifyToken } from '../lib/crypto';
 import { resolveReturnTo } from '../lib/origins';
 import { log, errorMessage } from '../lib/logger';
@@ -71,15 +71,26 @@ slackRouter.get(
         redirect_uri: redirectUri(),
       });
       const teamId = result.team?.id;
-      if (!result.ok || !result.access_token || !teamId) {
+      const botToken = result.access_token;
+      if (!result.ok || !botToken || !teamId) {
         log.warn('[Slack] OAuth exchange failed:', result.error);
         return back('error=slack_failed');
       }
-      if (company.slackTeamId !== teamId) {
-        // Undo the stray install, unless that Slack workspace already uses Taro (the token is shared)
+      // Undo a stray install, unless that Slack workspace already uses Taro (the token is shared)
+      const undoInstall = async () => {
         if (!(await SlackConnectionModel.exists({ teamId }))) {
-          await new WebClient(result.access_token).auth.revoke().catch(() => {});
+          await new WebClient(botToken).auth.revoke().catch(() => {});
         }
+      };
+      if (company.signInWith) {
+        // Google and Microsoft workspaces take the Slack team they add Taro to, unless it's another workspace's
+        const link = await linkSlackTeam(state.c, teamId);
+        if (link !== 'linked') {
+          await undoInstall();
+          return back(link === 'taken' ? 'error=slack_team_taken' : 'error=slack_other_team');
+        }
+      } else if (company.slackTeamId !== teamId) {
+        await undoInstall();
         return back('error=slack_team_mismatch');
       }
 
@@ -89,7 +100,7 @@ slackRouter.get(
           $set: {
             companyId: state.c,
             teamName: result.team?.name || company.name,
-            accessToken: sealSlackToken(result.access_token, teamId),
+            accessToken: sealSlackToken(botToken, teamId),
             botUserId: result.bot_user_id || '',
             installedByUserId: state.u,
           },
@@ -100,12 +111,12 @@ slackRouter.get(
       // Whoever adds Taro to Slack owns a workspace nobody has claimed, as long as it's
       // the same person who started the install from Taro.
       const installer = await UserModel.findById(state.u).select('slackUserId companyId');
-      if (installer?.companyId === state.c && result.authed_user?.id === installer.slackUserId) {
+      if (installer?.slackUserId && installer.companyId === state.c && result.authed_user?.id === installer.slackUserId) {
         await claimOwnership(state.c, state.u);
       }
 
       // Slack only delivers channel messages to apps that are members, so join every public channel once.
-      new SlackService(result.access_token, state.c)
+      new SlackService(botToken, state.c)
         .joinAllPublicChannels()
         .then((n) => log.info(`[Slack] Joined ${n} public channel(s) in team ${teamId}`))
         .catch((error) => log.warn('[Slack] Channel auto-join failed:', errorMessage(error)));
@@ -133,6 +144,8 @@ slackRouter.delete(
       }
       await SlackConnectionModel.deleteOne({ _id: connection._id });
     }
+    // A Slack workspace keeps its team, which is who belongs to it. Any other workspace lets the team go.
+    await unlinkSlackTeam(req.companyId!);
     res.json({ connected: false });
   })
 );

@@ -171,6 +171,9 @@ meetingsRouter.post(
         if (open) return res.status(409).json({ error: COPY.leaveNeedsKey, code: 'NO_MEETING_BOT_KEY' });
       } else {
         try {
+          // A calendar meeting's bot may still be a scheduled one that hasn't gone in; canceling it
+          // stops it at any stage. It fails harmlessly once the bot is an ordinary one.
+          if (meeting.source === 'calendar') await new MeetingBaasClient(key).cancelScheduledBot(meeting.botId).catch(() => {});
           await new MeetingBaasClient(key).leave(meeting.botId);
         } catch (error) {
           const status = error instanceof MeetingBaasError ? error.status : undefined;

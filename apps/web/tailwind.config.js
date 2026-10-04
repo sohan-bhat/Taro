@@ -21,9 +21,22 @@ module.exports = {
       heard: { DEFAULT: '#E2D5ED', taro: '#6B4F84' },
       lilac: '#8E73A8',
       beet: { DEFAULT: '#A3244B', hover: '#8E1F41' },
-      // Third party, used only inside the GitHub and Slack mocks
+      // Third party, used only inside the GitHub and Slack mocks, and on each company's sign-in button
       gh: { fg: '#1F2328', muted: '#59636E', border: '#D1D9E0', subtle: '#F6F8FA', open: '#1F883D', accent: '#0969DA', 'accent-subtle': '#DDF4FF' },
-      slack: { text: '#1D1C1D', muted: '#616061', link: '#1264A3', border: '#E8E8E8', reply: '#F8F8F8', badge: 'rgba(29,28,29,0.13)' },
+      slack: {
+        text: '#1D1C1D',
+        muted: '#616061',
+        link: '#1264A3',
+        border: '#E8E8E8',
+        reply: '#F8F8F8',
+        badge: 'rgba(29,28,29,0.13)',
+        // Sign in with Slack, default theme
+        'button-text': '#000000',
+        'button-stroke': '#DDDDDD',
+      },
+      // Sign in with Google, light theme, and Sign in with Microsoft, light theme
+      google: { text: '#1F1F1F', stroke: '#747775' },
+      microsoft: { text: '#5E5E5E', stroke: '#8C8C8C' },
     },
     extend: {
       // Preflight reads these. Without them a bare `border` is currentColor and a bare `ring` is Tailwind blue.
@@ -70,6 +83,8 @@ module.exports = {
         artifact: '0 1px 0 rgba(29,23,36,0.03), 0 24px 48px -28px rgba(46,32,57,0.35)',
         dialog: '0 24px 64px -24px rgba(29,23,36,0.35)',
         menu: '0 12px 32px -12px rgba(29,23,36,0.28)',
+        // Google's own hover for its sign-in button, used on all three so they stay alike
+        signin: '0 1px 2px 0 rgba(60,64,67,0.30), 0 1px 3px 1px rgba(60,64,67,0.15)',
       },
       maxWidth: { page: '1200px', app: '1240px', setup: '880px', measure: '34em', transcript: '68ch' },
       transitionDuration: { 120: '120ms', 140: '140ms', 160: '160ms' },

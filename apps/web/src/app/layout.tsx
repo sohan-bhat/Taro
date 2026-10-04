@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { codeFace, recordFace, saidFace } from './fonts';
 import { Toaster } from '@/components/ui/toaster';
 
-// Runs before first paint so signed-in visitors never see "Sign in with Slack" flash into "Open your dashboard".
+// Runs before first paint so signed-in visitors never see "Get started" flash into "Open your dashboard".
 const SESSION_SCRIPT = `try{if(localStorage.getItem('taro.session'))document.documentElement.dataset.session='in'}catch(e){}`;
 
 export const metadata: Metadata = {

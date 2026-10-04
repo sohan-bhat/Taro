@@ -65,6 +65,18 @@ function list(raw: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Which Microsoft accounts may sign in: common (work, school, and personal), organizations, consumers,
+ * or one tenant's ID. Sign-in compares this with the tenant in each ID token, which a domain name can't be.
+ */
+function microsoftAuthority(raw: string): string {
+  const value = raw.trim().toLowerCase();
+  if (['common', 'organizations', 'consumers'].includes(value) || /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value)) {
+    return value;
+  }
+  throw new Error('MICROSOFT_AUTHORITY must be common, organizations, consumers, or a tenant ID.');
+}
+
 const apiUrl = optional('API_URL', 'http://localhost:4000').replace(/\/$/, '');
 const appUrl = optional('APP_URL', optional('NEXT_PUBLIC_APP_URL', 'http://localhost:3000')).replace(/\/$/, '');
 
@@ -92,6 +104,13 @@ export const env = {
   // Socket Mode token (xapp-...); without it Taro can't see meeting links posted in Slack.
   slackAppToken: optional('SLACK_APP_TOKEN'),
 
+  // Sign in with Google and with Microsoft. Optional: each is offered once its client ID and secret are set.
+  googleClientId: optional('GOOGLE_CLIENT_ID'),
+  googleClientSecret: optional('GOOGLE_CLIENT_SECRET'),
+  microsoftClientId: optional('MICROSOFT_CLIENT_ID'),
+  microsoftClientSecret: optional('MICROSOFT_CLIENT_SECRET'),
+  microsoftAuthority: microsoftAuthority(optional('MICROSOFT_AUTHORITY', 'common')),
+
   // Taro's bot identity on GitHub. Optional: without it the GitHub integration is hidden.
   githubAppId: optional('GITHUB_APP_ID'),
   githubAppSlug: optional('GITHUB_APP_SLUG'),
@@ -99,6 +118,11 @@ export const env = {
   // Used to confirm the person connecting an installation actually has access to it.
   githubAppClientId: optional('GITHUB_APP_CLIENT_ID'),
   githubAppClientSecret: optional('GITHUB_APP_CLIENT_SECRET'),
+
+  // Calendar invitations. Optional: each workspace's Taro address is INVITE_ADDRESS with {token}
+  // replaced, and the mail provider posts invitations to the webhook with INBOUND_SECRET.
+  inviteAddress: optional('INVITE_ADDRESS'),
+  inboundSecret: optional('INBOUND_SECRET'),
 
   // Optional transcription the operator hosts for every workspace (no per-workspace key):
   // a faster-whisper server, or the in-process sherpa-onnx model when LOCAL_ASR=1.
@@ -128,6 +152,14 @@ export function githubOAuthConfigured(): boolean {
   return !!(env.githubAppClientId && env.githubAppClientSecret);
 }
 
+export function googleSignInConfigured(): boolean {
+  return !!(env.googleClientId && env.googleClientSecret);
+}
+
+export function microsoftSignInConfigured(): boolean {
+  return !!(env.microsoftClientId && env.microsoftClientSecret);
+}
+
 export function serverSttAvailable(): boolean {
   return !!env.sttWsUrl || env.localAsr;
 }
@@ -142,7 +174,9 @@ console.log('[Config] Environment loaded:', {
   appUrl,
   webOrigins: env.webOrigins,
   slackSocketMode: !!env.slackAppToken,
+  signIn: ['slack', googleSignInConfigured() && 'google', microsoftSignInConfigured() && `microsoft (${env.microsoftAuthority})`].filter(Boolean),
   githubApp: githubAppConfigured(),
   githubInstallVerification: githubOAuthConfigured(),
+  calendarInvites: !!(env.inviteAddress && env.inboundSecret),
   serverStt: env.sttWsUrl ? 'faster-whisper server' : env.localAsr ? 'local sherpa-onnx' : 'none',
 });

@@ -1,0 +1,58 @@
+BEGIN:VCALENDAR
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+VERSION:2.0
+CALSCALE:GREGORIAN
+METHOD:REQUEST
+BEGIN:VTIMEZONE
+TZID:America/Los_Angeles
+X-LIC-LOCATION:America/Los_Angeles
+BEGIN:DAYLIGHT
+TZOFFSETFROM:-0800
+TZOFFSETTO:-0700
+TZNAME:PDT
+DTSTART:19700308T020000
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU
+END:DAYLIGHT
+BEGIN:STANDARD
+TZOFFSETFROM:-0700
+TZOFFSETTO:-0800
+TZNAME:PST
+DTSTART:19701101T020000
+RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+DTSTART;TZID=America/Los_Angeles:20261007T150000
+DTEND;TZID=America/Los_Angeles:20261007T153000
+DTSTAMP:20261005T170000Z
+ORGANIZER;CN=Maya Chen:mailto:maya@northwind.dev
+UID:5n2k8q1v0m3c7b4x9z6a2d1f0g@google.com
+ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=TRUE
+ ;CN=Maya Chen;X-NUM-GUESTS=0:mailto:maya@northwind.dev
+ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=
+ TRUE;CN=k3j2h1g0f9e8d7c6b5a4@invite.taro.test;X-NUM-GUESTS=0:mailto:k3j2h1
+ g0f9e8d7c6b5a4@invite.taro.test
+X-GOOGLE-CONFERENCE:https://meet.google.com/kdp-wqmx-tvr
+X-MICROSOFT-CDO-OWNERAPPTID:-1093847562
+CREATED:20261005T152900Z
+DESCRIPTION:Walk through the export fix before it ships.\n\n-::~:~::~:~:~:~
+ :~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~::~:~::-\nJoin with Google Meet: h
+ ttps://meet.google.com/kdp-wqmx-tvr\nOr dial: (US) +1 260 555 0142 PIN: 38
+ 1274919#\n\nLearn more about Meet at: https://support.google.com/a/users/a
+ nswer/9282720\n\nPlease do not edit this section.\n-::~:~::~:~:~:~:~:~:~:~
+ :~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~::~:~::-
+LAST-MODIFIED:20261005T153000Z
+LOCATION:
+SEQUENCE:1
+STATUS:CONFIRMED
+SUMMARY:Export fix review
+TRANSP:OPAQUE
+BEGIN:VALARM
+ACTION:EMAIL
+DESCRIPTION:This is an event reminder
+SUMMARY:Alarm notification
+ATTENDEE:mailto:k3j2h1g0f9e8d7c6b5a4@invite.taro.test
+TRIGGER:-P0DT0H10M0S
+END:VALARM
+END:VEVENT
+END:VCALENDAR
