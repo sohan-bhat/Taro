@@ -68,8 +68,8 @@
   /* A word of a request said aloud (landing only); relative, so the hero's words can rise as they're said. */
   .spoken .word { position: relative; }
 
-  /* A headline line's mask (landing hero). The padding keeps ascenders and descenders inside it. */
-  .in-mask { display: block; overflow: hidden; padding: 0.1em 0 0.16em; margin: -0.1em 0 -0.16em; }
+  /* A headline line of the landing hero, set as its own block. */
+  .in-mask { display: block; }
 }
 
 /* A tap focuses the words, so touch works like hover. No JavaScript. */
@@ -83,99 +83,95 @@
 
 /*
  * The landing's first screen plays once, as an intro, from first paint and with or without scripts:
- * the headline rises from its masks, Priya's line fades in, Sam speaks word by word, Taro's answer
- * lands, and the rest fades up. Each part sets its moment as --d (each word as --cue); the nav's
- * links and the #how section (intro-late) arrive at --rest. intro-done.tsx ends it at once on any
+ * the headline settles in, Priya's line fades in, Sam speaks word by word, Taro's answer lands, and
+ * the lede and buttons fade up together. Each part sets its moment as --d (each word as --cue); the
+ * #how section (intro-late) arrives at --rest. The nav is there from the first frame. intro-done.tsx ends it at once on any
  * scroll, key, click, or tap. Only opacity and transform move, so it all stays in the accessibility tree.
  */
 @media screen and (prefers-reduced-motion: no-preference) {
-  .intro .in-rise { animation: in-rise 500ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d) both; }
+  .intro .in-rise { animation: in-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) both; }
   .intro .in-fade { animation: in-fade 300ms ease-out var(--d) both; }
   .intro .spoken .word { animation: in-word 140ms ease-out var(--cue) both; }
   .intro .spoken .heard { animation: heard-sweep 300ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--wake) both; }
   .intro .in-land { animation: in-land 280ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d) both; transform-origin: left center; }
-  .intro .in-up { animation: in-up 320ms ease-out var(--d) both; }
-  .intro-late { animation: in-up 320ms ease-out var(--rest) both; }
+  .intro .in-up { animation: in-up 500ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) both; }
+  .intro-late { animation: in-up 500ms cubic-bezier(0.22, 1, 0.36, 1) var(--rest) both; }
 
   /* The intro is over, or something in it has focus: whatever is still on its way in is simply there. */
   html[data-intro='done'] .intro *, html[data-intro='done'] .intro-late,
   .intro :focus-within, .intro-late:focus-within { animation: none !important; }
 }
-/* Never a ghost: the rise starts invisible, then the line slides up out of its mask. */
-@keyframes in-rise { from { opacity: 0; transform: translateY(0.6em); } 40% { opacity: 1; } to { opacity: 1; transform: none; } }
+/* Never a ghost: the headline starts invisible and settles into place with a short, calm rise. */
+@keyframes in-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes in-fade { from { opacity: 0; } to { opacity: 1; } }
 /* A word is invisible until it's said, then there in 140ms. */
 @keyframes in-word { from { opacity: 0; top: 4px; } to { opacity: 1; top: 0; } }
 @keyframes in-land { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
-@keyframes in-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes in-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes heard-sweep { from { background-size: 0% 0.5em; } to { background-size: 100% 0.5em; } }
 
 /*
- * The #how story, pinned. story.tsx sets data-pinned only where the stage fits, never without
- * scripts or with reduced motion; otherwise the steps are a plain list. While pinned it writes each
- * step's progress through its stretch of the scroll, from 0 to 1: --t on its meeting, --ct on its
- * card, and the next step's as --cn. Everything below maps those to opacity and transform with calc
- * and clamp. Each step sets --land (where its result lands), --cap (its caption), and --land-next;
- * each word of a request its --cue, and the heard mark its --wake. Every piece that moves keeps its
- * own layer while pinned, so scrolling never changes layout, and the card's values don't inherit, so
- * the card's insides are never restyled.
+ * The #how story. Without scripts, with reduced motion, or on a screen too short for it, the steps
+ * are a plain list. Otherwise story.tsx sets data-camera: the list is hidden visually (screen readers
+ * still read it), the stage pins under the nav, and the scroll moves a camera across one scene of
+ * three app windows. It writes the camera as the scene's transform, and the story's progress as --t
+ * (in vh of scroll, scene/script.ts) on each piece that changes with it. A piece that appears (.cue)
+ * reads --t against its own --at, and --out if it leaves, each over --f; a word against its --cue, the
+ * heard mark against --wake. Only opacity and transform change, so scrolling never touches layout:
+ * shown is 0.999, not 1, because crossing 1 makes or unmakes a stacking context, which costs a layout.
  */
-@property --ct { syntax: '<number>'; inherits: false; initial-value: -1; }
-@property --cn { syntax: '<number>'; inherits: false; initial-value: -1; }
-@property --card-in { syntax: '<number>'; inherits: false; initial-value: 0; }
-@property --card-out { syntax: '<number>'; inherits: false; initial-value: 0; }
+.story-scene, .story-notes { display: none; }
 @media screen {
-  .story[data-pinned] { height: calc(var(--steps) * 90vh + 100svh - 72px); }
-  .story[data-pinned] .story-stage {
-    position: sticky; top: 72px; height: calc(100svh - 72px); overflow: hidden;
-    display: grid; align-content: safe center;
+  .story[data-camera] { position: relative; height: calc(var(--runway) * 1vh + 100svh - 72px); }
+  .story[data-camera] .story-stage { position: sticky; top: 72px; height: calc(100svh - 72px); overflow: hidden; }
+  /* The band at the top of the stage holds the heading, then each shot's line. The scene passes under it. */
+  .story[data-camera] .story-band { position: relative; z-index: 1; background: var(--poi); padding: 20px 0 12px; }
+  .story[data-camera] .story-heads { display: grid; align-items: end; }
+  .story[data-camera] .story-heads > *, .story[data-camera] .story-note { grid-area: 1 / 1; }
+  .story[data-camera] .story-notes { display: grid; align-items: end; }
+  .story[data-camera] .story-scene {
+    display: grid; position: absolute; left: 0; top: 0; width: max-content;
+    transform-origin: 0 0; pointer-events: none; user-select: none;
   }
-  .story[data-pinned] .story-steps { display: grid; border-bottom-width: 0; }
-  .story[data-pinned] .story-step { grid-area: 1 / 1; border-top-width: 0; }
-  /* Only the meeting on stage, and the card that's showing, take the pointer */
-  .story[data-pinned] .story-step:not([data-shown]) .story-meeting,
-  .story[data-pinned] .story-step:not([data-carded]) .story-card { pointer-events: none; }
+  .story[data-camera] .story-list {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  /* The Product link lands where the camera starts: the stage's top at the nav, under the section's padding */
+  #how:has(> .story[data-camera]) { scroll-margin-top: calc(72px - 88px); }
 
-  /* The meeting comes in from below at the start of its step and leaves upward at the end, the two
-     overlapping a little at each change so the old lines hand over to the new ones. */
-  .story[data-pinned] .story-meeting {
-    --t: -1;
-    --in: clamp(0, (var(--t) + 0.04) / 0.14, 1);
-    --out: clamp(0, (var(--t) - 0.88) / 0.12, 1);
-    min-height: var(--meeting, auto);
-    opacity: calc(var(--in) - var(--out));
-    transform: translateY(calc((1 - var(--in) - var(--out)) * 28px));
-    will-change: transform, opacity;
+  .story[data-camera] .cue {
+    --in: clamp(0, (var(--t) - var(--at)) / var(--f), 1);
+    --gone: clamp(0, (var(--t) - var(--out)) / var(--f), 1);
+    opacity: min(0.999, var(--in) - var(--gone));
   }
-  .story[data-pinned] :is(.story-asker, .story-answer, .story-caption, .spoken .word) { will-change: opacity, transform; }
-  .story[data-pinned] .story-asker { opacity: clamp(0, (var(--t) - 0.13) / 0.02, 1); }
-  .story[data-pinned] .spoken .word { opacity: clamp(0, (var(--t) - var(--cue)) / 0.02, 1); }
-  /* The heard mark sweeps in as a scaled band behind the words, not a resized background. */
-  .story[data-pinned] .spoken .heard { position: relative; background-image: none; }
-  .story[data-pinned] .spoken .heard::before {
+  .story[data-camera] .cue-rise { transform: translateY(calc((1 - var(--in)) * 6px)); }
+  .story[data-camera] .cue-pop { transform: scale(calc(0.94 + 0.06 * var(--in))); }
+  .story[data-camera] .story-title {
+    --gone: clamp(0, (var(--t) - var(--out)) / 8, 1);
+    --again: clamp(0, (var(--t) - var(--back)) / 8, 1);
+    opacity: min(0.999, 1 - var(--gone) + var(--again));
+    transform: translateY(calc((var(--gone) - var(--again)) * -8px));
+  }
+
+  /* Live captions: a word appears as it's said, and the heard mark sweeps in behind "Hey Taro," on the dark call */
+  .story[data-camera] .story-scene .spoken .word { opacity: clamp(0, (var(--t) - var(--cue)) / 0.8, 0.999); }
+  .story[data-camera] .story-scene .spoken .heard { position: relative; background-image: none; }
+  .story[data-camera] .story-scene .spoken .heard::before {
     content: ''; position: absolute; z-index: -1; left: 0; right: 0; bottom: 0.06em; height: 0.5em;
-    background: var(--heard); transform-origin: left center; will-change: transform;
-    transform: scaleX(clamp(0, (var(--t) - var(--wake)) / 0.04, 1));
+    background: var(--heard-taro); transform-origin: left center;
+    transform: scaleX(clamp(0, (var(--t) - var(--wake)) / 2.5, 1));
   }
-  .story[data-pinned] .story-answer {
-    --a: clamp(0, (var(--t) - 0.6) / 0.1, 1);
-    opacity: var(--a); transform: scale(calc(0.98 + 0.02 * var(--a))); transform-origin: left center;
-  }
-  .story[data-pinned] .story-caption {
-    --c: clamp(0, (var(--t) - var(--cap)) / 0.08, 1);
-    opacity: var(--c); transform: translateY(calc((1 - var(--c)) * 6px));
-  }
-  /* One card position: a step's result rises in as it lands. The card before it lifts away just ahead
-     of that, so two cards never show at once. */
-  .story[data-pinned] .story-card {
-    --card-in: clamp(0, (var(--ct) - var(--land)) / 0.08, 1);
-    --card-out: clamp(0, (var(--cn) - var(--land-next) + 0.05) / 0.05, 1);
-    opacity: calc(var(--card-in) - var(--card-out));
-    transform: translateY(calc((1 - var(--card-in)) * 20px - var(--card-out) * 12px))
-      scale(calc(var(--fit, 1) * (0.97 + 0.03 * var(--card-in) - 0.02 * var(--card-out))));
-    transform-origin: top left;
-    will-change: transform, opacity;
-  }
+  /* Who said each phrase the issue took from the call, shown in turn rather than on hover */
+  .story[data-camera] .story-scene .prov-who { display: block; }
+}
+@media screen and (min-width: 768px) {
+  .story[data-camera] .story-band { padding: 28px 0 16px; }
+  #how:has(> .story[data-camera]) { scroll-margin-top: calc(72px - 104px); }
+}
+@media screen and (min-width: 1100px) {
+  .story[data-camera] .story-band { padding: 32px 0 20px; }
+  #how:has(> .story[data-camera]) { scroll-margin-top: calc(72px - 120px); }
 }
 
 @keyframes settle-ink { from { color: var(--ink); } to { color: var(--ink-2); } }

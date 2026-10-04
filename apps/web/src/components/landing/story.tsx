@@ -1,164 +1,208 @@
 'use client';
 
 import * as React from 'react';
+import { cameraAt, framing, transform, type Box, type Cam, type Framed } from './scene/camera';
+import { NEVER, PLACED, TOTAL } from './scene/script';
 
-// Where the stage pins: wide screens with the meeting beside the card, and tall tablets with it above.
-// Never with reduced motion. Everywhere else, and without this script, the steps are a plain list.
-const PIN = [
-  '(min-width: 1100px) and (min-height: 620px) and (prefers-reduced-motion: no-preference)',
-  '(min-width: 768px) and (min-height: 960px) and (prefers-reduced-motion: no-preference)',
-].join(', ');
-const SIDE_BY_SIDE = '(min-width: 1100px)';
 // The sticky nav's height. The stage pins just under it.
 const NAV = 72;
-// The first step is already on stage when the stage pins, and the last stays as it scrolls away.
-const FIRST = 0.3;
-const LAST = 0.8;
-// Where focus lands within a step's stretch of the scroll: everything in, nothing leaving yet.
-const HOLD = 0.8;
+// The camera runs on any screen tall enough for its close shots, never with reduced motion. Elsewhere,
+// and without this script, the story is the plain list.
+const CAMERA = '(prefers-reduced-motion: no-preference) and (min-height: 500px)';
+// Once the camera has held still this long, the scene drops its compositing hint, so the browser
+// repaints its text sharp at the current zoom instead of scaling a bitmap.
+const SETTLE = 150;
+// Story time past a piece's last cue that its slowest fade can still be running
+const FADES = 10;
+
+/** Where an element sits in the scene, unscaled: layout offsets, which the camera's transform doesn't touch. */
+function rectIn(el: HTMLElement, scene: HTMLElement): Box {
+  let x = 0;
+  let y = 0;
+  for (let n: HTMLElement | null = el; n && n !== scene; n = n.offsetParent as HTMLElement | null) {
+    x += n.offsetLeft;
+    y += n.offsetTop;
+  }
+  return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+interface Track {
+  el: HTMLElement;
+  // The stretches of story time in which it changes, in order. Between them it holds still.
+  spans: Array<[number, number]>;
+  // The --t it was last given
+  last: string;
+}
 
 /**
- * The #how story. While pinned, the stage stays put under the nav and the scroll plays the meeting:
- * each frame this writes every step's progress through its own stretch, from 0 to 1, onto its meeting
- * (--t, which the words inherit) and its card (--ct, with the next step's as --cn, neither inherited,
- * so the card's insides are never restyled). globals.css turns them into opacity and transform.
- * Layout is only read when the size changes or the fonts arrive, never while scrolling. All steps
- * stay in the DOM, in order.
+ * Every piece of the stage that changes with the story (globals.css), and when. Read once from the
+ * cues the server wrote on them. "Already there" and "never leaves" are far outside the story.
  */
-export function Story({ steps, children }: { steps: number; children: React.ReactNode }) {
+function tracks(stage: HTMLElement): Track[] {
+  const cues = (el: Element, names: string[]) =>
+    names.map((name) => parseFloat((el as HTMLElement).style.getPropertyValue(name))).filter((n) => Math.abs(n) < NEVER);
+  return Array.from(stage.querySelectorAll<HTMLElement>('[style*="--at"], [style*="--back"], .spoken')).map((el) => {
+    // A spoken line is timed by its words and its heard mark
+    const points = el.classList.contains('spoken')
+      ? [...cues(el, ['--wake']), ...Array.from(el.querySelectorAll('.word')).flatMap((word) => cues(word, ['--cue']))]
+      : cues(el, ['--at', '--out', '--back']);
+    const spans: Array<[number, number]> = [];
+    for (const point of points.sort((a, b) => a - b)) {
+      const last = spans[spans.length - 1];
+      if (last && point - 1 <= last[1]) last[1] = point + FADES;
+      else spans.push([point - 1, point + FADES]);
+    }
+    return { el, spans: spans.length ? spans : [[0, 0]], last: '' };
+  });
+}
+
+/** The story time a piece is shown at: t inside one of its spans, else the end of the last span before t. */
+function held(spans: Array<[number, number]>, t: number) {
+  let value = spans[0][0];
+  for (const [from, to] of spans) {
+    if (t < from) break;
+    value = Math.min(t, to);
+  }
+  return value;
+}
+
+/**
+ * The #how story's camera. While the stage is pinned, the scroll position picks a point in the shot
+ * list (scene/script.ts), and the camera is written as one transform on the scene. That point is also
+ * --t, the story's progress, which every piece that appears reads in CSS (globals.css). Each piece is
+ * given --t clamped to the stretch in which it changes, so a frame restyles only the pieces that are
+ * changing, not the whole scene. Targets are measured, and fitted to the stage, only on load, on
+ * resize, and when fonts arrive; a scroll frame reads nothing but the scroll position. No React state
+ * changes after mount.
+ */
+export function Story({ children }: { children: React.ReactNode }) {
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const story = ref.current;
-    const stage = story?.firstElementChild;
-    if (!story || !(stage instanceof HTMLElement)) return;
-    const items = Array.from(story.querySelectorAll<HTMLElement>('[data-step]'));
-    const meetings = items.map((el) => el.querySelector<HTMLElement>('.story-meeting'));
-    const cards = items.map((el) => el.querySelector<HTMLElement>('.story-card'));
-    // Where in its stretch each step's result lands (set on the step by the server)
-    const lands = items.map((el) => Number(el.style.getPropertyValue('--land')) || 0);
-    const pin = window.matchMedia(PIN);
-    const side = window.matchMedia(SIDE_BY_SIDE);
-    let pinned = false;
+    const stage = story?.querySelector<HTMLElement>('.story-stage');
+    const band = story?.querySelector<HTMLElement>('.story-band');
+    const scene = story?.querySelector<HTMLElement>('.story-scene');
+    if (!story || !stage || !band || !scene) return;
+    // The list's marked phrases take focus to show who said them. Hidden behind the scene, they mustn't.
+    const marks = Array.from(story.querySelectorAll<HTMLElement>('.story-list [tabindex="0"]'));
+    const pieces = tracks(stage);
+    const media = window.matchMedia(CAMERA);
+    let on = false;
     let start = 0;
-    let distance = 1;
-    let frame = 0;
-    let shown = -1;
-    let carded = -1;
-    // What each step was last given, so a frame only writes what changed (most steps sit at -1 or 2)
-    let written: string[] = [];
+    let unit = 1;
+    let frame: Box = { x: 0, y: 0, w: 1, h: 1 };
+    let shots: Framed[] = [];
+    let cam: Cam = { x: 0, y: 0, z: 1 };
+    let frameId = 0;
+    let resizing = 0;
+    let settle = 0;
+    let moving = false;
+    // The camera last written, so a frame that doesn't move it writes nothing
+    let still = '';
 
-    const mark = (attr: string, from: number, to: number) => {
-      if (from === to) return to;
-      items[from]?.removeAttribute(attr);
-      items[to]?.setAttribute(attr, '');
-      return to;
+    const write = (sharp: boolean) => {
+      const { x, y, z } = transform(cam, frame);
+      const px = (n: number) => (sharp ? Math.round(n * window.devicePixelRatio) / window.devicePixelRatio : n).toFixed(2);
+      scene.style.transform = `translate(${px(x)}px, ${px(y)}px) scale(${z.toFixed(4)})`;
+    };
+
+    // At rest the scene is repainted at its zoom, on whole device pixels
+    const rest = () => {
+      moving = false;
+      scene.style.removeProperty('will-change');
+      write(true);
     };
 
     const update = () => {
-      frame = 0;
-      if (!pinned) return;
-      const p = Math.min(1, Math.max(0, (window.scrollY - start) / distance));
-      const ts = items.map((_, i) => {
-        let t = p * steps - i;
-        if (i === 0) t = Math.max(t, FIRST);
-        if (i === items.length - 1) t = Math.min(t, LAST);
-        return Math.min(2, Math.max(-1, t));
-      });
-      items.forEach((_, i) => {
-        const t = ts[i].toFixed(3);
-        const tn = (ts[i + 1] ?? -1).toFixed(3);
-        if (written[i] === t + tn) return;
-        written[i] = t + tn;
-        meetings[i]?.style.setProperty('--t', t);
-        cards[i]?.style.setProperty('--ct', t);
-        cards[i]?.style.setProperty('--cn', tn);
-      });
-      // Only the meeting on stage and the card that's showing take the pointer
-      shown = mark('data-shown', shown, Math.min(items.length - 1, Math.floor(p * steps)));
-      carded = mark('data-carded', carded, ts.reduce((last, t, i) => (t >= lands[i] ? i : last), 0));
+      frameId = 0;
+      if (!on) return;
+      const t = Math.min(TOTAL, Math.max(0, (window.scrollY - start) / unit));
+      for (const piece of pieces) {
+        const value = held(piece.spans, t).toFixed(2);
+        if (value !== piece.last) piece.el.style.setProperty('--t', (piece.last = value));
+      }
+      cam = cameraAt(t, shots, frame);
+      const key = `${cam.x.toFixed(2)} ${cam.y.toFixed(2)} ${cam.z.toFixed(4)}`;
+      if (key === still) return;
+      still = key;
+      if (!moving) {
+        moving = true;
+        scene.style.willChange = 'transform';
+      }
+      write(false);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(rest, SETTLE);
     };
 
     const measure = () => {
-      pinned = pin.matches;
-      written = [];
-      story.toggleAttribute('data-pinned', pinned);
-      story.style.removeProperty('--meeting');
-      cards.forEach((card) => card?.style.removeProperty('--fit'));
-      if (!pinned) {
-        items.forEach((el, i) => {
-          meetings[i]?.style.removeProperty('--t');
-          cards[i]?.style.removeProperty('--ct');
-          cards[i]?.style.removeProperty('--cn');
-          el.removeAttribute('data-shown');
-          el.removeAttribute('data-carded');
-        });
-        shown = carded = -1;
+      on = media.matches;
+      story.toggleAttribute('data-camera', on);
+      marks.forEach((mark) => (mark.tabIndex = on ? -1 : 0));
+      window.clearTimeout(settle);
+      moving = false;
+      still = '';
+      pieces.forEach((piece) => (piece.last = ''));
+      if (!on) {
+        pieces.forEach((piece) => piece.el.style.removeProperty('--t'));
+        scene.style.removeProperty('transform');
+        scene.style.removeProperty('will-change');
         return;
       }
-      // Stacked, every meeting takes the tallest one's height, so the cards line up. A card taller
-      // than the room left shrinks to fit.
-      const grid = getComputedStyle(items[0].firstElementChild as HTMLElement);
-      const pad = parseFloat(grid.paddingTop) + parseFloat(grid.paddingBottom);
-      let room = stage.clientHeight - pad;
-      if (!side.matches) {
-        const tallest = Math.max(...meetings.map((meeting) => meeting?.offsetHeight ?? 0));
-        story.style.setProperty('--meeting', `${tallest}px`);
-        room -= tallest + (parseFloat(grid.rowGap) || 0);
-      }
-      cards.forEach((card) => {
-        if (card?.offsetHeight) card.style.setProperty('--fit', Math.min(1, Math.max(0.6, room / card.offsetHeight)).toFixed(3));
+      // The frame: the stage below the band that holds the heading and each shot's line
+      const w = stage.clientWidth;
+      const h = stage.clientHeight;
+      const phone = w < 768;
+      const side = phone ? 16 : w < 1100 ? 32 : 48;
+      const top = band.offsetHeight + (phone ? 4 : 8);
+      frame = { x: side, y: top, w: w - 2 * side, h: h - top - (phone ? 12 : 24) };
+      const desk = { x: 0, y: 0, w: scene.offsetWidth, h: scene.offsetHeight };
+      shots = PLACED.map((shot) => {
+        const target = scene.querySelector<HTMLElement>(`[data-cam="${shot.target}"]`);
+        return { ...shot, ...framing(target ? rectIn(target, scene) : desk, frame, shot) };
       });
       // Layout offsets, not the bounding box, so the section's intro fade-up can't shift the start
-      let top = 0;
-      for (let el: HTMLElement | null = story; el; el = el.offsetParent as HTMLElement | null) top += el.offsetTop;
-      start = top - NAV;
-      distance = Math.max(1, story.offsetHeight - stage.offsetHeight);
+      let y = 0;
+      for (let el: HTMLElement | null = story; el; el = el.offsetParent as HTMLElement | null) y += el.offsetTop;
+      start = y - NAV;
+      unit = Math.max(1, story.offsetHeight - stage.offsetHeight) / TOTAL;
       update();
+      // Nothing is moving yet, so start sharp
+      window.clearTimeout(settle);
+      rest();
     };
 
     const onScroll = () => {
-      if (!frame) frame = window.requestAnimationFrame(update);
+      if (!frameId) frameId = window.requestAnimationFrame(update);
     };
-    let resizing = 0;
     const onResize = () => {
       window.cancelAnimationFrame(resizing);
       resizing = window.requestAnimationFrame(measure);
     };
 
-    // Focus inside a step that isn't on stage (the issue's marked words, say) scrolls to that step.
-    const onFocus = (event: FocusEvent) => {
-      if (!pinned || !(event.target instanceof Element)) return;
-      const target = event.target;
-      const i = items.findIndex((el) => el.contains(target));
-      if (i < 0 || (target.closest('.story-card') ? i === carded : i === shown)) return;
-      window.scrollTo({ top: start + ((i + HOLD) / steps) * distance, behavior: 'instant' as ScrollBehavior });
-    };
-
     let live = true;
     measure();
-    // Line heights settle once the fonts arrive
+    // Text settles once the fonts arrive, and the Slack face loads only once the scene shows
     document.fonts?.ready.then(() => live && measure());
+    document.fonts?.addEventListener('loadingdone', onResize);
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onResize);
-    pin.addEventListener('change', measure);
-    side.addEventListener('change', measure);
-    story.addEventListener('focusin', onFocus);
+    media.addEventListener('change', measure);
     return () => {
       live = false;
-      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(frameId);
       window.cancelAnimationFrame(resizing);
+      window.clearTimeout(settle);
+      document.fonts?.removeEventListener('loadingdone', onResize);
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
-      pin.removeEventListener('change', measure);
-      side.removeEventListener('change', measure);
-      story.removeEventListener('focusin', onFocus);
+      media.removeEventListener('change', measure);
     };
-  }, [steps]);
+  }, []);
 
   return (
-    <div ref={ref} className="story" style={{ '--steps': steps } as React.CSSProperties}>
-      <div className="story-stage">{children}</div>
+    <div ref={ref} className="story" style={{ '--runway': TOTAL } as React.CSSProperties}>
+      {children}
     </div>
   );
 }

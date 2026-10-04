@@ -3,14 +3,15 @@
 // what the product posts.
 
 import { COPY, DEFAULT_GITHUB_ACTIONS, GITHUB_CAPABILITIES, slackLink, type GithubAction } from '@taro/shared';
+import type { ShotId } from './scene/script';
 
-// One line of the meeting.
+// One line of the meeting. In the #how scene people's lines are live captions, word by word.
 export type StepLine =
   // Narration, in the done face
   | { kind: 'event'; text: string }
-  // Said earlier in the call. It fades in; it is never typed.
+  // Said in the call, leading up to a request
   | { kind: 'context'; who: string; said: string }
-  // A request: typed out, with the heard mark
+  // A request, with the heard mark
   | { kind: 'request'; who: string; said: string }
   | { kind: 'taro'; text: string };
 
@@ -36,6 +37,8 @@ export type StepResult =
     };
 
 export interface Step {
+  // How the #how scene finds a step's lines and results
+  id: 'join' | 'issue' | 'post' | 'pull' | 'merge' | 'recap';
   time: string;
   // The same wall clock time, machine readable
   dateTime: string;
@@ -82,10 +85,12 @@ export const HERO = {
   demo: 'See the demo',
 };
 
-export const HOW: { title: string; steps: Step[] } = {
+export const HOW = {
   title: 'One meeting, start to finish.',
+  // The accessible version of the story, and what shows without scripts or with reduced motion
   steps: [
     {
+      id: 'join',
       time: '1:58 PM',
       dateTime: '13:58',
       lines: [{ kind: 'event', text: 'Priya posts the meeting link in Slack, and Taro joins.' }],
@@ -102,11 +107,16 @@ export const HOW: { title: string; steps: Step[] } = {
         ],
       },
     },
-    // The hero already played this exchange, so this step shows only what came of it
     {
+      id: 'issue',
       time: '2:14 PM',
       dateTime: '14:14',
-      lines: [],
+      lines: [
+        { kind: 'context', who: HERO.context.who, said: HERO.context.said },
+        { kind: 'context', who: 'Dev', said: 'Same on Northwind. It fails after about thirty seconds.' },
+        { kind: 'request', who: HERO.asker, said: HERO.request },
+        { kind: 'taro', text: OPENED_ISSUE },
+      ],
       caption: 'Sam only said “that.” Taro wrote the rest from the conversation before it.',
       result: {
         kind: 'issue',
@@ -121,6 +131,7 @@ export const HOW: { title: string; steps: Step[] } = {
       },
     },
     {
+      id: 'post',
       time: '2:17 PM',
       dateTime: '14:17',
       lines: [
@@ -136,6 +147,7 @@ export const HOW: { title: string; steps: Step[] } = {
       },
     },
     {
+      id: 'pull',
       time: '2:21 PM',
       dateTime: '14:21',
       lines: [
@@ -161,6 +173,7 @@ export const HOW: { title: string; steps: Step[] } = {
       },
     },
     {
+      id: 'merge',
       time: '2:31 PM',
       dateTime: '14:31',
       lines: [
@@ -178,6 +191,7 @@ export const HOW: { title: string; steps: Step[] } = {
       },
     },
     {
+      id: 'recap',
       time: '2:34 PM',
       dateTime: '14:34',
       lines: [{ kind: 'event', text: 'The call ends, and Taro posts a recap in the thread.' }],
@@ -205,7 +219,35 @@ export const HOW: { title: string; steps: Step[] } = {
         ],
       },
     },
-  ],
+  ] satisfies Step[] as Step[],
+  // The scene's own words: the meeting window, what was already in #engineering and the repository,
+  // and one short line over the stage from each shot named here until the next.
+  scene: {
+    meeting: 'Weekly product sync',
+    // In the order their tiles sit, before Taro's
+    people: ['Priya', 'Dev', 'Sam'],
+    ended: 'Meeting ended',
+    // 1:58 PM to 2:34 PM
+    duration: '36 minutes',
+    engineering: [
+      { who: 'Ana Torres', time: '1:41 PM', text: 'Staging is on the new build.' },
+      { who: 'Dev Iyer', time: '1:44 PM', text: "Thanks. I'll look at the export logs after the sync." },
+    ] satisfies SlackLine[],
+    issues: [
+      { number: 141, title: 'Settings page forgets unsaved changes', opened: 'opened yesterday by sam' },
+      { number: 140, title: 'Add keyboard shortcuts to the editor', opened: 'opened 2 days ago by dev' },
+      { number: 138, title: 'Invoices show the wrong time zone', opened: 'opened last week by priya' },
+    ],
+    notes: [
+      { from: 'join', text: 'Post the link in Slack. Taro joins.' },
+      { from: 'ask-issue', text: 'Say “Hey Taro” and what you need.' },
+      { from: 'issue', text: 'It writes the issue from the conversation.' },
+      { from: 'ask-post', text: 'Updates land in the right channel.' },
+      { from: 'ask-pull', text: 'Every pull request gets its own branch.' },
+      { from: 'ask-merge', text: 'It only does what your workspace allows.' },
+      { from: 'ended', text: 'A recap when the call ends.' },
+    ] satisfies Array<{ from: ShotId; text: string }>,
+  },
 };
 
 // What each GitHub action makes, for naming the ones a new workspace starts with

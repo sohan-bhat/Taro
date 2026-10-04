@@ -1,7 +1,9 @@
 // Small, faithful pictures of GitHub for the landing page: GitHub's own colors, type, and octicons,
-// never tinted purple. The bodies render the markdown Taro writes, footer included.
+// never tinted purple. The bodies render the markdown Taro writes, footer included. The cards are the
+// story's plain list; the #how scene builds its GitHub window from the same pieces.
 
 import * as React from 'react';
+import { cn } from '@/lib/utils';
 
 // The name GitHub shows on everything Taro files: the GitHub App's slug (github.com/apps/<slug>).
 const AUTHOR = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG || 'taro';
@@ -77,8 +79,8 @@ function Frame({
   );
 }
 
-// Taro's comment: the issue or pull request body
-function Comment({ children }: { children: React.ReactNode }) {
+/** Taro's comment: the issue or pull request body. */
+export function GithubComment({ children }: { children: React.ReactNode }) {
   return (
     <div className="mt-[18px] rounded-[6px] border border-gh-border">
       <div className="flex flex-wrap items-center gap-1.5 rounded-t-[6px] border-b border-gh-border bg-gh-subtle px-4 py-2 text-sm text-gh-muted">
@@ -87,6 +89,23 @@ function Comment({ children }: { children: React.ReactNode }) {
       </div>
       <div className="px-4 py-4 text-sm leading-normal">{children}</div>
     </div>
+  );
+}
+
+/** An issue's title, state, and author line. */
+export function GithubIssueHead({ title, number }: { title: string; number: number }) {
+  return (
+    <>
+      <h3 className="text-[22px] font-normal leading-[1.25] md:text-[26px]">
+        {`${title} `}
+        <span className="font-light text-gh-muted">{`#${number}`}</span>
+      </h3>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm text-gh-muted">
+        <OpenState icon={<IssueOpenedIcon />} />
+        <Author />
+        <span>opened this issue now</span>
+      </div>
+    </>
   );
 }
 
@@ -105,17 +124,43 @@ export function GithubIssueCard({
 }) {
   return (
     <Frame repo={repo} section="Issues" caption={caption}>
-      <h3 className="text-[22px] font-normal leading-[1.25] md:text-[26px]">
+      <GithubIssueHead title={title} number={number} />
+      <GithubComment>{children}</GithubComment>
+    </Frame>
+  );
+}
+
+/** A pull request's title, state, and the branches it merges. `branchCam` names that line for the #how camera. */
+export function GithubPullHead({
+  title,
+  number,
+  base,
+  head,
+  commits,
+  branchCam,
+}: {
+  title: string;
+  number: number;
+  base: string;
+  head: string;
+  commits: number;
+  branchCam?: string;
+}) {
+  return (
+    <>
+      <h3 className="text-[22px] font-normal leading-[1.25]">
         {`${title} `}
         <span className="font-light text-gh-muted">{`#${number}`}</span>
       </h3>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm text-gh-muted">
-        <OpenState icon={<IssueOpenedIcon />} />
+      <div data-cam={branchCam} className="mt-3 flex flex-wrap items-center gap-1.5 text-sm leading-6 text-gh-muted">
+        <OpenState icon={<PullRequestIcon />} />
         <Author />
-        <span>opened this issue now</span>
+        <span>{`wants to merge ${commits === 1 ? '1 commit' : `${commits} commits`} into`}</span>
+        <Branch>{base}</Branch>
+        <span>from</span>
+        <Branch>{head}</Branch>
       </div>
-      <Comment>{children}</Comment>
-    </Frame>
+    </>
   );
 }
 
@@ -140,40 +185,54 @@ export function GithubPullCard({
 }) {
   return (
     <Frame repo={repo} section="Pull requests" caption={caption}>
-      <h3 className="text-[22px] font-normal leading-[1.25]">
-        {`${title} `}
-        <span className="font-light text-gh-muted">{`#${number}`}</span>
-      </h3>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm leading-6 text-gh-muted">
-        <OpenState icon={<PullRequestIcon />} />
-        <Author />
-        <span>{`wants to merge ${commits === 1 ? '1 commit' : `${commits} commits`} into`}</span>
-        <Branch>{base}</Branch>
-        <span>from</span>
-        <Branch>{head}</Branch>
-      </div>
-      <Comment>{children}</Comment>
+      <GithubPullHead title={title} number={number} base={base} head={head} commits={commits} />
+      <GithubComment>{children}</GithubComment>
     </Frame>
+  );
+}
+
+/** One row of a repository's issue list. */
+export function GithubIssueRow({ number, title, opened }: { number: number; title: string; opened: string }) {
+  return (
+    <div className="flex gap-2 border-t border-gh-border px-4 py-2.5 first:border-t-0">
+      <span className="mt-[3px] text-gh-open">
+        <IssueOpenedIcon />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[15px] font-semibold leading-snug text-gh-fg">{title}</span>
+        <span className="mt-0.5 block text-xs text-gh-muted">{`#${number} ${opened}`}</span>
+      </span>
+    </div>
   );
 }
 
 const HEADING = 'mb-2 border-b border-gh-border pb-[0.3em] text-[1.25em] font-semibold leading-[1.25] text-gh-fg';
 const BLOCK_START = /^(## |- |---$)/;
 
+/** Extra attributes for one block of the markdown: the #how scene times each block's arrival this way. */
+type BlockProps = { className?: string; style?: React.CSSProperties };
+
 /**
  * The little GitHub markdown Taro writes: ## headings, paragraphs, bullet lists, "- [ ]" task
  * lists (drawn as disabled checkboxes, as GitHub does), a --- rule, and an _italic_ last line.
- * `inline` renders the text inside each block.
+ * `inline` renders the text inside each block; `block` adds attributes to the nth block.
  */
 export function GithubMarkdown({
   source,
   inline = (text) => text,
+  block,
 }: {
   source: string;
   inline?: (text: string) => React.ReactNode;
+  block?: (n: number) => BlockProps;
 }) {
   const lines = source.trim().split('\n');
   const blocks: React.ReactNode[] = [];
+  // Attributes for the block about to be pushed, its classes merged with the block's own
+  const extra = (className: string) => {
+    const more = block?.(blocks.length);
+    return { className: cn(className, more?.className), style: more?.style };
+  };
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -182,20 +241,20 @@ export function GithubMarkdown({
       i++;
     } else if (line.startsWith('## ')) {
       blocks.push(
-        <h4 key={key} className={HEADING}>
+        <h4 key={key} {...extra(HEADING)}>
           {inline(line.slice(3))}
         </h4>
       );
       i++;
     } else if (line.trim() === '---') {
-      blocks.push(<hr key={key} className="my-4 h-1 border-0 bg-gh-border" />);
+      blocks.push(<hr key={key} {...extra('my-4 h-1 border-0 bg-gh-border')} />);
       i++;
     } else if (line.startsWith('- ')) {
       const items: string[] = [];
       while (i < lines.length && lines[i].startsWith('- ')) items.push(lines[i++].slice(2));
       if (items.every((item) => item.startsWith('[ ] '))) {
         blocks.push(
-          <ul key={key} className="mb-3 list-none pl-0">
+          <ul key={key} {...extra('mb-3 list-none pl-0')}>
             {items.map((item) => (
               <li key={item} className="flex items-start gap-2">
                 <input type="checkbox" disabled aria-hidden="true" className="mt-[3px]" />
@@ -206,7 +265,7 @@ export function GithubMarkdown({
         );
       } else {
         blocks.push(
-          <ul key={key} className="mb-3 list-disc pl-8">
+          <ul key={key} {...extra('mb-3 list-disc pl-8')}>
             {items.map((item) => (
               <li key={item}>{inline(item)}</li>
             ))}
@@ -220,7 +279,7 @@ export function GithubMarkdown({
       const paragraph = text.join(' ');
       const italic = /^_(.+)_$/.exec(paragraph);
       blocks.push(
-        <p key={key} className="mb-3 last:mb-0">
+        <p key={key} {...extra('mb-3 last:mb-0')}>
           {italic ? <em>{inline(italic[1])}</em> : inline(paragraph)}
         </p>
       );

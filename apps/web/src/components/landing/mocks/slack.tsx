@@ -15,6 +15,9 @@ const AVATAR: Record<string, string> = {
   Dev: 'bg-[#7A3D5A]',
 };
 
+/** A person's avatar color, so the #how scene's meeting tiles match their Slack avatars. */
+export const avatarColor = (who: string) => AVATAR[who.split(' ')[0]] ?? 'bg-slack-muted';
+
 // The mrkdwn Taro posts: *bold*, _italic_, <url|text> and <url> links, and line breaks.
 const TOKEN = /(\*[^*\n]+\*|_[^_\n]+_|<[^<>|\s]+(?:\|[^<>]+)?>|\n)/;
 
@@ -80,7 +83,7 @@ export function SlackMessage({ who, time, text, taro = false }: { who: string; t
           aria-hidden="true"
           className={cn(
             'grid h-9 w-9 place-items-center rounded-[8px] text-[15px] font-bold text-white',
-            AVATAR[who.split(' ')[0]] ?? 'bg-slack-muted'
+            avatarColor(who)
           )}
         >
           {who[0]}

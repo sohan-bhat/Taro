@@ -26,14 +26,15 @@ const SAID = speech(HERO.request, 950);
  * answers, and then the rest fades up in a quick stagger. Done in about three seconds.
  */
 export const INTRO = {
-  problem: 80,
-  answer: 260,
+  problem: 60,
+  answer: 210,
   context: 750,
   request: SAID.words[0].at,
   reply: 2350,
   ding: 2600,
+  // The lede and the buttons arrive as one block
   lede: 2660,
-  buttons: 2720,
+  buttons: 2660,
   // The nav's links and sign-in, and everything below the hero
   rest: 2780,
   // When the last fade-up (320ms) is done
@@ -45,7 +46,7 @@ export function Hero() {
     // Plays from first paint; intro-done.tsx ends it at once on any scroll, key, click, or tap
     <section aria-labelledby="hero-title" className="intro pt-9 md:pt-14 wide:pt-[72px]">
       <div className={C}>
-        {/* Each line rises from behind its own mask */}
+        {/* Line one first, then line two, each settling in once */}
         <h1 id="hero-title" className={H1}>
           <span className="in-mask">
             <span className="in-rise block text-ash" style={ms({ d: INTRO.problem })}>
