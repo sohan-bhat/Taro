@@ -103,10 +103,11 @@ export const api = {
 
   meetings: {
     list: (archived = false) => request<{ meetings: Meeting[] }>(`/api/meetings?archived=${archived ? '1' : '0'}`),
-    get: (id: string) => request<{ meeting: MeetingDetail }>(`/api/meetings/${id}`),
+    get: (id: string) => request<{ meeting: MeetingDetail }>(`/api/meetings/${encodeURIComponent(id)}`),
     send: (meetingUrl: string) =>
       request<{ meeting: Meeting; alreadyActive: boolean }>('/api/meetings', { method: 'POST', body: { meetingUrl } }),
-    leave: (id: string) => request<{ meeting: Meeting }>(`/api/meetings/${id}/leave`, { method: 'POST' }),
+    leave: (id: string) =>
+      request<{ meeting: Meeting }>(`/api/meetings/${encodeURIComponent(id)}/leave`, { method: 'POST' }),
     clearHistory: () => request<{ archived: number }>('/api/meetings/clear-history', { method: 'POST' }),
   },
 
@@ -140,7 +141,7 @@ export const api = {
 
   sessions: {
     list: () => request<{ sessions: ConnectedSession[] }>('/api/sessions'),
-    revoke: (id: string) => request<{ revoked: boolean }>(`/api/sessions/${id}`, { method: 'DELETE' }),
+    revoke: (id: string) => request<{ revoked: boolean }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
 };
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert } from '@/components/ui/alert';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { setToken, takeLoginNext, takeLoginNonce } from '@/lib/session';
 import { AUTH_BODY, AUTH_TITLE, AuthSplit, LINK } from './auth-split';
 
@@ -45,7 +45,8 @@ export function CallbackView() {
         setToken(token);
         router.replace(next.current ?? '/dashboard');
       })
-      .catch(() => fail('expired'));
+      // Only a refused code means the sign-in expired; a dropped connection or a busy server is "didn't finish".
+      .catch((error) => fail(error instanceof ApiError && (error.status === 400 || error.status === 401) ? 'expired' : 'unfinished'));
   }, [router]);
 
   useEffect(() => {
