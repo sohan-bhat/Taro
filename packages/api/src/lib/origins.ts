@@ -1,4 +1,5 @@
 import { env } from '../config/env';
+import { log } from './logger';
 
 function origin(value: string): string | null {
   try {
@@ -48,5 +49,10 @@ export function isAllowedCorsOrigin(value: string | undefined): boolean {
 /** The caller's requested return origin if trusted, otherwise the app URL. */
 export function resolveReturnTo(candidate: unknown): string {
   if (typeof candidate === 'string' && isAllowedOrigin(candidate)) return origin(candidate)!;
-  return origin(env.appUrl) ?? env.appUrl;
+  const fallback = origin(env.appUrl) ?? env.appUrl;
+  // Almost always a dashboard address missing from APP_URL or WEB_ORIGINS, which otherwise looks like a broken redirect.
+  if (typeof candidate === 'string' && candidate) {
+    log.warn(`[Origins] ${origin(candidate) ?? 'An invalid address'} isn't APP_URL or in WEB_ORIGINS, so this flow returns to ${fallback}. Add it to one of them.`);
+  }
+  return fallback;
 }
