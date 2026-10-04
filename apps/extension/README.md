@@ -19,7 +19,7 @@ States are words on the button: Connect Taro, Invite Taro, Sending Taro, Waiting
 2. The `key` in `manifest.json` pins the development ID to `lkdndnkaapmpibnjmaiadheckoflifde`. The Taro API and dashboard must trust it:
    * API `.env`: `EXTENSION_IDS=lkdndnkaapmpibnjmaiadheckoflifde`
    * Dashboard `apps/web/.env.local`: `NEXT_PUBLIC_TARO_EXTENSION_IDS=lkdndnkaapmpibnjmaiadheckoflifde`
-3. `src/config.js` points the extension at `http://localhost:3100`. Change it there, or in the popup's **Settings**, if your dashboard runs elsewhere.
+3. `src/config.js` points the extension at `https://trytaro.vercel.app`. To use a local dashboard instead, change it in the popup's **Settings** (for example `http://localhost:3100`); any `localhost` port can connect.
 4. Join any Google Meet call. The button appears at the bottom left.
 
 Tests for the pure logic: `node --test test/*.test.mjs`.

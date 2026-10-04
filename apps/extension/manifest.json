@@ -12,7 +12,7 @@
   "content_scripts": [{ "matches": ["https://meet.google.com/*"], "js": ["src/content.js"], "run_at": "document_idle" }],
   "permissions": ["storage", "activeTab"],
   "storage": { "managed_schema": "managed_schema.json" },
-  "externally_connectable": { "matches": ["http://localhost/*"] },
+  "externally_connectable": { "matches": ["https://trytaro.vercel.app/*", "http://localhost/*"] },
   "web_accessible_resources": [
     { "resources": ["src/lib/meet.js", "src/lib/pill.js", "fonts/SchibstedGrotesk-SemiBold.woff2"], "matches": ["https://meet.google.com/*"] }
   ]
