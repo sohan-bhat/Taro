@@ -122,6 +122,8 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
    - `NEXT_PUBLIC_API_URL` = your `API_URL`
    - `NEXT_PUBLIC_SITE_URL` = your `APP_URL`
    - `NEXT_PUBLIC_REPO_URL` = optional link shown in the footer
+   - `NEXT_PUBLIC_GITHUB_APP_SLUG` = your API's `GITHUB_APP_SLUG`, so examples name your GitHub App
+   - `NEXT_PUBLIC_TARO_EXTENSION_IDS` and `NEXT_PUBLIC_TARO_EXTENSION_URL` only for the Google Meet button (section 7)
 3. Deploy. If the Vercel domain is your `APP_URL`, you're done; otherwise add your custom domain and keep `APP_URL` in sync. Preview deployments need their origin in the API's `WEB_ORIGINS` to sign in.
 
 ## 7. The Invite Taro button in Google Meet (optional)
