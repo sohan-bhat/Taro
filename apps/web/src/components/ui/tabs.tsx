@@ -45,7 +45,13 @@ export function ViewTabs({
           className={VIEW_TAB}
         >
           {tab.label}
-          {tab.note ? <span className="ml-1.5 text-meta font-semibold text-taro">{tab.note}</span> : null}
+          {/* The hidden comma keeps the label and the note apart when the link's name is read aloud. */}
+          {tab.note ? (
+            <>
+              <span className="sr-only">, </span>
+              <span className="ml-1.5 text-meta font-semibold text-taro">{tab.note}</span>
+            </>
+          ) : null}
         </Link>
       ))}
     </nav>

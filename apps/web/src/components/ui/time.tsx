@@ -13,15 +13,19 @@ export function Time({
   format,
   timeZone,
   now,
+  inSentence = false,
   className,
 }: {
   iso: string;
   format: 'clock' | 'day';
   timeZone?: string;
   now?: string | number;
+  // Mid-sentence: "Connected today", not "Connected Today". Dates keep their capitals.
+  inSentence?: boolean;
   className?: string;
 }) {
-  const text = format === 'clock' ? formatClock(iso, { timeZone }) : formatDay(iso, { timeZone, now: now ?? Date.now() });
+  let text = format === 'clock' ? formatClock(iso, { timeZone }) : formatDay(iso, { timeZone, now: now ?? Date.now() });
+  if (inSentence && (text === 'Today' || text === 'Yesterday')) text = text.toLowerCase();
   return (
     <time dateTime={iso} className={className}>
       {text}

@@ -102,7 +102,8 @@ export function Dialog({
     if (e.key !== 'Tab') return;
     const panel = panelRef.current;
     if (!panel) return;
-    const items = Array.from(panel.querySelectorAll<HTMLElement>(TABBABLE)).filter((el) => el.getClientRects().length > 0);
+    // tabIndex -1 leaves out the unchosen options of a roving radio group, which Tab skips.
+    const items = Array.from(panel.querySelectorAll<HTMLElement>(TABBABLE)).filter((el) => el.tabIndex >= 0 && el.getClientRects().length > 0);
     if (items.length === 0) {
       e.preventDefault();
       panel.focus();
