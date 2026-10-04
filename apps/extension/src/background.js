@@ -9,11 +9,37 @@ const CONNECT_TTL_MS = 15 * 60 * 1000;
 
 /**
  * @typedef {{ token: string, apiUrl: string, workspace?: string, user?: string, connectedAt: number }} Auth
- * @typedef {{ id: string, status: string, errorMessage?: string, lastAnswer?: string }} TrackedMeeting
+ * @typedef {{ id: string, status: string, joinStage?: string, errorMessage?: string, lastAnswer?: string }} TrackedMeeting
  */
 
+const MANAGED_TIMEOUT_MS = 1000;
+/** @type {Record<string, unknown> | null} */
+let managedCache = null;
+
+// An admin's policy rarely changes, so it's read once, and Chrome says when it does change.
+chrome.storage.onChanged.addListener((_changes, area) => {
+  if (area === 'managed') managedCache = null;
+});
+
+/** The admin's policy, if any. The read can hang in some fresh profiles, so it never holds up the button for more than a second. */
+async function managedSettings() {
+  if (managedCache) return managedCache;
+  let timedOut = false;
+  const value = await Promise.race([
+    chrome.storage.managed.get(['appUrl', 'showButton']).catch(() => ({})),
+    new Promise((resolve) =>
+      setTimeout(() => {
+        timedOut = true;
+        resolve({});
+      }, MANAGED_TIMEOUT_MS)
+    ),
+  ]);
+  if (!timedOut) managedCache = /** @type {Record<string, unknown>} */ (value);
+  return /** @type {Record<string, any>} */ (value);
+}
+
 async function settings() {
-  const managed = await chrome.storage.managed.get(['appUrl', 'showButton']).catch(() => ({}));
+  const managed = await managedSettings();
   const local = await chrome.storage.local.get(['appUrl', 'showButton', 'auth', 'expired']);
   const appUrl = originOf(managed.appUrl) || originOf(local.appUrl) || DEFAULT_APP_URL;
   return {
@@ -61,10 +87,10 @@ async function api(path, init = {}) {
   return body;
 }
 
-/** The slim status the pill needs, from the server's answer. */
+/** The slim status the Meet button needs, from the server's answer. */
 function slim(meeting) {
   if (!meeting) return null;
-  return { id: meeting._id, status: meeting.status, errorMessage: meeting.errorMessage, lastAnswer: meeting.lastAnswer };
+  return { id: meeting._id, status: meeting.status, joinStage: meeting.joinStage, errorMessage: meeting.errorMessage, lastAnswer: meeting.lastAnswer };
 }
 
 async function state(code, { refresh = false } = {}) {
