@@ -54,9 +54,13 @@ test('stays fast on hostile messages', () => {
     'https://meet.google.com/abc-defg-hij '.repeat(1_100),
   ];
   for (const text of hostile) {
-    const started = performance.now();
-    findMeetingLinks(text);
-    const ms = performance.now() - started;
+    // Best of three, so a busy machine doesn't fail it. A scan that went quadratic would take seconds.
+    let ms = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const started = performance.now();
+      findMeetingLinks(text);
+      ms = Math.min(ms, performance.now() - started);
+    }
     assert.ok(ms < 150, `took ${ms.toFixed(0)} ms on a ${text.length} character message`);
   }
 });

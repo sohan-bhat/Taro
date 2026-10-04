@@ -7,7 +7,7 @@ import { NotFoundError, ValidationError } from '../lib/errors';
 import { meetLinkFromCode, normalizeMeetingUrl } from '../lib/meetingUrl';
 import { rateLimit } from '../lib/rateLimit';
 import { log, errorMessage } from '../lib/logger';
-import { publicActionLog, publicMeeting } from '../lib/views';
+import { listMeeting, publicActionLog, publicMeeting } from '../lib/views';
 import { launchMeeting, LaunchError } from '../services/meetingLauncher';
 import { COPY } from '@taro/shared';
 import { MeetingBaasClient, MeetingBaasError } from '../services/meetingbaas';
@@ -66,7 +66,7 @@ meetingsRouter.get(
       return null;
     });
     res.json({
-      meetings: meetings.map((m, i) => publicMeeting(m, tallies ? tallies.get(ids[i]) ?? emptyTally() : undefined)),
+      meetings: meetings.map((m, i) => listMeeting(m, tallies ? tallies.get(ids[i]) ?? emptyTally() : undefined)),
     });
   })
 );

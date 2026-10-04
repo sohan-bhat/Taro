@@ -62,6 +62,18 @@ export function publicMeeting(m: WithId<MeetingDoc>, tally?: MeetingTally): Meet
   };
 }
 
+/**
+ * A row in the meetings list, which the dashboard polls every few seconds while a meeting is live.
+ * Full transcripts stay out (a meeting's own view loads them), and only live meetings keep their
+ * running text, so each poll stays small however many long meetings a workspace has.
+ */
+export function listMeeting(m: WithId<MeetingDoc>, tally?: MeetingTally): Meeting {
+  const view = publicMeeting(m, tally);
+  delete view.transcript;
+  if (!['pending', 'joining', 'active'].includes(m.status)) delete view.liveTranscript;
+  return view;
+}
+
 export function publicActionLog(l: WithId<ActionLogDoc>): ActionLog {
   return {
     _id: String(l._id),
