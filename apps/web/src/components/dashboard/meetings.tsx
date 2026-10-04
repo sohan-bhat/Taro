@@ -598,11 +598,16 @@ export function MeetingDetailPanel({
   timeZone,
   maxDurationMs,
   explainMisheard = false,
+  loadError,
+  onRetry,
 }: {
   meeting?: Meeting;
   detail?: MeetingDetail | null;
   // The API said 404: deleted, or another workspace's
   missing?: boolean;
+  // Loading the meeting failed some other way; shown until it loads
+  loadError?: string;
+  onRetry?: () => void;
   tail?: TailState;
   botName: string;
   canEdit?: boolean;
@@ -638,9 +643,22 @@ export function MeetingDetailPanel({
     );
   }
 
+  const failure = loadError ? (
+    <Alert tone="error">
+      <p>{loadError}</p>
+      {onRetry && (
+        <Button variant="secondary" size="sm" className="mt-3" onClick={onRetry}>
+          Try again
+        </Button>
+      )}
+    </Alert>
+  ) : null;
+
   const m = detail ?? meeting;
   if (!m) {
-    return (
+    return failure ? (
+      <section className={cn(PANEL, 'px-5 py-6 md:px-[26px]')}>{failure}</section>
+    ) : (
       <section aria-busy="true" className={cn(PANEL, 'px-5 py-6 md:px-[26px]')}>
         <p className="text-meta text-ash">Loading the meeting</p>
       </section>
@@ -660,7 +678,7 @@ export function MeetingDetailPanel({
             <Alert tone="info">{m.errorMessage}</Alert>
           </div>
         )}
-        <RequestsSection logs={logs} live transcript={m.liveTranscript} {...common} />
+        <RequestsSection logs={logs} live transcript={m.liveTranscript} pending={failure} {...common} />
         {liveText && <LiveTranscript text={liveText} />}
       </section>
     );
@@ -697,7 +715,7 @@ export function MeetingDetailPanel({
           )
         )}
       </div>
-      {ran && <RequestsSection logs={logs} transcript={text} {...common} />}
+      {ran && <RequestsSection logs={logs} transcript={text} pending={failure} {...common} />}
       {ran && detail && <HeardSection text={text} logs={detail.actionLogs} timeZone={timeZone} explainMisheard={explainMisheard} />}
     </section>
   );

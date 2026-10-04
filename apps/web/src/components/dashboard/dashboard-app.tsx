@@ -104,6 +104,8 @@ export function DashboardApp() {
   const [dialog, setDialog] = React.useState<'members' | 'settings' | null>(null);
   const [githubChoices, setGithubChoices] = React.useState<{ token: string; choices: GithubAccountChoice[] } | null>(null);
   const [refreshTick, setRefreshTick] = React.useState(0);
+  // A meeting whose detail failed to load for a reason other than a 404, with the message to show
+  const [detailErrors, setDetailErrors] = React.useState<Record<string, string>>({});
 
   // What each live meeting's tail last showed, so only newly arrived words count as fresh.
   const tails = React.useRef(new Map<string, TailState>());
@@ -294,9 +296,14 @@ export function DashboardApp() {
         if (cancelled || exiting.current) return;
         observe([meeting]);
         setDetails((d) => ({ ...d, [selectedId]: meeting }));
+        setDetailErrors((e) => (e[selectedId] ? { ...e, [selectedId]: '' } : e));
       } catch (error) {
         if (cancelled || handleError(error)) return;
         if (error instanceof ApiError && error.status === 404) setDetails((d) => ({ ...d, [selectedId]: 'missing' }));
+        else {
+          const message = errorText(error, "Couldn't load this meeting. Check your connection and try again.");
+          setDetailErrors((e) => ({ ...e, [selectedId]: message }));
+        }
       }
     };
     load();
@@ -543,6 +550,12 @@ export function DashboardApp() {
       meeting={listItem}
       detail={detail}
       missing={cached === 'missing'}
+      // A poll that fails after the meeting loaded keeps showing what's there
+      loadError={detail ? undefined : detailErrors[selectedId] || undefined}
+      onRetry={() => {
+        setDetailErrors((e) => ({ ...e, [selectedId]: '' }));
+        setRefreshTick((t) => t + 1);
+      }}
       tail={tails.current.get(selectedId)}
       botName={workspace.botName}
       canEdit={canEdit}

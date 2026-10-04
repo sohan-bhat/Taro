@@ -102,7 +102,18 @@ const byTime = (log: RequestLog) => (log.createdAt ? Date.parse(log.createdAt) :
  * "What people asked for": every request, oldest first. `logs` is null while the meeting loads.
  * The API returns newest first, so the list is sorted here.
  */
-export function RequestsSection({ logs, live = false, className, ...options }: { logs: readonly RequestLog[] | null; className?: string } & RequestRowOptions) {
+export function RequestsSection({
+  logs,
+  live = false,
+  pending,
+  className,
+  ...options
+}: {
+  logs: readonly RequestLog[] | null;
+  // Shown instead of the loading line while there are no logs yet, such as a load error
+  pending?: React.ReactNode;
+  className?: string;
+} & RequestRowOptions) {
   const ordered = logs ? [...logs].sort((a, b) => byTime(a) - byTime(b)) : null;
   return (
     <section
@@ -113,7 +124,7 @@ export function RequestsSection({ logs, live = false, className, ...options }: {
         What people asked for
       </h3>
       {!ordered ? (
-        <p className="text-meta text-ash">Loading the meeting</p>
+        pending ?? <p className="text-meta text-ash">Loading the meeting</p>
       ) : ordered.length === 0 ? (
         <p className="text-sm text-ink-2">
           {live ? 'Nothing asked yet. Say “Hey Taro” and then what you need.' : 'Nobody asked Taro for anything in this meeting.'}

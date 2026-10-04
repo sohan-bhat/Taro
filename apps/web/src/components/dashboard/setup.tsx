@@ -473,9 +473,12 @@ function GithubRow({
   const { github } = overview;
   const guard = useSessionGuard();
   const [repos, setRepos] = React.useState<string[] | null>(null);
+  const [reposError, setReposError] = React.useState<string | null>(null);
+  const [reposAttempt, setReposAttempt] = React.useState(0);
   const [savingRepo, setSavingRepo] = React.useState(false);
 
   React.useEffect(() => {
+    setReposError(null);
     if (!github.connected || !canEdit) {
       setRepos(null);
       return;
@@ -485,12 +488,14 @@ function GithubRow({
       .repos()
       .then(({ repos }) => !cancelled && setRepos(repos))
       .catch((error) => {
-        if (!cancelled && !guard(error)) setRepos([]);
+        if (cancelled || guard(error)) return;
+        setRepos(null);
+        setReposError(errorText(error, "Couldn't load your repositories."));
       });
     return () => {
       cancelled = true;
     };
-  }, [github.connected, github.accountLogin, canEdit, guard]);
+  }, [github.connected, github.accountLogin, canEdit, guard, reposAttempt]);
 
   const chooseRepo = async (repo: string) => {
     setSavingRepo(true);
@@ -550,9 +555,25 @@ function GithubRow({
           github.needsRepo ? (
             <>
               {working}
-              <Alert tone="info" className={working ? 'mt-3' : undefined}>
-                {canEdit ? 'Choose the repository Taro works in.' : 'An owner or admin chooses the repository Taro works in.'}
-              </Alert>
+              {canEdit && reposError ? (
+                <Alert tone="error" className={working ? 'mt-3' : undefined}>
+                  <p>{reposError}</p>
+                  <Button variant="secondary" size="sm" className="mt-3" onClick={() => setReposAttempt((n) => n + 1)}>
+                    Try again
+                  </Button>
+                </Alert>
+              ) : canEdit && repos?.length === 0 ? (
+                <Alert tone="info" className={working ? 'mt-3' : undefined}>
+                  <p>The Taro app can&apos;t reach a repository you can push to. Give it access to one on GitHub, then come back here.</p>
+                  <Button variant="secondary" size="sm" className="mt-3" onClick={onInstall} pending={leaving === 'github'} disabled={!!leaving}>
+                    Choose repositories on GitHub
+                  </Button>
+                </Alert>
+              ) : (
+                <Alert tone="info" className={working ? 'mt-3' : undefined}>
+                  {canEdit ? 'Choose the repository Taro works in.' : 'An owner or admin chooses the repository Taro works in.'}
+                </Alert>
+              )}
             </>
           ) : (
             working
