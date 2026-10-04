@@ -131,18 +131,11 @@ const roleNoun = (role: WorkspaceRole) => (role === 'owner' ? 'an owner' : role 
 /** Everyone who has signed in. Owners change roles, remove people, and restore them; everyone else reads the list. */
 /** Who can sign in to this workspace, and who decides roles. */
 function membersNote(workspace: Workspace): string {
-  if (workspace.personal) {
-    const account = workspace.signInWith === 'microsoft' ? 'Microsoft' : 'Google';
-    return `This workspace belongs to your personal ${account} account, so only you can sign in to it.`;
+  if (workspace.personal) return 'This workspace belongs to your personal Google account, so only you can sign in to it.';
+  if (workspace.signInWith === 'google') {
+    return `Anyone who signs in with a Google account at ${workspace.domain ?? 'your company'} joins as a member. Owners change roles here, and owners and admins manage keys and connections.`;
   }
-  switch (workspace.signInWith) {
-    case 'google':
-      return `Anyone who signs in with a Google account at ${workspace.domain ?? 'your company'} joins as a member. Owners change roles here, and owners and admins manage keys and connections.`;
-    case 'microsoft':
-      return 'Anyone who signs in with a work or school account from your organization joins as a member. Owners change roles here, and owners and admins manage keys and connections.';
-    default:
-      return "Full members of your Slack workspace can sign in. Guests can't. Slack owners and admins get the same role here, and they manage keys and connections.";
-  }
+  return "Full members of your Slack workspace can sign in. Guests can't. Slack owners and admins get the same role here, and they manage keys and connections.";
 }
 
 export function MembersDialog({ open, me, workspace, onClose }: { open: boolean; me: User; workspace: Workspace; onClose: () => void }) {

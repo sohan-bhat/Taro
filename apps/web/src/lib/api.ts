@@ -69,7 +69,7 @@ export const api = {
   meta: () => request<ServerMeta>('/api/meta'),
 
   auth: {
-    // Where "Sign in with Google", "with Microsoft", or "with Slack" sends the browser
+    // Where "Sign in with Google" or "with Slack" sends the browser
     startUrl: (provider: SignInProvider, nonce: string) =>
       `${API_URL}/api/auth/${provider}/start?${new URLSearchParams({ n: nonce, returnTo: origin() })}`,
     exchange: (code: string) => request<{ token: string }>('/api/auth/exchange', { method: 'POST', body: { code } }),

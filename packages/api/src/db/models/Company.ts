@@ -26,12 +26,12 @@ export interface SttConfigDoc {
 // A Taro workspace. Internally still "company" (the collection predates workspaces).
 export interface CompanyDoc {
   name: string;
-  // A Slack workspace's own team. A Google or Microsoft workspace's is the team it added Taro to, if any.
+  // A Slack workspace's own team. A Google workspace's is the team it added Taro to, if any.
   slackTeamId?: string;
   slackTeamDomain?: string;
-  // Workspaces made by Google or Microsoft sign-in; unset for Slack workspaces. directoryId says whose
-  // accounts belong: a Google Workspace domain, a Microsoft tenant ID, or "user:<id>" for one personal account.
-  signInWith?: 'google' | 'microsoft';
+  // Workspaces made by Google sign-in; unset for Slack workspaces. directoryId says whose accounts
+  // belong: a Google Workspace domain, or "user:<id>" for one personal account.
+  signInWith?: 'google';
   directoryId?: string;
   personal?: boolean;
   botName?: string;
@@ -60,7 +60,7 @@ const companySchema = new Schema<CompanyDoc>(
     name: { type: String, required: true },
     slackTeamId: { type: String },
     slackTeamDomain: { type: String },
-    signInWith: { type: String, enum: ['google', 'microsoft'] },
+    signInWith: { type: String, enum: ['google'] },
     directoryId: { type: String },
     personal: { type: Boolean },
     botName: { type: String },

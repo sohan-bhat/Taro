@@ -6,23 +6,22 @@ import type { SignInProvider } from '@taro/shared';
 import { api } from '@/lib/api';
 import { newLoginNonce, rememberLoginNext } from '@/lib/session';
 import { Button, type ButtonProps } from '@/components/ui/button';
-import { GoogleMark, MicrosoftMark, SlackMark } from '@/components/brand';
+import { GoogleMark, SlackMark } from '@/components/brand';
 import { cn } from '@/lib/utils';
 
 /** The order the sign-in page offers them in. */
-export const SIGN_IN_PROVIDERS: readonly SignInProvider[] = ['google', 'microsoft', 'slack'];
+export const SIGN_IN_PROVIDERS: readonly SignInProvider[] = ['google', 'slack'];
 
-export const PROVIDER_NAMES: Record<SignInProvider, string> = { google: 'Google', microsoft: 'Microsoft', slack: 'Slack' };
+export const PROVIDER_NAMES: Record<SignInProvider, string> = { google: 'Google', slack: 'Slack' };
 
 /**
  * Each company's sign-in button as its guidelines ask: its own mark in its own colors, its wording
- * ("Sign in with Slack" is the only wording Slack allows, so all three say "Sign in with"), its light
- * theme's stroke and text colors, and its spacing between mark and words. All three are one size,
- * so none is shown more prominently than another, and they share the site's type to read as one set.
+ * ("Sign in with Slack" is the only wording Slack allows, so both say "Sign in with"), its light
+ * theme's stroke and text colors, and its spacing between mark and words. Both are one size, so
+ * neither is shown more prominently than the other, and they share the site's type to read as one set.
  */
 const LOOK: Record<SignInProvider, { Mark: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement; className: string; mark: string }> = {
   google: { Mark: GoogleMark, className: 'gap-2.5 border-google-stroke text-google-text', mark: 'h-5 w-5' },
-  microsoft: { Mark: MicrosoftMark, className: 'gap-3 border-microsoft-stroke text-microsoft-text', mark: 'h-[21px] w-[21px]' },
   slack: { Mark: SlackMark, className: 'gap-3 border-slack-button-stroke text-slack-button-text', mark: 'h-5 w-5' },
 };
 

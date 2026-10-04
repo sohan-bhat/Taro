@@ -316,7 +316,7 @@ export const FAQ = {
     },
     {
       q: 'What do I need to get started?',
-      a: 'A Google, Microsoft, or Slack account to sign in with, a MeetingBaas API key, and a key for an AI model. A Groq or OpenAI key can cover transcription too. Slack and GitHub are optional.',
+      a: 'A Google or Slack account to sign in with, a MeetingBaas API key, and a key for an AI model. A Groq or OpenAI key can cover transcription too. Slack and GitHub are optional.',
     },
     {
       q: 'Which meetings can Taro join?',

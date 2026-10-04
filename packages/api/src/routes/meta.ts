@@ -1,6 +1,6 @@
 import { Router, type Router as RouterType } from 'express';
 import type { ServerMeta } from '@taro/shared';
-import { env, githubAppConfigured, googleSignInConfigured, microsoftSignInConfigured, serverSttAvailable, slackConfigured } from '../config/env';
+import { env, githubAppConfigured, googleSignInConfigured, serverSttAvailable, slackConfigured } from '../config/env';
 import { calendarInvitesConfigured } from '../lib/inviteAddress';
 
 export const metaRouter: RouterType = Router();
@@ -10,7 +10,6 @@ metaRouter.get('/', (_req, res) => {
   const meta: ServerMeta = {
     slackSignIn: slackConfigured(),
     googleSignIn: googleSignInConfigured(),
-    microsoftSignIn: microsoftSignInConfigured(),
     githubApp: githubAppConfigured(),
     serverStt: serverSttAvailable(),
     meetExtension: env.extensionIds.length > 0,

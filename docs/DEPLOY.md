@@ -35,11 +35,11 @@ That is `ENCRYPTION_KEY`. It encrypts every stored provider key and signs sign-i
 
 ## 3. Sign-in and Slack
 
-People sign in with Google, Microsoft, or Slack, and the sign-in page shows only the ones you set up. Whoever signs in with a Google Workspace account joins the Taro workspace for that domain, a Microsoft work or school account joins the one for its organization, and a Slack account joins the one for its Slack workspace. Personal Google and Microsoft accounts each get a workspace of their own. The Slack app is required; Google and Microsoft are optional.
+People sign in with Google or Slack, and the sign-in page shows only the ones you set up. Whoever signs in with a Google Workspace account joins the Taro workspace for that domain, and a Slack account joins the one for its Slack workspace. Personal Google accounts each get a workspace of their own. Set up Slack, Google, or both.
 
 ### Slack app
 
-Slack powers Slack sign-in, meeting links posted in channels, and result posting. Workspaces made by Google or Microsoft sign-in can add it from Setup whenever they like.
+Slack powers Slack sign-in, meeting links posted in channels, and result posting. Workspaces made by Google sign-in can add it from Setup whenever they like.
 
 1. Open `docs/slack-app-manifest.yaml`, replace `YOUR-API-DOMAIN` with your API host, then go to [api.slack.com/apps](https://api.slack.com/apps), choose **Create New App**, **From an app manifest**, and paste it.
 2. **Basic Information**, **App-Level Tokens**: generate a token with the `connections:write` scope. That is `SLACK_APP_TOKEN` (starts with `xapp-`).
@@ -60,17 +60,6 @@ Taro asks Google only for the three basic sign-in scopes, so Google doesn't need
 6. Copy the client ID and client secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
 Google shows your app's name and logo on its sign-in screen once the brand is verified (under **Branding**). Sign-in works before that.
-
-### Sign in with Microsoft (optional)
-
-1. In the [Microsoft Entra admin center](https://entra.microsoft.com), go to **Entra ID**, **App registrations**, **New registration**.
-2. Name it Taro. Under **Supported account types**, choose any organizational directory and personal Microsoft accounts. The page lists it as **Any Entra ID Tenant + Personal Microsoft accounts** (older versions: "Accounts in any organizational directory and personal Microsoft accounts").
-3. Under **Redirect URI**, choose **Web** and enter `API_URL/api/auth/microsoft/callback`, then **Register**. (You can also add it later under **Authentication**, **Add a platform**, **Web**.)
-4. On the app's **Overview**, copy the **Application (client) ID** into `MICROSOFT_CLIENT_ID`.
-5. **Certificates & secrets**, **Client secrets**, **New client secret**. Copy its **Value** (not the Secret ID) into `MICROSOFT_CLIENT_SECRET` right away; it's shown only once. Secrets expire, at most 24 months out, so note the date and replace it before then.
-6. Leave `MICROSOFT_AUTHORITY` unset to let in work, school, and personal accounts (`common`). Set it to `organizations` for work and school accounts only, `consumers` for personal accounts only, or one tenant ID to allow a single organization.
-
-Taro asks Microsoft only for `openid`, `email`, and `profile`. Some organizations let people approve only apps from verified publishers, so the first person there sees "Need admin approval". An admin of that organization can approve Taro once for everyone by signing in to Taro with Microsoft and choosing to consent on behalf of the organization. Verifying your publisher (the app's **Branding & properties**, with a Microsoft Partner ID) avoids the prompt in most organizations.
 
 ## 4. GitHub App (optional)
 
@@ -132,9 +121,8 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `ENCRYPTION_KEY` | yes | Section 2 |
 | `API_URL` | yes | Public https URL of the API |
 | `APP_URL` | yes | Public URL of the dashboard |
-| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | for Slack | Section 3. At least one way to sign in (Slack, Google, or Microsoft) is required |
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | for Slack | Section 3. At least one way to sign in (Slack or Google) is required |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in | Section 3 |
-| `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | for Microsoft sign-in | Section 3. `MICROSOFT_AUTHORITY` is optional: `common` (default), `organizations`, `consumers`, or a tenant ID |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | for GitHub | Section 4 |
 | `WEB_ORIGINS` | no | Extra trusted dashboard origins, comma separated |
 | `EXTENSION_IDS` | for the Meet button | Chrome and Edge extension IDs allowed to call the API (section 7) |
@@ -170,8 +158,8 @@ The extension gets a limited connection: it can send Taro to a meeting, check on
 ## 8. Check it end to end
 
 1. `API_URL/ready` answers `ready`.
-2. Open the dashboard and sign in with Google, Microsoft, or Slack.
-3. Follow **Setup**: paste a MeetingBaas key, choose an AI model, turn on transcription. In a Slack workspace, add Taro to Slack first (whoever does becomes the workspace's owner). In a Google or Microsoft workspace, the first person to sign in is the owner, and adding Slack is optional.
+2. Open the dashboard and sign in with Google or Slack.
+3. Follow **Setup**: paste a MeetingBaas key, choose an AI model, turn on transcription. In a Slack workspace, add Taro to Slack first (whoever does becomes the workspace's owner). In a Google workspace, the first person to sign in is the owner, and adding Slack is optional.
 4. Post a Google Meet, Zoom, or Teams link in a public channel, admit Taro from the lobby, and say "Hey Taro, post hello to general".
 
 ## 9. Calendar invitations (optional)
@@ -233,9 +221,9 @@ To use plus addressing on a domain you already receive mail on instead: turn on 
 ## Security notes
 
 - Provider keys are validated with the provider, encrypted with AES-256-GCM (bound to their workspace), and never sent back to a browser.
-- Only owners and admins change keys and connections. In a Slack workspace, whoever adds Taro to Slack becomes the owner, Slack owners and admins are promoted to match, and owners manage everyone else from **Members**. Slack guests can't sign in, and someone deactivated in Slack is signed out within the hour. In a Google or Microsoft workspace, the first person to sign in is the owner and everyone after joins as a member until an owner promotes them. Sessions last 30 days from last use and 90 days at most.
-- Sign-in is authentication only. Taro asks Google, Microsoft, and Slack for `openid`, `email`, and `profile`, checks that each ID token was issued to Taro for that very sign-in, and keeps no provider access token. Google and Microsoft workspaces are matched by the Google Workspace domain and the Microsoft tenant ID in the token, never by an email address.
-- A Slack workspace belongs to one Taro workspace at most. A Google or Microsoft workspace can't add a Slack workspace that another Taro workspace already has, and someone signing in with Slack from a Slack workspace that a Google or Microsoft workspace added is sent to sign in with Google or Microsoft instead.
+- Only owners and admins change keys and connections. In a Slack workspace, whoever adds Taro to Slack becomes the owner, Slack owners and admins are promoted to match, and owners manage everyone else from **Members**. Slack guests can't sign in, and someone deactivated in Slack is signed out within the hour. In a Google workspace, the first person to sign in is the owner and everyone after joins as a member until an owner promotes them. Sessions last 30 days from last use and 90 days at most.
+- Sign-in is authentication only. Taro asks Google and Slack for `openid`, `email`, and `profile`, checks that each ID token was issued to Taro for that very sign-in, and keeps no provider access token. Google workspaces are matched by the Google Workspace domain in the token, never by an email address.
+- A Slack workspace belongs to one Taro workspace at most. A Google workspace can't add a Slack workspace that another Taro workspace already has, and someone signing in with Slack from a Slack workspace that a Google workspace added is sent to sign in with Google instead.
 - GitHub actions only reach repositories the person who connected GitHub can push to, using tokens limited to the one repository Taro is working in.
 - Every MeetingBaas callback and audio socket carries a per-meeting secret; nothing else can feed audio into a meeting or report results for it.
 - The calendar webhook is public, so it treats every message as hostile. It checks `INBOUND_SECRET` in constant time before reading anything, caps message size, reads only calendar parts, follows no links, and routes mail only by the token in the address it was sent to, so one workspace's mail never reaches another. Invitations nobody in the workspace vouched for wait for approval, and so do changes to an approved meeting's time or link that arrive in such mail. For each invitation Taro keeps the title, times, link, organizer, and sender, never the description or guest list.

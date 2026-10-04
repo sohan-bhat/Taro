@@ -52,7 +52,7 @@ Taro reads the conversation, so "file an issue about that" becomes a written iss
 ## Project structure
 
 ```
-apps/web          Next.js: landing page, sign-in (Google, Microsoft, Slack), dashboard, demo
+apps/web          Next.js: landing page, sign-in (Google, Slack), dashboard, demo
 apps/extension    Chrome and Edge extension: an Invite Taro button inside Google Meet
 packages/api      Express API: auth, provider keys, Slack listener, realtime audio, actions
 packages/shared   Types, constants, and the provider catalog both sides use
@@ -77,7 +77,7 @@ pnpm --filter @taro/api dev   # http://localhost:4000
 pnpm --filter @taro/web dev   # http://localhost:3000
 ```
 
-4. Open http://localhost:3000, sign in, and follow **Setup** in the dashboard. Slack sign-in works with just the Slack app; Google and Microsoft sign-in need their own client IDs (`docs/DEPLOY.md`, section 3).
+4. Open http://localhost:3000, sign in, and follow **Setup** in the dashboard. Slack sign-in works with just the Slack app; Google sign-in needs its own client ID (`docs/DEPLOY.md`, section 3).
 
 The dashboard talks to `http://localhost:4000` by default; set `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` to change it.
 
@@ -95,7 +95,7 @@ Workspaces normally use Groq or OpenAI for transcription. For fully offline deve
 
 ## Deploying
 
-See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full guide: MongoDB, Slack, Google, and Microsoft sign-in, the GitHub app, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full guide: MongoDB, Slack and Google sign-in, the GitHub app, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
 
 ## Troubleshooting
 

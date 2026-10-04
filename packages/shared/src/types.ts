@@ -7,10 +7,10 @@ import type { LlmProviderId, SttProviderId } from './providers';
 export type WorkspaceRole = 'owner' | 'admin' | 'member';
 
 // The accounts people sign in to Taro with.
-export type SignInProvider = 'slack' | 'google' | 'microsoft';
+export type SignInProvider = 'slack' | 'google';
 
-// A Taro workspace is one Slack workspace (team), one company that signs in with Google or Microsoft
-// (a Google Workspace domain or a Microsoft tenant), or one person's own Google or Microsoft account.
+// A Taro workspace is one Slack workspace (team), one company that signs in with Google
+// (a Google Workspace domain), or one person's own Google account.
 export interface Workspace {
   _id: string;
   name: string;
@@ -18,15 +18,15 @@ export interface Workspace {
   signInWith: SignInProvider;
   // Google workspaces: the Google Workspace domain everyone here signs in from
   domain?: string;
-  // One person's own Google or Microsoft account, so nobody else joins
+  // One person's own Google account, so nobody else joins
   personal?: boolean;
   // The Slack team: who belongs, for a Slack workspace; the one connected, for the others
   slackTeamId?: string;
   slackTeamDomain?: string;
   botName: string;
   onboardedAt?: string;
-  // False until someone adds Taro to Slack; that person becomes the owner. Google and Microsoft
-  // workspaces are claimed by the first person to sign in.
+  // False until someone adds Taro to Slack; that person becomes the owner. Google workspaces are
+  // claimed by the first person to sign in.
   claimed: boolean;
   createdAt: string;
 }
@@ -224,9 +224,8 @@ export interface ConnectedSession {
 // What the server operator has configured, so the UI can hide what isn't available.
 export interface ServerMeta {
   slackSignIn: boolean;
-  // True once the server has that provider's client ID and secret
+  // True once the server has Google's client ID and secret
   googleSignIn: boolean;
-  microsoftSignIn: boolean;
   githubApp: boolean;
   serverStt: boolean;
   // Calendar invitations and the Google Meet button; unset means off.

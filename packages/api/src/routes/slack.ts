@@ -87,7 +87,7 @@ slackRouter.get(
         }
       };
       if (company.signInWith) {
-        // Google and Microsoft workspaces take the Slack team they add Taro to, unless it's another workspace's
+        // Google workspaces take the Slack team they add Taro to, unless it's another workspace's
         const link = await linkSlackTeam(state.c, teamId);
         if (link !== 'linked') {
           await undoInstall();

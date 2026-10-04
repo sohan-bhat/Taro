@@ -65,18 +65,6 @@ function list(raw: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * Which Microsoft accounts may sign in: common (work, school, and personal), organizations, consumers,
- * or one tenant's ID. Sign-in compares this with the tenant in each ID token, which a domain name can't be.
- */
-function microsoftAuthority(raw: string): string {
-  const value = raw.trim().toLowerCase();
-  if (['common', 'organizations', 'consumers'].includes(value) || /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value)) {
-    return value;
-  }
-  throw new Error('MICROSOFT_AUTHORITY must be common, organizations, consumers, or a tenant ID.');
-}
-
 const apiUrl = optional('API_URL', 'http://localhost:4000').replace(/\/$/, '');
 const appUrl = optional('APP_URL', optional('NEXT_PUBLIC_APP_URL', 'http://localhost:3000')).replace(/\/$/, '');
 
@@ -104,12 +92,9 @@ export const env = {
   // Socket Mode token (xapp-...); without it Taro can't see meeting links posted in Slack.
   slackAppToken: optional('SLACK_APP_TOKEN'),
 
-  // Sign in with Google and with Microsoft. Optional: each is offered once its client ID and secret are set.
+  // Sign in with Google. Optional: it's offered once its client ID and secret are set.
   googleClientId: optional('GOOGLE_CLIENT_ID'),
   googleClientSecret: optional('GOOGLE_CLIENT_SECRET'),
-  microsoftClientId: optional('MICROSOFT_CLIENT_ID'),
-  microsoftClientSecret: optional('MICROSOFT_CLIENT_SECRET'),
-  microsoftAuthority: microsoftAuthority(optional('MICROSOFT_AUTHORITY', 'common')),
 
   // Taro's bot identity on GitHub. Optional: without it the GitHub integration is hidden.
   githubAppId: optional('GITHUB_APP_ID'),
@@ -161,17 +146,13 @@ export function googleSignInConfigured(): boolean {
   return !!(env.googleClientId && env.googleClientSecret);
 }
 
-export function microsoftSignInConfigured(): boolean {
-  return !!(env.microsoftClientId && env.microsoftClientSecret);
-}
-
 export function serverSttAvailable(): boolean {
   return !!env.sttWsUrl || env.localAsr;
 }
 
-if (!slackConfigured() && !googleSignInConfigured() && !microsoftSignInConfigured()) {
+if (!slackConfigured() && !googleSignInConfigured()) {
   throw new Error(
-    'No way to sign in is set up. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET.'
+    'No way to sign in is set up. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET, or GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.'
   );
 }
 
@@ -185,7 +166,7 @@ console.log('[Config] Environment loaded:', {
   appUrl,
   webOrigins: env.webOrigins,
   slackSocketMode: !!env.slackAppToken,
-  signIn: [slackConfigured() && 'slack', googleSignInConfigured() && 'google', microsoftSignInConfigured() && `microsoft (${env.microsoftAuthority})`].filter(Boolean),
+  signIn: [slackConfigured() && 'slack', googleSignInConfigured() && 'google'].filter(Boolean),
   githubApp: githubAppConfigured(),
   githubInstallVerification: githubOAuthConfigured(),
   calendarInvites: !!(env.inviteAddress && env.inboundSecret),

@@ -25,18 +25,16 @@ test('Slack is the first required step in a Slack workspace', () => {
   assert.equal(setupSteps(overview('slack', { keys: true, slack: true })).todo, 0);
 });
 
-test('Google and Microsoft workspaces are set up without Slack', () => {
-  for (const provider of ['google', 'microsoft'] as const) {
-    const { steps, todo, next } = setupSteps(overview(provider));
-    assert.deepEqual(steps.map((s) => s.id), ['meetingBot', 'llm', 'stt'], provider);
-    assert.equal(todo, 3);
-    assert.equal(next, 'meetingBot');
-    assert.equal(setupSteps(overview(provider, { keys: true })).todo, 0, provider);
-    assert.equal(slackRequired({ signInWith: provider }), false);
-  }
+test('Google workspaces are set up without Slack', () => {
+  const { steps, todo, next } = setupSteps(overview('google'));
+  assert.deepEqual(steps.map((s) => s.id), ['meetingBot', 'llm', 'stt']);
+  assert.equal(todo, 3);
+  assert.equal(next, 'meetingBot');
+  assert.equal(setupSteps(overview('google', { keys: true })).todo, 0);
+  assert.equal(slackRequired({ signInWith: 'google' }), false);
 });
 
-test('a server from before Google and Microsoft sign-in sends no signInWith, which means Slack', () => {
+test('a server from before Google sign-in sends no signInWith, which means Slack', () => {
   assert.equal(slackRequired({ signInWith: undefined as unknown as SignInProvider }), true);
   assert.deepEqual(setupSteps(overview(undefined)).steps[0].id, 'slack');
 });

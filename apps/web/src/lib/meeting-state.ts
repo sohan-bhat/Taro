@@ -161,11 +161,11 @@ export interface SetupStep {
 }
 
 /**
- * Slack is how people get into a Slack workspace, so it's required there. Google and Microsoft
- * workspaces can add it or not. A server from before those existed sends no signInWith: Slack.
+ * Slack is how people get into a Slack workspace, so it's required there. Google workspaces can
+ * add it or not. A server from before those existed sends no signInWith: Slack.
  */
 export function slackRequired(workspace: Pick<WorkspaceOverview['workspace'], 'signInWith'>): boolean {
-  return workspace.signInWith !== 'google' && workspace.signInWith !== 'microsoft';
+  return workspace.signInWith !== 'google';
 }
 
 /**

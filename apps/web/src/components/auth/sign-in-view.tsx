@@ -6,21 +6,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { SignInProvider } from '@taro/shared';
 import { Alert } from '@/components/ui/alert';
 import { Delayed } from '@/components/dashboard/common';
-import { PROVIDER_NAMES, SIGN_IN_PROVIDERS, SignInButtons } from '@/components/sign-in';
+import { SIGN_IN_PROVIDERS, SignInButtons } from '@/components/sign-in';
 import { api } from '@/lib/api';
 import { getToken, safeNextPath } from '@/lib/session';
 import { AUTH_BODY, AUTH_TITLE, AuthSplit, LINK } from './auth-split';
-
-// What a Google or Microsoft sign-in that didn't finish comes back with.
-function providerErrors(provider: 'google' | 'microsoft'): Record<string, string> {
-  const name = PROVIDER_NAMES[provider];
-  return {
-    [`${provider}_denied`]: `${name} sign-in was canceled. Start again when you're ready.`,
-    [`${provider}_failed`]: `${name} couldn't confirm who you are. Try again.`,
-    [`${provider}_error`]: `${name} couldn't finish signing you in. Try again, or ask whoever runs this Taro server to check its ${name} sign-in setup.`,
-    [`${provider}_unavailable`]: `Sign in with ${name} isn't set up on this Taro server. Choose another way below.`,
-  };
-}
 
 // Reasons the callback (or a signed-out page) sends people back here with ?error=.
 const ERRORS: Record<string, string> = {
@@ -35,21 +24,20 @@ const ERRORS: Record<string, string> = {
   slack_guest: "Slack guests can't sign in to a workspace's Taro. Sign in with a workspace where you're a full member.",
   slack_deactivated: "That Slack account is deactivated, so it can't sign in.",
   removed: 'An owner removed you from this Taro workspace. Ask them to restore you.',
-  ...providerErrors('google'),
-  ...providerErrors('microsoft'),
+  google_denied: "Google sign-in was canceled. Start again when you're ready.",
+  google_failed: "Google couldn't confirm who you are. Try again.",
+  google_error:
+    "Google couldn't finish signing you in. Try again, or ask whoever runs this Taro server to check its Google sign-in setup.",
+  google_unavailable: "Sign in with Google isn't set up on this Taro server. Choose another way below.",
   unverified_email: "That account's email address isn't verified yet, so it can't sign in. Verify it first, or use another account.",
-  microsoft_admin_consent:
-    'Your organization needs an admin to approve Taro before you can sign in with Microsoft. Ask your IT admin, then try again.',
   use_google: 'That Slack workspace is connected to a Taro workspace where people sign in with Google. Sign in with Google instead.',
-  use_microsoft:
-    'That Slack workspace is connected to a Taro workspace where people sign in with Microsoft. Sign in with Microsoft instead.',
 };
 // Own keys only: the code comes from the address bar, so "constructor" must not match.
 const errorMessage = (code: string) =>
   Object.prototype.hasOwnProperty.call(ERRORS, code) ? ERRORS[code] : "Signing in didn't finish. Try again.";
 
-// Three buttons and the gaps between them, held while the server says which it offers.
-const OPTIONS_HEIGHT = 'h-[168px]';
+// Two buttons and the gap between them, held while the server says which it offers.
+const OPTIONS_HEIGHT = 'h-[108px]';
 
 /** The sign-ins this server offers, in the page's order. Null until it says. */
 function useSignInProviders(): readonly SignInProvider[] | null {
@@ -61,7 +49,6 @@ function useSignInProviders(): readonly SignInProvider[] | null {
       .then((meta) => {
         const offered: Record<SignInProvider, boolean> = {
           google: !!meta.googleSignIn,
-          microsoft: !!meta.microsoftSignIn,
           slack: !!meta.slackSignIn,
         };
         if (!cancelled) setProviders(SIGN_IN_PROVIDERS.filter((p) => offered[p]));

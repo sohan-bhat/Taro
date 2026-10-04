@@ -2,8 +2,8 @@
 
 // The Setup view (9.5): the required set in its one order (Slack, meeting bot, AI model,
 // transcription), then the optional connections. Slack is required only in Slack workspaces;
-// Google and Microsoft workspaces find it first under Optional. Rows and cards are exported so
-// the demo can build its read-only version from the same pieces.
+// Google workspaces find it first under Optional. Rows and cards are exported so the demo can
+// build its read-only version from the same pieces.
 
 import * as React from 'react';
 import Link from 'next/link';

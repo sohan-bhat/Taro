@@ -29,8 +29,7 @@ export default function TermsPage() {
       <Section title="Your accounts and costs">
         <p>
           You bring your own keys for the meeting bot, the AI model, and transcription, and you pay those providers directly.
-          You are responsible for your accounts with them and with Slack, GitHub, Google, and Microsoft, and for following their
-          terms.
+          You are responsible for your accounts with them and with Slack, GitHub, and Google, and for following their terms.
         </p>
       </Section>
 

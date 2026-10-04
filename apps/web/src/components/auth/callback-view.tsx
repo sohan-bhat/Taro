@@ -10,7 +10,7 @@ import { AUTH_BODY, AUTH_TITLE, AuthSplit, LINK } from './auth-split';
 
 const SLOW_MS = 10_000;
 
-// The API sends the browser here with a one-time code once Google, Microsoft, or Slack has
+// The API sends the browser here with a one-time code once Google or Slack has
 // answered. It's only accepted if the nonce matches the one this tab stored when sign-in started.
 export function CallbackView() {
   const router = useRouter();

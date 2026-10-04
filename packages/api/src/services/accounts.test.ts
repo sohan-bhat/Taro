@@ -2,16 +2,8 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { Types } from 'mongoose';
 import { CompanyModel, SlackConnectionModel, UserModel } from '../db/models';
-import { MICROSOFT_PERSONAL_TENANT, type GoogleAccount, type MicrosoftAccount } from '../lib/oidc';
-import {
-  googleIdentity,
-  linkSlackTeam,
-  microsoftIdentity,
-  SignInRefused,
-  signInWithDirectory,
-  signInWithSlack,
-  unlinkSlackTeam,
-} from './accounts';
+import type { GoogleAccount } from '../lib/oidc';
+import { googleIdentity, linkSlackTeam, SignInRefused, signInWithDirectory, signInWithSlack, unlinkSlackTeam } from './accounts';
 
 // ---------------------------------------------------------------------------------------------
 // A stand-in for the three collections, so sign-in runs without a database. It keeps each model's
@@ -136,14 +128,7 @@ const GLOBEX_ANA = googleAccount('2001', 'ana@globex.com', 'globex.com', 'Ana Si
 const GMAIL_DEV = googleAccount('3001', 'dev.patel@gmail.com', undefined, 'Dev Patel');
 const GMAIL_LEE = googleAccount('3002', 'lee@gmail.com', undefined, 'Lee Chen');
 
-const CONTOSO = '72f988bf-86f1-41af-91ab-2d7cd011db47';
-const microsoftAccount = (tid: string, oid: string, email: string, name: string): MicrosoftAccount => ({ tid, oid, email, name });
-const CONTOSO_MEI = microsoftAccount(CONTOSO, '11111111-0000-0000-0000-000000000001', 'mei@contoso.com', 'Mei Tanaka');
-const CONTOSO_JO = microsoftAccount(CONTOSO, '11111111-0000-0000-0000-000000000002', 'jo@contoso.com', 'Jo Byrne');
-const OUTLOOK_KAI = microsoftAccount(MICROSOFT_PERSONAL_TENANT, '00000000-0000-0000-1234-56789abcdef0', 'kai@outlook.com', 'Kai Moana');
-
 const signInGoogle = (account: GoogleAccount) => signInWithDirectory(googleIdentity(account));
-const signInMicrosoft = (account: MicrosoftAccount) => signInWithDirectory(microsoftIdentity(account));
 
 const roleOf = (users: ReturnType<typeof fakeDatabase>['users'], userId: unknown) =>
   users.find((u) => String(u._id) === String(userId))?.role;
@@ -168,23 +153,6 @@ test('a Gmail account gets a workspace of its own, named after the person', () =
   assert.equal(identity.personal, true);
   assert.equal(identity.workspaceName, "Dev's workspace");
   assert.notEqual(googleIdentity(GMAIL_LEE).directoryId, identity.directoryId);
-});
-
-test('a Microsoft work account belongs to the workspace for its tenant, named after its email domain', () => {
-  const identity = microsoftIdentity(CONTOSO_MEI);
-  assert.equal(identity.accountId, `${CONTOSO}:11111111-0000-0000-0000-000000000001`);
-  assert.equal(identity.directoryId, CONTOSO);
-  assert.equal(identity.personal, false);
-  assert.equal(identity.workspaceName, 'contoso.com');
-  assert.equal(microsoftIdentity(CONTOSO_JO).directoryId, CONTOSO);
-  assert.equal(microsoftIdentity({ ...CONTOSO_MEI, email: undefined }).workspaceName, 'My workspace');
-});
-
-test('a personal Microsoft account gets a workspace of its own', () => {
-  const identity = microsoftIdentity(OUTLOOK_KAI);
-  assert.equal(identity.directoryId, 'user:00000000-0000-0000-1234-56789abcdef0');
-  assert.equal(identity.personal, true);
-  assert.equal(identity.workspaceName, "Kai's workspace");
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -239,25 +207,10 @@ test('personal accounts each get their own workspace, owned by that person', asy
   const db = fakeDatabase(t);
   const dev = await signInGoogle(GMAIL_DEV);
   const lee = await signInGoogle(GMAIL_LEE);
-  const kai = await signInMicrosoft(OUTLOOK_KAI);
-  assert.equal(new Set([dev, lee, kai].map((s) => String(s.company._id))).size, 3);
-  assert.deepEqual([dev, lee, kai].map((s) => s.user.role), ['owner', 'owner', 'owner']);
+  assert.equal(new Set([dev, lee].map((s) => String(s.company._id))).size, 2);
+  assert.deepEqual([dev, lee].map((s) => s.user.role), ['owner', 'owner']);
   assert.ok(db.companies.every((c) => c.personal === true));
-  assert.deepEqual(db.companies.map((c) => c.name), ["Dev's workspace", "Lee's workspace", "Kai's workspace"]);
-});
-
-test('Microsoft colleagues in one tenant land together, apart from the same people on Google', async (t) => {
-  const db = fakeDatabase(t);
-  const mei = await signInMicrosoft(CONTOSO_MEI);
-  const jo = await signInMicrosoft(CONTOSO_JO);
-  assert.equal(String(mei.company._id), String(jo.company._id));
-  assert.deepEqual([mei.user.role, jo.user.role], ['owner', 'member']);
-  assert.equal(db.companies[0].directoryId, CONTOSO);
-  assert.equal(db.companies[0].name, 'contoso.com');
-
-  // A Google domain that happens to match is a different directory, so a different workspace
-  const google = await signInGoogle(googleAccount('5001', 'mei@contoso.com', 'contoso.com', 'Mei Tanaka'));
-  assert.notEqual(String(google.company._id), String(mei.company._id));
+  assert.deepEqual(db.companies.map((c) => c.name), ["Dev's workspace", "Lee's workspace"]);
 });
 
 test('someone an owner removed is turned away', async (t) => {
@@ -269,7 +222,7 @@ test('someone an owner removed is turned away', async (t) => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Adding Slack to a Google or Microsoft workspace
+// Adding Slack to a Google workspace
 
 test('a Google workspace can connect a Slack team nobody else has, and let it go again', async (t) => {
   const db = fakeDatabase(t);
@@ -294,12 +247,12 @@ test('a Google workspace can connect a Slack team nobody else has, and let it go
 
 test("a Slack install that never finished doesn't keep a workspace from adding another team", async (t) => {
   const db = fakeDatabase(t);
-  const { company } = await signInMicrosoft(CONTOSO_MEI);
+  const { company } = await signInGoogle(ACME_PRIYA);
   const id = String(company._id);
   // Linked, but the bot's connection was never saved
   assert.equal(await linkSlackTeam(id, 'T0STALE'), 'linked');
-  assert.equal(await linkSlackTeam(id, 'T0CONTOSO'), 'linked');
-  assert.equal(db.companies[0].slackTeamId, 'T0CONTOSO');
+  assert.equal(await linkSlackTeam(id, 'T0ACME'), 'linked');
+  assert.equal(db.companies[0].slackTeamId, 'T0ACME');
 });
 
 test('a Slack team that already belongs to another Taro workspace is refused', async (t) => {
@@ -310,11 +263,11 @@ test('a Slack team that already belongs to another Taro workspace is refused', a
   assert.equal(await linkSlackTeam(String(company._id), 'T0SLACK'), 'taken');
   assert.equal(db.companies.find((c) => String(c._id) === String(company._id))?.slackTeamId, undefined);
 
-  // A team another Google or Microsoft workspace connected
-  const mei = await signInMicrosoft(CONTOSO_MEI);
-  assert.equal(await linkSlackTeam(String(mei.company._id), 'T0CONTOSO'), 'linked');
-  db.slackConnections.push({ _id: new Types.ObjectId(), companyId: String(mei.company._id), teamId: 'T0CONTOSO' });
-  assert.equal(await linkSlackTeam(String(company._id), 'T0CONTOSO'), 'taken');
+  // A team another Google workspace connected
+  const globex = await signInGoogle(GLOBEX_ANA);
+  assert.equal(await linkSlackTeam(String(globex.company._id), 'T0GLOBEX'), 'linked');
+  db.slackConnections.push({ _id: new Types.ObjectId(), companyId: String(globex.company._id), teamId: 'T0GLOBEX' });
+  assert.equal(await linkSlackTeam(String(company._id), 'T0GLOBEX'), 'taken');
 });
 
 test('a Slack workspace keeps its team when Slack is removed', async (t) => {
@@ -325,23 +278,16 @@ test('a Slack workspace keeps its team when Slack is removed', async (t) => {
   assert.equal(db.companies[0].slackTeamId, 'T0SLACK');
 });
 
-test('signing in with Slack from a team a Google or Microsoft workspace connected points to that sign-in', async (t) => {
+test('signing in with Slack from a team a Google workspace connected points to that sign-in', async (t) => {
   const db = fakeDatabase(t);
   const acme = await signInGoogle(ACME_PRIYA);
   await linkSlackTeam(String(acme.company._id), 'T0ACME');
-  const contoso = await signInMicrosoft(CONTOSO_MEI);
-  await linkSlackTeam(String(contoso.company._id), 'T0CONTOSO');
 
-  const slackPerson = { teamName: 'Acme', userId: 'U0SAM', name: 'Sam Okafor' };
   await assert.rejects(
-    signInWithSlack({ ...slackPerson, teamId: 'T0ACME' }),
+    signInWithSlack({ teamId: 'T0ACME', teamName: 'Acme', userId: 'U0SAM', name: 'Sam Okafor' }),
     (error) => error instanceof SignInRefused && error.code === 'use_google'
   );
-  await assert.rejects(
-    signInWithSlack({ ...slackPerson, teamId: 'T0CONTOSO' }),
-    (error) => error instanceof SignInRefused && error.code === 'use_microsoft'
-  );
   // Nobody was added under a second sign-in
-  assert.equal(db.users.length, 2);
+  assert.equal(db.users.length, 1);
   assert.ok(db.users.every((u) => !u.slackUserId));
 });

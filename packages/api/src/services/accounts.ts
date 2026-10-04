@@ -8,22 +8,21 @@
  * carry over: Slack owners and admins are promoted, and guests and deactivated
  * accounts are turned away.
  *
- * Google and Microsoft: one company is one Taro workspace, found by its Google
- * Workspace domain or its Microsoft tenant. A personal account (Gmail,
- * Outlook.com) gets a workspace of its own. The first person in creates the
- * workspace and owns it; everyone after joins as a member, and owners promote
- * people from Members. Slack is an optional connection for these workspaces,
- * and its roles don't carry over.
+ * Google: one company is one Taro workspace, found by its Google Workspace
+ * domain. A personal account (Gmail) gets a workspace of its own. The first
+ * person in creates the workspace and owns it; everyone after joins as a
+ * member, and owners promote people from Members. Slack is an optional
+ * connection for these workspaces, and its roles don't carry over.
  */
 
 import type { WorkspaceRole } from '@taro/shared';
 import { CompanyModel, SlackConnectionModel, UserModel } from '../db/models';
-import { MICROSOFT_PERSONAL_TENANT, type GoogleAccount, type MicrosoftAccount } from '../lib/oidc';
+import type { GoogleAccount } from '../lib/oidc';
 import { log } from '../lib/logger';
 import { SlackService, type SlackStanding } from './slack';
 
-// use_google and use_microsoft: a Slack sign-in from a team that a Google or Microsoft workspace connected.
-export type SignInRefusal = 'slack_guest' | 'slack_deactivated' | 'removed' | 'use_google' | 'use_microsoft';
+// use_google: a Slack sign-in from a team that a Google workspace connected.
+export type SignInRefusal = 'slack_guest' | 'slack_deactivated' | 'removed' | 'use_google';
 
 export class SignInRefused extends Error {
   constructor(public code: SignInRefusal) {
@@ -125,9 +124,9 @@ async function findOrCreateWorkspace(identity: SlackIdentity) {
 export async function signInWithSlack(identity: SlackIdentity) {
   const company = await findOrCreateWorkspace(identity);
   const companyId = company._id.toString();
-  // A Google or Microsoft workspace connected this Slack team. Its people sign in the way it was made, so
-  // nobody ends up there twice under two sign-ins, and Slack's roles never decide who runs it.
-  if (company.signInWith) throw new SignInRefused(company.signInWith === 'google' ? 'use_google' : 'use_microsoft');
+  // A Google workspace connected this Slack team. Its people sign in with Google, so nobody ends up
+  // there twice under two sign-ins, and Slack's roles never decide who runs it.
+  if (company.signInWith) throw new SignInRefused('use_google');
 
   const standing = await slackStanding(companyId, identity.userId);
   if (standing && !standing.active) throw new SignInRefused('slack_deactivated');
@@ -166,16 +165,16 @@ export async function signInWithSlack(identity: SlackIdentity) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Google and Microsoft
+// Google
 
-export type DirectoryProvider = 'google' | 'microsoft';
+export type DirectoryProvider = 'google';
 
-/** Someone Google or Microsoft vouched for, and the workspace their account belongs to. */
+/** Someone Google vouched for, and the workspace their account belongs to. */
 export interface DirectoryIdentity {
   provider: DirectoryProvider;
-  // What stays the same when their name or address changes: Google's sub, or Microsoft's "tid:oid"
+  // What stays the same when their name or address changes: Google's sub
   accountId: string;
-  // Who they belong with: a Google Workspace domain, a Microsoft tenant, or "user:<id>" for a personal account
+  // Who they belong with: a Google Workspace domain, or "user:<id>" for a personal account
   directoryId: string;
   personal: boolean;
   // What a new workspace is called until someone renames it
@@ -187,7 +186,6 @@ export interface DirectoryIdentity {
 
 const firstWord = (s?: string) => s?.trim().split(/\s+/)[0] || undefined;
 const personalWorkspaceName = (firstName?: string) => (firstName ? `${firstName}'s workspace` : 'My workspace');
-const domainOf = (email?: string) => (email && email.includes('@') ? email.slice(email.lastIndexOf('@') + 1).toLowerCase() : undefined);
 
 export function googleIdentity(account: GoogleAccount): DirectoryIdentity {
   const person = {
@@ -205,20 +203,6 @@ export function googleIdentity(account: GoogleAccount): DirectoryIdentity {
     personal: true,
     workspaceName: personalWorkspaceName(account.givenName ?? firstWord(account.name)),
   };
-}
-
-export function microsoftIdentity(account: MicrosoftAccount): DirectoryIdentity {
-  const person = {
-    provider: 'microsoft' as const,
-    accountId: `${account.tid}:${account.oid}`,
-    name: account.name ?? account.email ?? 'Teammate',
-    email: account.email,
-  };
-  if (account.tid === MICROSOFT_PERSONAL_TENANT) {
-    return { ...person, directoryId: `user:${account.oid}`, personal: true, workspaceName: personalWorkspaceName(firstWord(account.name)) };
-  }
-  // The token doesn't name the organization, so the first person's email domain names the workspace.
-  return { ...person, directoryId: account.tid, personal: false, workspaceName: domainOf(account.email) ?? 'My workspace' };
 }
 
 async function findOrCreateDirectoryWorkspace(identity: DirectoryIdentity) {
@@ -267,7 +251,7 @@ async function findOrCreateDirectoryUser(identity: DirectoryIdentity, companyId:
   throw new Error('Could not save the account');
 }
 
-/** Signs in someone Google or Microsoft vouched for. The first person into a workspace owns it. */
+/** Signs in someone Google vouched for. The first person into a workspace owns it. */
 export async function signInWithDirectory(identity: DirectoryIdentity) {
   const company = await findOrCreateDirectoryWorkspace(identity);
   const companyId = company._id.toString();
@@ -283,8 +267,8 @@ export async function signInWithDirectory(identity: DirectoryIdentity) {
 export type SlackLink = 'linked' | 'taken' | 'other_team';
 
 /**
- * Connects a Slack team to a Google or Microsoft workspace. A Slack team belongs to one Taro workspace
- * at most, so a team that is already another workspace's (its own, or one it connected) is refused.
+ * Connects a Slack team to a Google workspace. A Slack team belongs to one Taro workspace at most,
+ * so a team that is already another workspace's (its own, or one it connected) is refused.
  */
 export async function linkSlackTeam(companyId: string, teamId: string): Promise<SlackLink> {
   const connection = await SlackConnectionModel.findOne({ teamId });
@@ -305,7 +289,7 @@ export async function linkSlackTeam(companyId: string, teamId: string): Promise<
   }
 }
 
-/** Lets a Google or Microsoft workspace's Slack team go, so it can connect another and the team is free again. */
+/** Lets a Google workspace's Slack team go, so it can connect another and the team is free again. */
 export async function unlinkSlackTeam(companyId: string): Promise<void> {
   await CompanyModel.updateOne(
     { _id: companyId, signInWith: { $exists: true } },

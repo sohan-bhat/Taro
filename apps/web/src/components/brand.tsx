@@ -105,18 +105,6 @@ export function GoogleMark(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Microsoft's four squares, from its sign-in button guidelines. */
-export function MicrosoftMark(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 21 21" aria-hidden="true" {...props}>
-      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
-      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
-      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
-      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
-    </svg>
-  );
-}
-
 /** The Octocat mark, in currentColor. */
 export function GithubMark(props: React.SVGProps<SVGSVGElement>) {
   return (

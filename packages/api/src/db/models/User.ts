@@ -1,13 +1,13 @@
 import { Schema, model } from 'mongoose';
 import type { WorkspaceRole } from '@taro/shared';
 
-// A person signed in to Taro. Slack vouches for a (team, user) pair. Google and Microsoft vouch for an
-// account: Google's sub, or Microsoft's tenant and object IDs as "tid:oid". Each person has one of the two.
+// A person signed in to Taro. Slack vouches for a (team, user) pair. Google vouches for an account by
+// its sub. Each person has one of the two.
 export interface UserDoc {
   companyId: string;
   slackTeamId?: string;
   slackUserId?: string;
-  signInWith?: 'google' | 'microsoft';
+  signInWith?: 'google';
   accountId?: string;
   name: string;
   email?: string;
@@ -25,7 +25,7 @@ const userSchema = new Schema<UserDoc>(
     companyId: { type: String, required: true, ref: 'Company' },
     slackTeamId: { type: String },
     slackUserId: { type: String },
-    signInWith: { type: String, enum: ['google', 'microsoft'] },
+    signInWith: { type: String, enum: ['google'] },
     accountId: { type: String },
     name: { type: String, required: true },
     email: { type: String },
@@ -38,7 +38,7 @@ const userSchema = new Schema<UserDoc>(
   { timestamps: true }
 );
 
-// Partial, so the people who sign in with Google or Microsoft (no Slack identity) don't collide with each other.
+// Partial, so the people who sign in with Google (no Slack identity) don't collide with each other.
 userSchema.index(
   { slackTeamId: 1, slackUserId: 1 },
   { unique: true, partialFilterExpression: { slackUserId: { $type: 'string' } } }

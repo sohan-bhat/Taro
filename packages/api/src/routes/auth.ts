@@ -1,5 +1,5 @@
 /**
- * Sign in with Slack, Google, or Microsoft (OpenID Connect). All three run the same way:
+ * Sign in with Slack or Google (OpenID Connect). Both run the same way:
  *
  *  1. The dashboard stores a random nonce in sessionStorage and sends the
  *     browser to /<provider>/start with it.
@@ -17,18 +17,17 @@
 
 import { Router, type Request, type Response, type Router as RouterType } from 'express';
 import { CompanyModel, LoginCodeModel, SessionModel, UserModel } from '../db/models';
-import { env, googleSignInConfigured, microsoftSignInConfigured, slackConfigured } from '../config/env';
+import { env, googleSignInConfigured, slackConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createSession, requireAuth, type AuthedRequest } from '../middleware/auth';
 import { randomToken, sha256, signToken, verifyToken } from '../lib/crypto';
-import { checkGoogleIdToken, checkMicrosoftIdToken, decodeJwtPayload, IdTokenRejected, oidcNonce, type Claims } from '../lib/oidc';
+import { checkGoogleIdToken, decodeJwtPayload, IdTokenRejected, oidcNonce, type Claims } from '../lib/oidc';
 import { resolveReturnTo } from '../lib/origins';
 import { rateLimit } from '../lib/rateLimit';
 import { log, errorMessage } from '../lib/logger';
 import { publicUser, publicWorkspace } from '../lib/views';
 import {
   googleIdentity,
-  microsoftIdentity,
   signInWithDirectory,
   signInWithSlack,
   SignInRefused,
@@ -162,7 +161,7 @@ authRouter.get(
 );
 
 // ---------------------------------------------------------------------------------------------
-// Sign in with Google and with Microsoft: the same code flow, against each provider's own endpoints.
+// Sign in with Google: the same code flow as Slack's, against Google's endpoints.
 
 interface DirectorySignIn {
   name: string;
@@ -175,8 +174,6 @@ interface DirectorySignIn {
   identity: (claims: Claims, nonce: string) => DirectoryIdentity;
 }
 
-const MICROSOFT_LOGIN = () => `https://login.microsoftonline.com/${env.microsoftAuthority}/oauth2/v2.0`;
-
 const DIRECTORY: Record<DirectoryProvider, DirectorySignIn> = {
   google: {
     name: 'Google',
@@ -187,28 +184,12 @@ const DIRECTORY: Record<DirectoryProvider, DirectorySignIn> = {
     tokenUrl: () => 'https://oauth2.googleapis.com/token',
     identity: (claims, nonce) => googleIdentity(checkGoogleIdToken(claims, { clientId: env.googleClientId, nonce })),
   },
-  microsoft: {
-    name: 'Microsoft',
-    configured: microsoftSignInConfigured,
-    clientId: () => env.microsoftClientId,
-    clientSecret: () => env.microsoftClientSecret,
-    authorizeUrl: () => `${MICROSOFT_LOGIN()}/authorize`,
-    tokenUrl: () => `${MICROSOFT_LOGIN()}/token`,
-    identity: (claims, nonce) =>
-      microsoftIdentity(
-        checkMicrosoftIdToken(claims, { clientId: env.microsoftClientId, nonce, authority: env.microsoftAuthority })
-      ),
-  },
 };
 
 const directoryRedirectUri = (provider: DirectoryProvider) => `${env.apiUrl}/api/auth/${provider}/callback`;
 
-/**
- * What the dashboard says when the provider sent back an error instead of a code. Microsoft reports an
- * organization that only lets admins approve new apps with these AADSTS codes.
- */
-function providerRefusal(provider: DirectoryProvider, error: string, description: string): string {
-  if (provider === 'microsoft' && /AADSTS(65001|90094|90095)\b/.test(description)) return 'microsoft_admin_consent';
+/** What the dashboard says when the provider sent back an error instead of a code. */
+function providerRefusal(provider: DirectoryProvider, error: string): string {
   return error === 'access_denied' ? `${provider}_denied` : `${provider}_error`;
 }
 
@@ -252,7 +233,7 @@ function finishDirectorySignIn(provider: DirectoryProvider) {
     if (typeof req.query.error === 'string') {
       const description = typeof req.query.error_description === 'string' ? req.query.error_description : '';
       log.info(`[Auth] ${flow.name} sign-in came back with ${req.query.error}${description ? `: ${description.slice(0, 300)}` : ''}`);
-      return back({ error: providerRefusal(provider, req.query.error, description) });
+      return back({ error: providerRefusal(provider, req.query.error) });
     }
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     if (!code) return back({ error: `${provider}_failed` });
@@ -291,8 +272,6 @@ function finishDirectorySignIn(provider: DirectoryProvider) {
 
 authRouter.get('/google/start', authLimiter, startDirectorySignIn('google'));
 authRouter.get('/google/callback', authLimiter, asyncHandler(finishDirectorySignIn('google')));
-authRouter.get('/microsoft/start', authLimiter, startDirectorySignIn('microsoft'));
-authRouter.get('/microsoft/callback', authLimiter, asyncHandler(finishDirectorySignIn('microsoft')));
 
 // ---------------------------------------------------------------------------------------------
 

@@ -16,7 +16,7 @@ export default function PrivacyPage() {
       <Section title="What Taro collects">
         <Points
           items={[
-            ['Your account.', 'Your name, email, and profile picture from Slack, Google, or Microsoft when you sign in, and which workspace you belong to.'],
+            ['Your account.', 'Your name, email, and profile picture from Slack or Google when you sign in, and which workspace you belong to.'],
             ['Meetings.', 'The meeting link, the text of what Taro heard, what people asked for, and what Taro did, so your team can look back at it.'],
             ['Keys.', 'The provider keys your workspace adds. They are encrypted and never shown again.'],
             ['Calendar invitations.', "If you invite Taro's address to an event: its time, title, organizer, and meeting link."],
