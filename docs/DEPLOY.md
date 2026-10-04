@@ -132,7 +132,7 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `ENCRYPTION_KEY` | yes | Section 2 |
 | `API_URL` | yes | Public https URL of the API |
 | `APP_URL` | yes | Public URL of the dashboard |
-| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | yes | Section 3 |
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | for Slack | Section 3. At least one way to sign in (Slack, Google, or Microsoft) is required |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in | Section 3 |
 | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | for Microsoft sign-in | Section 3. `MICROSOFT_AUTHORITY` is optional: `common` (default), `organizations`, `consumers`, or a tenant ID |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | for GitHub | Section 4 |

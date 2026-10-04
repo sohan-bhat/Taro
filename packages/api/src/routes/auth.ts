@@ -17,7 +17,7 @@
 
 import { Router, type Request, type Response, type Router as RouterType } from 'express';
 import { CompanyModel, LoginCodeModel, SessionModel, UserModel } from '../db/models';
-import { env, googleSignInConfigured, microsoftSignInConfigured } from '../config/env';
+import { env, googleSignInConfigured, microsoftSignInConfigured, slackConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createSession, requireAuth, type AuthedRequest } from '../middleware/auth';
 import { randomToken, sha256, signToken, verifyToken } from '../lib/crypto';
@@ -66,6 +66,7 @@ authRouter.get('/slack/start', authLimiter, (req, res) => {
   if (!nonce) {
     return res.redirect(`${returnTo}/auth/callback?error=start_from_taro`);
   }
+  if (!slackConfigured()) return res.redirect(`${returnTo}/auth/callback?error=slack_unavailable`);
 
   const state = signToken('login', { r: returnTo, n: nonce }, STATE_TTL_S);
   const params = new URLSearchParams({
@@ -98,6 +99,7 @@ authRouter.get(
       res.redirect(`${returnTo}/auth/callback?${new URLSearchParams(params)}`);
 
     if (req.query.error) return back({ error: 'denied' });
+    if (!slackConfigured()) return back({ error: 'slack_unavailable' });
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     if (!code) return back({ error: 'missing_code' });
 

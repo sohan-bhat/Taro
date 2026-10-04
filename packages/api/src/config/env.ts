@@ -99,8 +99,8 @@ export const env = {
   // IDs of the Taro browser extension builds allowed to call the API (unpacked, Chrome Web Store, Edge).
   extensionIds: list(optional('EXTENSION_IDS')).filter((id) => /^[a-p]{32}$/.test(id)),
 
-  slackClientId: required('SLACK_CLIENT_ID'),
-  slackClientSecret: required('SLACK_CLIENT_SECRET'),
+  slackClientId: optional('SLACK_CLIENT_ID'),
+  slackClientSecret: optional('SLACK_CLIENT_SECRET'),
   // Socket Mode token (xapp-...); without it Taro can't see meeting links posted in Slack.
   slackAppToken: optional('SLACK_APP_TOKEN'),
 
@@ -152,6 +152,11 @@ export function githubOAuthConfigured(): boolean {
   return !!(env.githubAppClientId && env.githubAppClientSecret);
 }
 
+/** The Slack app: Sign in with Slack and adding Taro to Slack both need it. */
+export function slackConfigured(): boolean {
+  return !!(env.slackClientId && env.slackClientSecret);
+}
+
 export function googleSignInConfigured(): boolean {
   return !!(env.googleClientId && env.googleClientSecret);
 }
@@ -164,6 +169,12 @@ export function serverSttAvailable(): boolean {
   return !!env.sttWsUrl || env.localAsr;
 }
 
+if (!slackConfigured() && !googleSignInConfigured() && !microsoftSignInConfigured()) {
+  throw new Error(
+    'No way to sign in is set up. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET.'
+  );
+}
+
 if (isProduction && (!apiUrl.startsWith('https://') || !appUrl.startsWith('https://'))) {
   console.warn('[Config] API_URL and APP_URL should be https in production.');
 }
@@ -174,7 +185,7 @@ console.log('[Config] Environment loaded:', {
   appUrl,
   webOrigins: env.webOrigins,
   slackSocketMode: !!env.slackAppToken,
-  signIn: ['slack', googleSignInConfigured() && 'google', microsoftSignInConfigured() && `microsoft (${env.microsoftAuthority})`].filter(Boolean),
+  signIn: [slackConfigured() && 'slack', googleSignInConfigured() && 'google', microsoftSignInConfigured() && `microsoft (${env.microsoftAuthority})`].filter(Boolean),
   githubApp: githubAppConfigured(),
   githubInstallVerification: githubOAuthConfigured(),
   calendarInvites: !!(env.inviteAddress && env.inboundSecret),

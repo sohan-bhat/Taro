@@ -1,7 +1,7 @@
 import { Router, type Router as RouterType } from 'express';
 import { WebClient } from '@slack/web-api';
 import { CompanyModel, SlackConnectionModel, UserModel } from '../db/models';
-import { env } from '../config/env';
+import { env, slackConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { requireAdmin, requireAuth, type AuthedRequest } from '../middleware/auth';
 import { claimOwnership, linkSlackTeam, unlinkSlackTeam } from '../services/accounts';
@@ -23,6 +23,9 @@ slackRouter.post(
   '/install-url',
   requireAuth,
   asyncHandler(async (req: AuthedRequest, res) => {
+    if (!slackConfigured()) {
+      return res.status(409).json({ error: "Slack isn't set up on this Taro server.", code: 'SLACK_UNAVAILABLE' });
+    }
     const company = await CompanyModel.findById(req.companyId);
     // Anyone may add Taro to Slack while nobody owns the workspace; doing so is how it gets an owner.
     const unclaimed = !!company && !company.ownerClaimedAt;
@@ -57,6 +60,7 @@ slackRouter.get(
     const back = (query: string) => res.redirect(`${returnTo}/dashboard?${query}`);
     if (!state) return back('error=slack_expired');
     if (req.query.error) return back('error=slack_denied');
+    if (!slackConfigured()) return back('error=slack_failed');
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     if (!code) return back('error=slack_missing_code');
 

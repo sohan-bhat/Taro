@@ -386,19 +386,22 @@ export function SetupView({
       )}
 
       <SetupCard id="optional-title" title="Optional" className="mt-5">
-        {!slackIsRequired && (
-          <SetupRow
-            id="setup-slack"
-            label="Slack"
-            state={slack.connected ? `In ${slack.teamName ?? 'Slack'}` : 'Not connected'}
-            purpose={
-              slack.connected
-                ? 'Taro watches public channels for meeting links and replies in the thread.'
-                : 'Add Taro to Slack to hear meeting links in channels and post updates.'
-            }
-            actions={slackActionsFor()}
-          />
-        )}
+        {!slackIsRequired &&
+          (meta && !meta.slackSignIn && !slack.connected ? (
+            <SetupRow id="setup-slack" label="Slack" purpose="Slack isn't set up on this Taro server." />
+          ) : (
+            <SetupRow
+              id="setup-slack"
+              label="Slack"
+              state={slack.connected ? `In ${slack.teamName ?? 'Slack'}` : 'Not connected'}
+              purpose={
+                slack.connected
+                  ? 'Taro watches public channels for meeting links and replies in the thread.'
+                  : 'Add Taro to Slack to hear meeting links in channels and post updates.'
+              }
+              actions={slackActionsFor()}
+            />
+          ))}
         <GithubRow
           overview={overview}
           canEdit={canEdit}

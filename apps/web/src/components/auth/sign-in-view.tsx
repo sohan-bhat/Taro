@@ -28,6 +28,7 @@ const ERRORS: Record<string, string> = {
   expired: 'That sign-in took too long to finish. Start it again below.',
   denied: "Slack sign-in was canceled. Start again when you're ready.",
   slack_failed: "Slack couldn't confirm who you are. Try again.",
+  slack_unavailable: "Sign in with Slack isn't set up on this Taro server. Choose another way below.",
   missing_code: "Slack didn't send Taro what it needed. Try again.",
   mismatch: 'That sign-in started in a different tab or browser. Start it again here.',
   start_from_taro: 'Start signing in from this page.',
