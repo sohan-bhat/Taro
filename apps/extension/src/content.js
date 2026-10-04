@@ -1,26 +1,20 @@
-// Taro's button in Google Meet. It goes in the slot Meet leaves for extension
-// buttons at the end of its bottom bar, right before Meet's own Chat and
-// Meeting tools group, and takes that group's look: Meet's sizes, colors,
-// states, and focus ring, read from the page wherever Meet exposes them, so it
-// follows Meet's theme and layout. Everything lives in closed shadow roots the
-// page can't reach into, and only real clicks and key presses act. It never
-// reads captions, chat, or names: from the page it takes only the meeting code
-// in the address and where Meet's controls are.
+// Taro's button in Google Meet: a Material 3 button in Taro's purple, with the
+// Taro mark and a word or two saying what it does, at the left end of Meet's
+// bottom bar in the slot Meet leaves there for extension buttons. It only ever
+// takes room that is free: Meet's own items keep their size and stay in view,
+// and Meet's center controls never move. Everything lives in closed shadow
+// roots the page can't reach into, and only real clicks and key presses act.
+// It never reads captions, chat, or names: from the page it takes only the
+// meeting code in the address and where Meet's controls are.
 (() => {
   if (window.__taroInvite) return;
   window.__taroInvite = true;
 
-  // The Taro mark (apps/web/src/components/brand.tsx) on Meet's 24px icon grid,
-  // in the two forms Meet's own toggles use: outlined at rest, filled when on.
-  // Strokes match Meet's 2px icons and the bars sit on whole pixels.
-  const SPROUT = '<path d="M12 6.08V2.5M12 4.14L9.64 2.5M12 4.14L14.36 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
-  const MARKS =
-    '<svg class="mark outline" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">' +
-    SPROUT +
-    '<path d="M12 6.79C14.44 6.97 17.62 10.43 17.62 14.7C17.62 18.61 15.01 21.5 12 21.5C8.99 21.5 6.38 18.61 6.38 14.7C6.38 10.43 9.56 6.97 12 6.79Z" fill="none" stroke="currentColor" stroke-width="2"/>' +
-    '<path d="M9.5 14v1M12 12.75v3.5M14.5 14v1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    '<svg class="mark filled" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">' +
-    SPROUT +
+  // The Taro mark (apps/web/src/components/brand.tsx) on a 24px icon grid: the
+  // sprout at a 2px stroke and the bars on whole pixels, so it stays crisp at 100%.
+  const MARK =
+    '<svg class="mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">' +
+    '<path d="M12 6.08V2.5M12 4.14L9.64 2.5M12 4.14L14.36 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
     '<path fill="currentColor" fill-rule="evenodd" d="M12 5.79C14.88 5.99 18.62 9.92 18.62 14.77C18.62 19.22 15.54 22.5 12 22.5C8.46 22.5 5.38 19.22 5.38 14.77C5.38 9.92 9.12 5.99 12 5.79Z' +
     'M8 13.5a1 1 0 0 1 2 0v2a1 1 0 0 1 -2 0ZM11 12a1 1 0 0 1 2 0v5a1 1 0 0 1 -2 0ZM14 13.5a1 1 0 0 1 2 0v2a1 1 0 0 1 -2 0Z"/></svg>';
 
@@ -32,60 +26,55 @@
     open: symbol('M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z'),
   };
 
-  // Meet's GM3 color tokens are inherited custom properties, which `all: initial`
-  // leaves alone, so inside the bar these resolve to Meet's live theme. The
-  // fallbacks are Meet's dark values, for the floating spot outside the bar.
-  // Meet loads Google Sans and Roboto; the bundled face stands in for both.
+  // Meet's focus ring color is an inherited GM3 custom property, which `all:
+  // initial` leaves alone, so inside the bar it is Meet's live one; the fallback
+  // is Meet's dark value. Meet loads Google Sans and Roboto; the bundled face
+  // stands in for both.
   const TOKENS = `
     --sans: 'Google Sans', 'Taro Record', Roboto, Arial, sans-serif;
-    --on-surface-variant: var(--gm3-sys-color-on-surface-variant, #c4c7c5);
-    --on-background: var(--gm3-sys-color-on-background, #e3e3e3);
-    --surface-container: var(--gm3-sys-color-surface-container, #1e1f20);
-    --primary-fixed-dim: var(--gm3-sys-color-primary-fixed-dim, #a8c7fa);
     --secondary: var(--gm3-sys-color-secondary, #7fcfff);
   `;
 
   const STYLE = `
     :host { all: initial !important; display: inline-flex !important; vertical-align: top !important; flex: none !important; ${TOKENS} }
-    /* The slot of Meet's group that Taro fills. When it sits against Meet's pill
-       it draws the pill's start and reaches under Meet's rounded end, so the two
-       read as one group; every number here comes from Meet's group at runtime. */
-    .item { display: flex; align-items: center; box-sizing: border-box; height: var(--pill-h, auto); margin: 0 0 var(--pill-mb, 0px);
-      margin-inline-end: var(--merge, 0px); padding-inline-start: var(--pill-pad, 0px); background: var(--pill-bg, transparent);
-      border-start-start-radius: var(--pill-r, 0px); border-end-start-radius: var(--pill-r, 0px); }
-    /* Meet paints its pill after this slot, so this strip only shows where Meet's rounded end leaves a gap. */
-    .item::after { content: ''; flex: none; align-self: stretch; width: var(--pill-reach, 0px); margin-inline-end: calc(-1 * var(--pill-reach, 0px));
-      background: var(--pill-bg, transparent); pointer-events: none; }
-    .item.floating { position: fixed; inset-inline-start: 16px; bottom: 88px; z-index: 2147482000; height: auto; margin: 0; padding: 0 4px;
-      border-radius: 28px; background: var(--surface-container); }
-    .item.floating::after { display: none; }
-    .control { position: relative; display: grid; place-items: center; box-sizing: border-box; flex: none;
-      width: var(--btn, 48px); height: var(--btn, 48px); margin: var(--btn-my, 4px) 0; padding: 0; border: 0;
-      border-radius: calc(var(--btn, 48px) / 2); background: transparent; color: var(--icon, var(--on-surface-variant));
-      cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; }
-    .control::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
-      background: var(--hover-color, var(--on-background)); transition: opacity 75ms linear; }
-    .control:hover::before { opacity: var(--hover-opacity, 0.12); }
-    .control:active::before { background: var(--pressed-color, var(--on-background)); opacity: var(--pressed-opacity, 0.16); transition-duration: 105ms; }
+    /* Room around the button for Meet's focus ring, which Meet's left section would otherwise clip. */
+    .item { display: flex; align-items: center; margin-block: 5px calc(5px + var(--mb, 0px)); margin-inline: var(--lead, 0px) var(--gap, 0px); }
+    .item.floating { position: fixed; inset-inline-start: 16px; bottom: 88px; z-index: 2147482000; margin: 0; }
+
+    /* A Material 3 tonal button in Taro's purple: resting, a brighter tone while
+       Taro is on its way in, and a light one, unmistakably on, while it listens.
+       Every pairing clears 4.5:1, hover and press included. */
+    .control { --container: #4e3564; --content: #f4f0f6; position: relative; display: inline-flex; align-items: center; justify-content: center;
+      gap: 8px; box-sizing: border-box; height: var(--h, 48px); min-width: var(--h, 48px); margin: 0; padding-block: 0;
+      padding-inline: 16px 20px; border: 0; border-radius: calc(var(--h, 48px) / 2); background: var(--container); color: var(--content);
+      font: 500 14px/20px var(--sans); letter-spacing: 0.1px; white-space: nowrap; cursor: pointer; outline: none;
+      -webkit-tap-highlight-color: transparent; user-select: none; }
+    .control.progress { --container: #6e5289; --content: #f4f0f6; }
+    .control.on { --container: #dcc6f2; --content: #1d1724; }
+    .compact .control { width: var(--h, 48px); padding: 0; }
+    .compact .label { display: none; }
+    .floating .control { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15); }
+    .mark { flex: none; display: block; width: 24px; height: 24px; pointer-events: none; }
+    .label { pointer-events: none; }
+    /* Material 3 state layers, in the content color. */
+    .control::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--content); opacity: 0;
+      pointer-events: none; transition: opacity 75ms linear; }
+    .control:hover::before { opacity: 0.08; }
+    .control:focus-visible::before, .control:active::before { opacity: 0.1; }
     .control[aria-disabled='true'] { cursor: default; }
-    .control[aria-disabled='true']:active::before { opacity: var(--hover-opacity, 0.12); }
     /* Meet's focus ring: 3px of its secondary color, 2px out, flaring once as it appears. */
-    .control::after { content: ''; position: absolute; inset: -2px; display: none; border-radius: calc(var(--btn, 48px) / 2 + 2px);
+    .control::after { content: ''; position: absolute; inset: -2px; display: none; border-radius: calc(var(--h, 48px) / 2 + 2px);
       pointer-events: none; box-shadow: 0 0 0 3px var(--secondary); }
     .control:focus-visible::after { display: block; animation: ring-grow 150ms cubic-bezier(0.2, 0, 0, 1), ring-settle 450ms cubic-bezier(0.2, 0, 0, 1) 150ms; }
     @keyframes ring-grow { from { box-shadow: 0 0 0 0 var(--secondary); } to { box-shadow: 0 0 0 8px var(--secondary); } }
     @keyframes ring-settle { from { box-shadow: 0 0 0 8px var(--secondary); } }
+    /* Like Meet's own buttons, the shape firms up while pressed and colors step between states. */
     @media not (prefers-reduced-motion) {
-      .control { transition: border-radius 200ms steps(6, jump-none); }
+      .control { transition: border-radius 200ms steps(6, jump-none), background-color 200ms steps(6, jump-none), color 200ms steps(6, jump-none); }
       .control:active { border-radius: 8px; }
       .control:active::after { border-radius: 10px; }
     }
     @media (prefers-reduced-motion) { .control:focus-visible::after { animation: none; } }
-    .mark { display: block; width: var(--icon-size, 24px); height: var(--icon-size, 24px); pointer-events: none; }
-    .filled { display: none; }
-    .control.progress, .control.on { color: var(--primary-fixed-dim); }
-    .control.on .outline { display: none; }
-    .control.on .filled { display: block; }
 
     /* Meet's tooltip: always dark, whatever Meet's theme. It grows in from 80% on the button's side and fades out. */
     .tip { position: fixed; inset: auto; margin: 0; box-sizing: border-box; min-width: 40px; max-width: 200px; min-height: 22px; max-height: 40vh;
@@ -120,8 +109,9 @@
     .entry svg { flex: none; width: 24px; height: 24px; color: var(--menu-icon); }
 
     @media (forced-colors: active) {
+      .control { border: 1px solid ButtonText; }
+      .control.on { background: Highlight; color: HighlightText; }
       .control:focus-visible::after { box-shadow: none; outline: 3px solid CanvasText; }
-      .control.on { outline: 1px solid CanvasText; }
       .tip, .menu { border: 1px solid CanvasText; }
     }
   `;
@@ -168,12 +158,14 @@
   let pollTimer = null;
   let dead = false;
   let lastKey = '';
-  /** @type {{ label: string, action: string, look: string, answer?: string, menu: Array<{ id: string, label: string }> } | null} */
+  /** @type {{ label: string, tip: string, action: string, look: string, answer?: string, menu: Array<{ id: string, label: string }> } | null} */
   let view = null;
 
   let host = null;
   let item = null;
   let button = null;
+  let words = null;
+  let about = null;
   let tip = null;
   let menu = null;
   let tipTimer = null;
@@ -223,15 +215,22 @@
     const style = document.createElement('style');
     style.textContent = STYLE;
     item = document.createElement('div');
-    item.className = 'item';
+    item.className = 'item wide';
     button = document.createElement('button');
     button.type = 'button';
     button.className = 'control rest';
-    button.innerHTML = MARKS;
+    button.innerHTML = MARK;
+    words = document.createElement('span');
+    words.className = 'label';
+    button.append(words);
+    // The longer explanation, for screen readers, where it adds to the words on the button.
+    about = document.createElement('span');
+    about.id = 'about';
+    about.hidden = true;
     tip = document.createElement('div');
     tip.className = 'tip';
     tip.setAttribute('popover', 'manual');
-    // The tooltip repeats the button's name, so screen readers hear it once.
+    // The tooltip repeats the button's name or description, so screen readers hear it once.
     tip.setAttribute('aria-hidden', 'true');
     menu = document.createElement('div');
     menu.className = 'menu';
@@ -239,7 +238,7 @@
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', 'Taro');
     menu.tabIndex = -1;
-    item.append(button, tip, menu);
+    item.append(button, about, tip, menu);
     root.append(style, item);
 
     button.addEventListener('click', onButtonClick);
@@ -269,13 +268,16 @@
     stopWatching();
     clearTimeout(tipTimer);
     clearTimeout(menuTimer);
+    clearTimeout(resizeTimer);
     document.removeEventListener('pointerdown', onOutsidePointer, true);
     window.removeEventListener('blur', onWindowBlur);
     window.removeEventListener('scroll', onScroll, true);
     window.removeEventListener('resize', onResize);
     host?.remove();
-    host = item = button = tip = menu = null;
-    slot = group = null;
+    host = item = button = words = about = tip = menu = null;
+    slot = placedBefore = null;
+    tried = [];
+    layoutKey = '';
     missingSince = 0;
     lastKey = '';
     view = null;
@@ -297,9 +299,12 @@
     // Polling repeats the same answer most of the time; leave the DOM (and focus) alone then.
     const key = JSON.stringify(next);
     if (key === lastKey) return;
+    const relabeled = next.label !== view?.label;
     lastKey = key;
     view = next;
-    button.setAttribute('aria-label', next.label);
+    words.textContent = next.label;
+    about.textContent = next.tip;
+    nameButton();
     button.className = `control ${next.look}`;
     if (next.action === 'none') button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
@@ -311,9 +316,25 @@
       button.removeAttribute('aria-expanded');
       closeMenu(false);
     }
-    tip.textContent = next.label;
-    if (tipShown()) positionTip();
+    tip.textContent = next.tip;
+    if (!tipUseful()) hideTip();
+    else if (tipShown()) positionTip();
     buildMenu(next);
+    // New words may no longer fit beside Meet's items, or may fit where the old ones didn't.
+    if (relabeled) place();
+  }
+
+  /** Its name is the words on it; with only the mark showing, the tooltip's words are. */
+  function nameButton() {
+    if (!view) return;
+    if (item.classList.contains('compact')) {
+      button.setAttribute('aria-label', view.tip);
+      button.removeAttribute('aria-describedby');
+    } else {
+      button.removeAttribute('aria-label');
+      if (view.tip !== view.label) button.setAttribute('aria-describedby', 'about');
+      else button.removeAttribute('aria-describedby');
+    }
   }
 
   // Updated in place rather than rebuilt, so a new answer arriving while the
@@ -363,6 +384,11 @@
     return !!tip?.classList.contains('shown');
   }
 
+  // The words on the button speak for themselves; the tooltip appears when it says more, or when only the mark shows.
+  function tipUseful() {
+    return !!view && (item.classList.contains('compact') || view.tip !== view.label);
+  }
+
   function scheduleTip() {
     clearTimeout(tipTimer);
     // Moving over from one of Meet's buttons whose tooltip is up, it shows at once, as Meet's do.
@@ -379,7 +405,7 @@
 
   function showTip() {
     clearTimeout(tipTimer);
-    if (!tip || !host?.isConnected || menuOpen() || !view) return;
+    if (!tip || !host?.isConnected || menuOpen() || !tipUseful()) return;
     try {
       if (!tip.matches(':popover-open')) tip.showPopover();
     } catch {
@@ -566,10 +592,10 @@
     const kind = lib.noticeKind(text);
     const snack = document.createElement('div');
     snack.className = pageDark() ? 'snack dark' : 'snack';
-    const words = document.createElement('div');
-    words.className = 'text';
-    words.textContent = text;
-    snack.append(words);
+    const line = document.createElement('div');
+    line.className = 'text';
+    line.textContent = text;
+    snack.append(line);
     if (kind.dismiss) {
       const dismiss = document.createElement('button');
       dismiss.type = 'button';
@@ -624,26 +650,36 @@
 
   // ---------------------------------------------------------------- placement
 
-  // Meet renders an empty #browser-extension-end-buttons just before its own
-  // Chat and Meeting tools group, says in the page that extensions may put
-  // buttons there, and leaves that slot's contents alone when it redraws. If a
-  // future Meet drops the slot, the button goes right before Meet's group,
-  // found by what makes those buttons work in any language: real buttons in
-  // the bar that open Meet's side panel.
-  const SLOT = 'browser-extension-end-buttons';
+  // Meet renders an empty #browser-extension-start-buttons at the left end of
+  // its bottom bar and #browser-extension-end-buttons just before its Chat and
+  // Meeting tools group, says in the page that extensions may put buttons
+  // there, and leaves their contents alone when it redraws. Taro takes the
+  // start: the left end of the bar, where the eye starts and nothing of Meet's
+  // competes. It takes only room that is free there, so where its words don't
+  // fit it shows just the mark, then moves to the end slot, and with no bar at
+  // all it floats at the bottom left.
+  const START = 'browser-extension-start-buttons';
+  const END = 'browser-extension-end-buttons';
+  const PLANS = /** @type {const} */ ([
+    [START, 'wide'],
+    [START, 'compact'],
+    [END, 'wide'],
+    [END, 'compact'],
+  ]);
   const PANEL_BUTTONS = 'button[aria-controls][data-panel-id], [role="button"][aria-controls][data-panel-id]';
-  const FIT = ['--pill-bg', '--pill-h', '--pill-r', '--pill-pad', '--pill-mb', '--pill-reach', '--merge', '--btn', '--btn-my', '--icon',
-    '--icon-size', '--hover-color', '--hover-opacity', '--pressed-color', '--pressed-opacity'];
+  const FIT = ['--h', '--mb', '--gap', '--lead'];
 
   let slot = null;
-  let group = null;
+  let placedBefore = null;
+  let tried = [];
+  let layoutKey = '';
   let observer = null;
   let checkTimer = null;
+  let resizeTimer = null;
   let lastSearch = 0;
   let missingSince = 0;
   let reinserts = [];
   let pausedUntil = 0;
-  let fitKey = '';
 
   function shown(el) {
     if (!el) return false;
@@ -652,133 +688,149 @@
     return r.width > 0 && r.height > 0;
   }
 
-  /** Meet's own group of panel buttons in the bottom bar, if it is on screen. */
-  function meetGroup() {
-    for (const b of document.querySelectorAll(PANEL_BUTTONS)) {
-      const r = b.getBoundingClientRect();
-      // Meeting details can live at the top of the window; only the bar's buttons count.
-      if (!shown(b) || r.bottom < innerHeight - 140) continue;
-      const nav = b.closest('nav');
-      if (nav) return nav;
-      let wrap = b;
-      while (wrap.parentElement && wrap.parentElement.querySelectorAll(PANEL_BUTTONS).length === 1) wrap = wrap.parentElement;
-      return wrap.parentElement ? wrap : null;
+  // A part of the bar with nothing in it yet has no height, only width.
+  function findSlot(id) {
+    for (const s of document.querySelectorAll(`[id="${id}"]`)) {
+      const section = s.parentElement;
+      if (section && (typeof section.checkVisibility !== 'function' || section.checkVisibility()) && section.getBoundingClientRect().width > 0) return s;
     }
     return null;
   }
 
-  function findSpot() {
-    for (const s of document.querySelectorAll(`[id="${SLOT}"]`)) {
-      if (!shown(s.parentElement)) continue;
-      let next = s.nextElementSibling;
-      while (next && !shown(next)) next = next.nextElementSibling;
-      return { parent: s, before: null, group: next && (next.matches('nav') || next.querySelector(PANEL_BUTTONS)) ? next : null };
-    }
-    const g = meetGroup();
-    return g?.parentElement ? { parent: g.parentElement, before: g, group: g } : null;
+  /** Meet's own items in a slot's part of the bar, and other extensions' buttons in the slot: none of it may shrink or be cut off. */
+  function itemsBeside(s) {
+    return [...s.parentElement.children, ...s.children].filter((el) => el !== s && el !== host && shown(el));
   }
 
-  function inBar() {
-    return !!host?.isConnected && !!slot?.isConnected && host.parentNode === slot;
+  /** Where Meet's center controls are, to check they never move. */
+  function centerKey() {
+    const region = document.getElementById('browser-extension-center-buttons')?.closest('[role="region"]');
+    const buttons = region ? [...region.querySelectorAll('button')].filter(shown) : [];
+    return buttons.map((b) => Math.round(b.getBoundingClientRect().left * 2) / 2).join();
+  }
+
+  function measure(s) {
+    return { box: s.parentElement.getBoundingClientRect(), items: itemsBeside(s).map((el) => [el, el.getBoundingClientRect()]), center: centerKey() };
+  }
+
+  /** Whether the button, as it now stands in slot s, leaves everything of Meet's as it was. */
+  function fits(s, before) {
+    const box = s.parentElement.getBoundingClientRect();
+    const inside = (r) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+    const own = item.getBoundingClientRect();
+    if (!inside(own) || own.left < 0 || own.right > innerWidth || centerKey() !== before.center) return false;
+    // Nothing of Meet's may shrink, be cut off, or be pushed further out of the window.
+    return before.items.every(([el, was]) => {
+      const r = el.getBoundingClientRect();
+      return r.width >= was.width - 0.5 && inside(r) && r.right <= Math.max(was.right, innerWidth) + 0.5 && r.left >= Math.min(was.left, 0) - 0.5;
+    });
+  }
+
+  /** What the bar looked like, without Taro: placement is worked out again when this changes. */
+  function currentLayout() {
+    const parts = [innerWidth, innerHeight];
+    for (const id of [START, END]) {
+      const s = findSlot(id);
+      parts.push(s ? [Math.round(s.parentElement.getBoundingClientRect().width), ...itemsBeside(s).map((el) => Math.round(el.getBoundingClientRect().width))].join('/') : '-');
+    }
+    return parts.join(',');
+  }
+
+  /**
+   * Sizes the button like Meet's items beside it: as tall as a control-sized
+   * neighbor (the Ask Gemini field) or else Meet's own buttons, centered on the
+   * same line, with Meet's spacing.
+   */
+  function sizeFor(s) {
+    const section = s.parentElement;
+    const box = section.getBoundingClientRect();
+    const peers = itemsBeside(s).map((el) => el.getBoundingClientRect()).filter((r) => r.height >= 32 && r.height <= 64);
+    const control = (s.id === END ? section.querySelector(PANEL_BUTTONS) : null) ??
+      [...(document.getElementById('browser-extension-center-buttons')?.closest('[role="region"]')?.querySelectorAll('button') ?? [])].find(shown);
+    const ref = (s.id === START ? peers.sort((a, b) => b.height - a.height)[0] : null) ?? control?.getBoundingClientRect();
+    const height = ref ? Math.min(Math.max(Math.round(ref.height), 36), 56) : 48;
+    const lift = ref ? Math.round(2 * (box.top + box.height / 2 - (ref.top + ref.height / 2))) : 0;
+    item.style.setProperty('--h', `${height}px`);
+    item.style.setProperty('--mb', `${Math.min(Math.max(lift, 0), 16)}px`);
+    // 8px from the next item, Meet's own spacing in the bar, counting any margin it already has.
+    let next = s.nextElementSibling;
+    while (next && !shown(next)) next = next.nextElementSibling;
+    const already = next ? parseFloat(getComputedStyle(next).marginInlineStart) || 0 : 0;
+    item.style.setProperty('--gap', `${Math.max(0, 8 - already)}px`);
+    item.style.setProperty('--lead', s.id === START ? '5px' : '0px');
+  }
+
+  function setForm(form) {
+    item.classList.remove('wide', 'compact', 'floating');
+    item.classList.add(form);
+    nameButton();
+  }
+
+  function inSlot() {
+    return !!slot?.isConnected && host?.parentNode === slot && !!host?.isConnected;
+  }
+
+  // Moving the button would pull focus or an open menu out from under the person.
+  function busy() {
+    return !!host?.isConnected && (host.matches(':focus-within') || menuOpen());
   }
 
   function place() {
     if (!host || dead) return;
     lastSearch = Date.now();
     try {
-      const spot = Date.now() < pausedUntil ? null : findSpot();
-      if (spot) {
-        // Never reorder what's already in Meet's slot; other extensions share it.
-        if (host.parentNode !== spot.parent || (spot.before && host.nextSibling !== spot.before)) {
-          const hadFocus = host.matches(':focus-within');
-          spot.parent.insertBefore(host, spot.before);
-          if (hadFocus) button.focus();
+      const layout = currentLayout();
+      // Same bar, new words: try this spot's two forms where the button stands,
+      // without moving it. From the end slot, the start is worth another look,
+      // unless that would pull focus away.
+      if (inSlot() && placedBefore && layout === layoutKey && (slot.id === START || busy())) {
+        for (const form of ['wide', 'compact']) {
+          setForm(form);
+          if (fits(slot, placedBefore)) return;
         }
-        slot = spot.parent;
-        group = spot.group;
-        missingSince = 0;
-        item.classList.remove('floating');
-        fit();
-        liftNotices();
-        return;
       }
-      slot = group = null;
+      if (busy()) return;
+      const paused = Date.now() < pausedUntil;
+      const slots = { [START]: paused ? null : findSlot(START), [END]: paused ? null : findSlot(END) };
+      tried = [document.getElementById(START), document.getElementById(END)];
+      // Each spot measured without Taro, then with it; the first that leaves Meet's bar as it was wins.
+      for (const [id, form] of PLANS) {
+        const s = slots[id];
+        if (!s) continue;
+        host.remove();
+        const before = measure(s);
+        setForm(form);
+        sizeFor(s);
+        s.append(host);
+        if (fits(s, before)) {
+          slot = s;
+          placedBefore = before;
+          layoutKey = layout;
+          missingSince = 0;
+          liftNotices();
+          return;
+        }
+      }
+      host.remove();
+      slot = placedBefore = null;
       // Meet draws its bar after the page loads and sometimes redraws it in two
       // steps, so give it a moment before settling for the floating spot.
-      if (!missingSince) missingSince = Date.now();
-      if (Date.now() - missingSince < 2500 && !item.classList.contains('floating')) {
-        host.remove();
-        return;
+      if (!slots[START] && !slots[END] && !paused) {
+        if (!missingSince) missingSince = Date.now();
+        if (Date.now() - missingSince < 2500 && !item.classList.contains('floating')) {
+          layoutKey = '';
+          return;
+        }
       }
-      if (host.parentNode !== document.documentElement) document.documentElement.append(host);
+      layoutKey = layout;
       for (const p of FIT) item.style.removeProperty(p);
-      fitKey = '';
-      item.classList.add('floating');
+      setForm('floating');
+      document.documentElement.append(host);
       liftNotices();
     } catch {
       // Meet changed under us; try again on the next tick rather than break the page.
+      layoutKey = '';
     }
-  }
-
-  /**
-   * Takes on the look of Meet's group next door: its buttons' size, margins,
-   * icon color, and hover and press layers, and when the button sits right
-   * against Meet's pill, the pill itself.
-   */
-  function fit() {
-    if (!item || !host) return;
-    const values = {};
-    const ref = group && [...group.querySelectorAll('button, [role="button"]')].find(
-      (b) => shown(b) && b.getAttribute('aria-expanded') !== 'true' && b.getBoundingClientRect().height >= 32
-    );
-    let spacing = 0;
-    if (ref) {
-      const r = ref.getBoundingClientRect();
-      const cs = getComputedStyle(ref);
-      if (r.height <= 64) values['--btn'] = `${Math.round(r.height)}px`;
-      values['--btn-my'] = cs.marginTop;
-      values['--icon'] = cs.color;
-      const glyph = [...ref.querySelectorAll('i, svg, img')].find(shown)?.getBoundingClientRect();
-      if (glyph && glyph.height >= 16 && glyph.height <= 32) values['--icon-size'] = `${Math.round(glyph.height)}px`;
-      // Meet's buttons sit edge to edge today; if a later layout spaces them out, so does Taro.
-      const buttons = [...group.querySelectorAll('button, [role="button"]')].filter(shown);
-      const second = buttons[buttons.indexOf(ref) + 1]?.getBoundingClientRect();
-      const between = second ? Math.round(Math.abs(second.left - r.left) - r.width) : 0;
-      if (between > 0 && between <= 24) spacing = between;
-      for (const [ours, meets] of [
-        ['--hover-color', '--gm3-icon-button-filled-hover-state-layer-color'],
-        ['--hover-opacity', '--gm3-icon-button-filled-hover-state-layer-opacity'],
-        ['--pressed-color', '--gm3-icon-button-filled-pressed-state-layer-color'],
-        ['--pressed-opacity', '--gm3-icon-button-filled-pressed-state-layer-opacity'],
-      ]) {
-        const v = cs.getPropertyValue(meets).trim();
-        if (v) values[ours] = v;
-      }
-    }
-    const nextToGroup = group && (group.parentNode === host.parentNode ? host.nextElementSibling === group : host.parentNode.lastElementChild === host);
-    if (nextToGroup) {
-      const n = getComputedStyle(group);
-      const gap = parseFloat(n.marginInlineStart) || 0;
-      const pad = parseFloat(n.paddingInlineStart) || 0;
-      const filled = !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(n.backgroundColor);
-      values['--merge'] = `${spacing - gap - (filled ? pad : 0)}px`;
-      if (filled) {
-        const height = group.getBoundingClientRect().height;
-        const radius = Math.min(parseFloat(n.borderStartStartRadius) || 0, height / 2);
-        values['--pill-bg'] = n.backgroundColor;
-        values['--pill-h'] = `${height}px`;
-        values['--pill-r'] = `${radius}px`;
-        values['--pill-pad'] = `${pad}px`;
-        values['--pill-mb'] = n.marginBottom;
-        // Reaches under the start of Meet's pill, behind its rounded end, so the seam disappears.
-        values['--pill-reach'] = `${radius}px`;
-      }
-    }
-    const key = JSON.stringify(values);
-    if (key === fitKey) return;
-    fitKey = key;
-    for (const p of FIT) item.style.removeProperty(p);
-    for (const [p, v] of Object.entries(values)) item.style.setProperty(p, v);
   }
 
   // Meet redraws its bar when panels open, the window resizes, or it moves
@@ -786,11 +838,13 @@
   function watchBar() {
     if (observer || !document.body) return;
     observer = new MutationObserver(() => {
-      // Meet's page changes constantly; while the button sits in the bar this is all the work there is.
-      if (!host || checkTimer || inBar()) return;
-      // Dropped with a redraw: straight back, before anyone sees it gone. Otherwise look a few times a second at most.
+      // Meet's page changes constantly; while the button sits in its slot this is all the work there is.
+      if (!host || checkTimer || inSlot()) return;
       const dropped = !!slot;
+      // Floating with nothing new to try: a new bar brings new slots.
+      if (!dropped && document.getElementById(START) === tried[0] && document.getElementById(END) === tried[1] && host.isConnected) return;
       if (dropped) noteReinsert();
+      // Dropped with a redraw: straight back, before anyone sees it gone. Otherwise look a few times a second at most.
       checkTimer = setTimeout(
         () => {
           checkTimer = null;
@@ -827,9 +881,9 @@
   function onResize() {
     hideTip();
     closeMenu(false);
-    // Meet restyles its group in narrow windows; follow it.
-    if (inBar()) fit();
-    else place();
+    // Meet lays its bar out again as the window changes; so does Taro, once it settles.
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(place, 150);
   }
 
   // ---------------------------------------------------------------- actions
@@ -939,11 +993,8 @@
   function tick() {
     if (dead || !lib) return;
     const next = lib.meetingCodeFromPath(location.pathname);
-    if (host) {
-      // Meet hides parts of its bar in small windows; a slot that is still on the page but hidden doesn't count.
-      if (!inBar() || !shown(slot.parentElement)) place();
-      else fit();
-    }
+    // Dropped by a redraw, or the bar changed shape (Meet added or hid something, or a slot appeared): place it again.
+    if (host && ((slot && !inSlot()) || (!busy() && currentLayout() !== layoutKey))) place();
     if (next === code) return;
     code = next;
     snapshot = null;

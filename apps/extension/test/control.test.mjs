@@ -6,31 +6,40 @@ const meeting = (status, extra = {}) => ({ id: 'm', status, ...extra });
 const starting = meeting('joining', { joinStage: 'starting' });
 const lobby = meeting('joining', { joinStage: 'lobby' });
 
-// Every state the button can be in: its accessible name (which is also its tooltip), what a click does, and its look.
+// Every state the button can be in: the words on it (also its accessible name), its tooltip, what a click does, and its look.
 const STATES = [
-  ['not connected', { connected: false }, 'Connect Taro to this browser', 'connect', 'rest'],
-  ['signed out', { connected: false, expired: true }, 'Reconnect Taro', 'connect', 'rest'],
-  ['ready', { connected: true }, 'Invite Taro', 'invite', 'rest'],
-  ['sending', { connected: true, sending: true }, 'Taro is joining', 'none', 'progress'],
-  ['pending', { connected: true, meeting: meeting('pending') }, 'Taro is joining', 'menu', 'progress'],
-  ['bot starting', { connected: true, meeting: starting }, 'Taro is joining', 'menu', 'progress'],
-  ['in the lobby', { connected: true, meeting: lobby }, 'Waiting for someone to admit Taro', 'menu', 'progress'],
-  ['in the lobby, older server', { connected: true, meeting: meeting('joining') }, 'Waiting for someone to admit Taro', 'menu', 'progress'],
-  ['in the call', { connected: true, meeting: meeting('active') }, 'Taro is listening', 'menu', 'on'],
-  ['turned away', { connected: true, meeting: meeting('error', { errorMessage: 'Nobody admitted Taro.' }) }, 'Taro couldn’t join. Try again', 'retry', 'rest'],
-  ['request failed', { connected: true, error: 'Taro answered 500.' }, 'Taro couldn’t join. Try again', 'retry', 'rest'],
-  ['left', { connected: true, meeting: meeting('ended') }, 'Invite Taro', 'invite', 'rest'],
+  ['not connected', { connected: false }, 'Connect Taro', 'Connect Taro to this browser', 'connect', 'rest'],
+  ['signed out', { connected: false, expired: true }, 'Reconnect Taro', 'Reconnect Taro', 'connect', 'rest'],
+  ['ready', { connected: true }, 'Invite Taro', 'Invite Taro', 'invite', 'rest'],
+  ['sending', { connected: true, sending: true }, 'Taro is joining', 'Taro is joining', 'none', 'progress'],
+  ['pending', { connected: true, meeting: meeting('pending') }, 'Taro is joining', 'Taro is joining', 'menu', 'progress'],
+  ['bot starting', { connected: true, meeting: starting }, 'Taro is joining', 'Taro is joining', 'menu', 'progress'],
+  ['in the lobby', { connected: true, meeting: lobby }, 'Waiting to be admitted', 'Waiting for someone to admit Taro', 'menu', 'progress'],
+  ['in the lobby, older server', { connected: true, meeting: meeting('joining') }, 'Waiting to be admitted', 'Waiting for someone to admit Taro', 'menu', 'progress'],
+  ['in the call', { connected: true, meeting: meeting('active') }, 'Taro is listening', 'Taro is listening', 'menu', 'on'],
+  ['turned away', { connected: true, meeting: meeting('error', { errorMessage: 'Nobody admitted Taro.' }) }, 'Try again', 'Taro couldn’t join. Try again', 'retry', 'rest'],
+  ['request failed', { connected: true, error: 'Taro answered 500.' }, 'Try again', 'Taro couldn’t join. Try again', 'retry', 'rest'],
+  ['left', { connected: true, meeting: meeting('ended') }, 'Invite Taro', 'Invite Taro', 'invite', 'rest'],
 ];
 
-for (const [name, input, label, action, look] of STATES) {
+for (const [name, input, label, tip, action, look] of STATES) {
   test(`${name}: "${label}", ${action}, ${look}`, () => {
     const v = controlView(input);
     assert.equal(v.label, label);
+    assert.equal(v.tip, tip);
     assert.equal(v.action, action);
     assert.equal(v.look, look);
     assert.equal(v.menu.length > 0, action === 'menu', 'only menu states carry menu items');
   });
 }
+
+test('labels stay short enough for a button; tooltips carry the longer explanation', () => {
+  for (const [, input] of STATES) {
+    const v = controlView(input);
+    assert.ok(v.label.length <= 22, `short: ${v.label}`);
+    assert.ok(v.tip.length >= v.label.length, `the tooltip says at least as much: ${v.tip}`);
+  }
+});
 
 test('a sign-out wins over everything else, even mid-call', () => {
   assert.equal(controlView({ connected: true, expired: true, meeting: meeting('active') }).label, 'Reconnect Taro');
@@ -122,7 +131,7 @@ test('nothing a person can read uses dashes as punctuation', () => {
   const texts = [];
   for (const [, input] of STATES) {
     const v = controlView(input);
-    texts.push(v.label, ...v.menu.map((i) => i.label));
+    texts.push(v.label, v.tip, ...v.menu.map((i) => i.label));
   }
   const sending = { connected: true, sending: true };
   for (const after of [
