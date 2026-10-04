@@ -1,8 +1,8 @@
 import { FAQ } from './content';
 import { C, H2, LINE, SECTION_PAD } from './grid';
 
-// Questions are said, answers are recorded. Native disclosures: no script, no animation, and the
-// toggle is a word.
+// Questions are said, answers are recorded. Native disclosures, all closed at first: no script, no
+// animation, and the toggle is a word.
 export function Faq() {
   return (
     <section id="faq" aria-labelledby="faq-title" className={SECTION_PAD}>
@@ -12,8 +12,8 @@ export function Faq() {
             {FAQ.title}
           </h2>
           <div className="mt-8 border-t border-rule md:mt-10">
-            {FAQ.items.map((item, i) => (
-              <details key={item.q} className="group border-b border-rule" open={i === 0}>
+            {FAQ.items.map((item) => (
+              <details key={item.q} className="group border-b border-rule">
                 <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-baseline gap-5 py-[22px] [&::-webkit-details-marker]:hidden">
                   <span className="said text-said-lg text-ink">{item.q}</span>
                   <span aria-hidden="true" className="text-sm font-semibold text-taro">

@@ -41,14 +41,15 @@ export function Nav({ sections, demo }: { sections: ReadonlyArray<{ label: strin
         <Link href="/" aria-label="Taro home" className="-my-[5px] rounded-control py-[5px] md:my-0 md:py-0">
           <Wordmark size="nav" />
         </Link>
-        <nav aria-label="Sections" className="hidden items-center gap-7 wide:flex">
+        {/* The links and sign-in arrive with the hero's buttons (intro-late); the wordmark is there from the start */}
+        <nav aria-label="Sections" className="intro-late hidden items-center gap-7 wide:flex">
           {sections.map((section) => (
             <a key={section.href} href={section.href} className={LINK}>
               {section.label}
             </a>
           ))}
         </nav>
-        <div className="flex items-center gap-5">
+        <div className="intro-late flex items-center gap-5">
           <Link href="/demo" className={cn(LINK, 'inline-flex min-h-11 items-center md:min-h-0')}>
             {demo}
           </Link>

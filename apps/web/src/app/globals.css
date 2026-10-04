@@ -42,11 +42,18 @@
   }
   .on-taro .heard { background-image: linear-gradient(var(--heard-taro), var(--heard-taro)); }
 
-  /* Provenance: words Taro took from the conversation. Landing proof section only. */
+  /* Provenance: words Taro took from the conversation. The landing's issue step only. */
   .prov {
+    position: relative;
     text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: var(--lilac);
     text-decoration-thickness: 2px; text-underline-offset: 0.22em; text-decoration-skip-ink: none;
     border-radius: 2px; transition: background-color 120ms;
+  }
+  /* Who said them, above the words while they're hovered, focused, or tapped. */
+  .prov-who {
+    display: none; position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 1;
+    padding: 5px 8px; border-radius: 6px; background: var(--ink); color: var(--poi);
+    font: 600 12px/1.2 var(--font-record), ui-sans-serif, system-ui, sans-serif; white-space: nowrap; pointer-events: none;
   }
 
   .speaker { font-size: 12.5px; font-weight: 600; line-height: 1; color: var(--ash); text-align: right; }
@@ -57,28 +64,120 @@
 
   .tnum { font-variant-numeric: tabular-nums; }
   .wrap-anywhere { overflow-wrap: anywhere; }
+
+  /* A word of a request said aloud (landing only); relative, so the hero's words can rise as they're said. */
+  .spoken .word { position: relative; }
+
+  /* A headline line's mask (landing hero). The padding keeps ascenders and descenders inside it. */
+  .in-mask { display: block; overflow: hidden; padding: 0.1em 0 0.16em; margin: -0.1em 0 -0.16em; }
 }
 
-/* Provenance pairs light up together on hover, focus, or tap. No JavaScript. */
-.proof:has([data-pair='timeout']:is(:hover, :focus)) [data-pair='timeout'],
-.proof:has([data-pair='thirty']:is(:hover, :focus)) [data-pair='thirty'],
-.proof:has([data-pair='northwind']:is(:hover, :focus)) [data-pair='northwind'] {
-  background-color: var(--corm); text-decoration-style: solid; text-decoration-thickness: 3px;
-}
+/* A tap focuses the words, so touch works like hover. No JavaScript. */
+.prov:is(:hover, :focus) { background-color: var(--corm); text-decoration-style: solid; text-decoration-thickness: 3px; }
+.prov:is(:hover, :focus) .prov-who { display: block; }
 
-/* The one orchestrated moment: the hero exchange. Only opacity and background size change. */
 @media (prefers-reduced-motion: no-preference) {
-  .exchange-hero .w { animation: said-fill 180ms ease-out both; animation-delay: calc(300ms + var(--i) * 220ms); }
-  .exchange-hero .heard { animation: heard-sweep 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: 720ms; }
-  .exchange-hero .lands-name { animation: record-land 240ms ease-out both; animation-delay: 2050ms; }
-  .exchange-hero .lands { animation: record-land 240ms ease-out both; animation-delay: 2200ms; }
-  .lands-late { animation: record-land 240ms ease-out both; animation-delay: 2600ms; }
   .fresh { animation: settle-ink 2400ms ease-out forwards; }
   .on-taro .fresh { animation-name: settle-cream; }
 }
-@keyframes said-fill { from { opacity: 0.16; } to { opacity: 1; } }
+
+/*
+ * The landing's first screen plays once, as an intro, from first paint and with or without scripts:
+ * the headline rises from its masks, Priya's line fades in, Sam speaks word by word, Taro's answer
+ * lands, and the rest fades up. Each part sets its moment as --d (each word as --cue); the nav's
+ * links and the #how section (intro-late) arrive at --rest. intro-done.tsx ends it at once on any
+ * scroll, key, click, or tap. Only opacity and transform move, so it all stays in the accessibility tree.
+ */
+@media screen and (prefers-reduced-motion: no-preference) {
+  .intro .in-rise { animation: in-rise 500ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d) both; }
+  .intro .in-fade { animation: in-fade 300ms ease-out var(--d) both; }
+  .intro .spoken .word { animation: in-word 140ms ease-out var(--cue) both; }
+  .intro .spoken .heard { animation: heard-sweep 300ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--wake) both; }
+  .intro .in-land { animation: in-land 280ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d) both; transform-origin: left center; }
+  .intro .in-up { animation: in-up 320ms ease-out var(--d) both; }
+  .intro-late { animation: in-up 320ms ease-out var(--rest) both; }
+
+  /* The intro is over, or something in it has focus: whatever is still on its way in is simply there. */
+  html[data-intro='done'] .intro *, html[data-intro='done'] .intro-late,
+  .intro :focus-within, .intro-late:focus-within { animation: none !important; }
+}
+/* Never a ghost: the rise starts invisible, then the line slides up out of its mask. */
+@keyframes in-rise { from { opacity: 0; transform: translateY(0.6em); } 40% { opacity: 1; } to { opacity: 1; transform: none; } }
+@keyframes in-fade { from { opacity: 0; } to { opacity: 1; } }
+/* A word is invisible until it's said, then there in 140ms. */
+@keyframes in-word { from { opacity: 0; top: 4px; } to { opacity: 1; top: 0; } }
+@keyframes in-land { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes in-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes heard-sweep { from { background-size: 0% 0.5em; } to { background-size: 100% 0.5em; } }
-@keyframes record-land { from { opacity: 0; } to { opacity: 1; } }
+
+/*
+ * The #how story, pinned. story.tsx sets data-pinned only where the stage fits, never without
+ * scripts or with reduced motion; otherwise the steps are a plain list. While pinned it writes each
+ * step's progress through its stretch of the scroll, from 0 to 1: --t on its meeting, --ct on its
+ * card, and the next step's as --cn. Everything below maps those to opacity and transform with calc
+ * and clamp. Each step sets --land (where its result lands), --cap (its caption), and --land-next;
+ * each word of a request its --cue, and the heard mark its --wake. Every piece that moves keeps its
+ * own layer while pinned, so scrolling never changes layout, and the card's values don't inherit, so
+ * the card's insides are never restyled.
+ */
+@property --ct { syntax: '<number>'; inherits: false; initial-value: -1; }
+@property --cn { syntax: '<number>'; inherits: false; initial-value: -1; }
+@property --card-in { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --card-out { syntax: '<number>'; inherits: false; initial-value: 0; }
+@media screen {
+  .story[data-pinned] { height: calc(var(--steps) * 90vh + 100svh - 72px); }
+  .story[data-pinned] .story-stage {
+    position: sticky; top: 72px; height: calc(100svh - 72px); overflow: hidden;
+    display: grid; align-content: safe center;
+  }
+  .story[data-pinned] .story-steps { display: grid; border-bottom-width: 0; }
+  .story[data-pinned] .story-step { grid-area: 1 / 1; border-top-width: 0; }
+  /* Only the meeting on stage, and the card that's showing, take the pointer */
+  .story[data-pinned] .story-step:not([data-shown]) .story-meeting,
+  .story[data-pinned] .story-step:not([data-carded]) .story-card { pointer-events: none; }
+
+  /* The meeting comes in from below at the start of its step and leaves upward at the end, the two
+     overlapping a little at each change so the old lines hand over to the new ones. */
+  .story[data-pinned] .story-meeting {
+    --t: -1;
+    --in: clamp(0, (var(--t) + 0.04) / 0.14, 1);
+    --out: clamp(0, (var(--t) - 0.88) / 0.12, 1);
+    min-height: var(--meeting, auto);
+    opacity: calc(var(--in) - var(--out));
+    transform: translateY(calc((1 - var(--in) - var(--out)) * 28px));
+    will-change: transform, opacity;
+  }
+  .story[data-pinned] :is(.story-asker, .story-answer, .story-caption, .spoken .word) { will-change: opacity, transform; }
+  .story[data-pinned] .story-asker { opacity: clamp(0, (var(--t) - 0.13) / 0.02, 1); }
+  .story[data-pinned] .spoken .word { opacity: clamp(0, (var(--t) - var(--cue)) / 0.02, 1); }
+  /* The heard mark sweeps in as a scaled band behind the words, not a resized background. */
+  .story[data-pinned] .spoken .heard { position: relative; background-image: none; }
+  .story[data-pinned] .spoken .heard::before {
+    content: ''; position: absolute; z-index: -1; left: 0; right: 0; bottom: 0.06em; height: 0.5em;
+    background: var(--heard); transform-origin: left center; will-change: transform;
+    transform: scaleX(clamp(0, (var(--t) - var(--wake)) / 0.04, 1));
+  }
+  .story[data-pinned] .story-answer {
+    --a: clamp(0, (var(--t) - 0.6) / 0.1, 1);
+    opacity: var(--a); transform: scale(calc(0.98 + 0.02 * var(--a))); transform-origin: left center;
+  }
+  .story[data-pinned] .story-caption {
+    --c: clamp(0, (var(--t) - var(--cap)) / 0.08, 1);
+    opacity: var(--c); transform: translateY(calc((1 - var(--c)) * 6px));
+  }
+  /* One card position: a step's result rises in as it lands. The card before it lifts away just ahead
+     of that, so two cards never show at once. */
+  .story[data-pinned] .story-card {
+    --card-in: clamp(0, (var(--ct) - var(--land)) / 0.08, 1);
+    --card-out: clamp(0, (var(--cn) - var(--land-next) + 0.05) / 0.05, 1);
+    opacity: calc(var(--card-in) - var(--card-out));
+    transform: translateY(calc((1 - var(--card-in)) * 20px - var(--card-out) * 12px))
+      scale(calc(var(--fit, 1) * (0.97 + 0.03 * var(--card-in) - 0.02 * var(--card-out))));
+    transform-origin: top left;
+    will-change: transform, opacity;
+  }
+}
+
 @keyframes settle-ink { from { color: var(--ink); } to { color: var(--ink-2); } }
 @keyframes settle-cream { from { color: #FFFFFF; } to { color: var(--settle); } }
 
@@ -89,6 +188,7 @@
 /* Windows contrast themes: box shadows and gradients are dropped, so state moves to borders and underlines. */
 @media (forced-colors: active) {
   .heard { background-image: none; text-decoration-line: underline; text-decoration-thickness: 2px; text-underline-offset: 0.16em; }
+  .prov-who { border: 1px solid CanvasText; }
   [aria-current='page'], [aria-pressed='true'] { box-shadow: none; border-bottom: 2px solid CanvasText; }
   [role='switch'] { forced-color-adjust: none; background: Canvas; border: 1px solid CanvasText; }
   [role='switch'][aria-checked='true'] { background: Highlight; border-color: Highlight; }

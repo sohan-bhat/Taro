@@ -25,6 +25,7 @@ export function TranscriptRow({
   hideName = false,
   nameClassName,
   className,
+  style,
   children,
 }: {
   who?: string;
@@ -32,13 +33,15 @@ export function TranscriptRow({
   track?: 'lg' | 'compact';
   as?: 'div' | 'span' | 'li';
   hideName?: boolean;
-  // Extra classes for the name, like the hero's lands-name
+  // Extra classes for the name, like the landing's fade-in
   nameClassName?: string;
   className?: string;
+  // The landing's live talk sets its timing here, as custom properties
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
   return (
-    <Tag className={cn(track === 'compact' ? TRACK_COMPACT : TRACK_LG, className)}>
+    <Tag className={cn(track === 'compact' ? TRACK_COMPACT : TRACK_LG, className)} style={style}>
       {who ? (
         <span className={cn('speaker', taro && 'speaker-taro', nameClassName)} aria-hidden={hideName || undefined}>
           {who}

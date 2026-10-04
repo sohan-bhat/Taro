@@ -1,24 +1,13 @@
+import { cn } from '@/lib/utils';
 import { KEYS } from './content';
-import { C, H2, LINE, SECTION_PAD, SUB } from './grid';
+import { C, GROUP, H2, LINE, SECTION_PAD } from './grid';
 
-// `backticks` in the copy are set in the code face
-function WithCode({ text }: { text: string }) {
-  return (
-    <>
-      {text.split('`').map((part, i) =>
-        i % 2 ? (
-          <code key={i} className="font-mono text-[0.88em]">
-            {part}
-          </code>
-        ) : (
-          part
-        )
-      )}
-    </>
-  );
-}
+const ROW = 'border-b border-rule py-3.5';
+
+// Two equal halves from 1100px: at 7 to 5 the right column is too narrow for its statements to sit on one line.
 
 export function Keys() {
+  const { own, lane } = KEYS;
   return (
     <section id="keys" aria-labelledby="keys-title" className={SECTION_PAD}>
       <div className={C}>
@@ -26,33 +15,37 @@ export function Keys() {
           <h2 id="keys-title" className={H2}>
             {KEYS.title}
           </h2>
-          <p className={SUB}>{KEYS.sub}</p>
-          <ul
-            role="list"
-            className="mt-8 grid list-none gap-y-8 border-t border-ink pt-6 md:mt-12 lg:grid-cols-3 lg:gap-x-12 lg:pt-7"
-          >
-            {KEYS.slots.map((slot) => (
-              <li key={slot.label}>
-                <p className="text-sm font-semibold text-ash">{slot.label}</p>
-                <h3 className="mt-2 text-[22px] font-bold leading-[1.25] tracking-[-0.02em]">{slot.title}</h3>
-                <p className="mt-2.5 text-[15.5px] leading-[1.55] text-ink-2">{slot.body}</p>
-                <p className="mt-4 text-sm font-semibold text-ink">{slot.pays}</p>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-8 text-base text-ink-2">{KEYS.after}</p>
-
-          <h3 className="mt-14 text-h3 font-bold">{KEYS.factsTitle}</h3>
-          <dl className="mt-4 grid max-w-[44rem] gap-3 border-t border-rule pt-5">
-            {KEYS.facts.map((fact) => (
-              <div key={fact.term} className="grid gap-1 md:grid-cols-[140px_minmax(0,1fr)] md:gap-6">
-                <dt className="text-ui font-semibold text-ink">{fact.term}</dt>
-                <dd className="text-base text-ink-2">
-                  <WithCode text={fact.detail} />
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <div className="mt-8 grid gap-y-12 md:mt-12 wide:grid-cols-2 wide:items-start wide:gap-x-12">
+            <section aria-labelledby="keys-own">
+              <h3 id="keys-own" className={GROUP}>
+                {own.title}
+              </h3>
+              <dl>
+                {own.rows.map((row) => (
+                  <div
+                    key={row.label}
+                    className={cn(ROW, 'grid gap-1 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:items-baseline sm:gap-x-6')}
+                  >
+                    <dt className="text-sm font-semibold text-ash">{row.label}</dt>
+                    <dd className="text-pretty text-[17px] leading-[1.45] text-ink">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-5 max-w-[36em] text-pretty text-body text-ink-2">{own.after}</p>
+            </section>
+            <section aria-labelledby="keys-lane">
+              <h3 id="keys-lane" className={GROUP}>
+                {lane.title}
+              </h3>
+              <ul role="list" className="list-none">
+                {lane.items.map((item) => (
+                  <li key={item} className={cn(ROW, 'text-pretty text-[17px] leading-[1.45] text-ink')}>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
         </div>
       </div>
     </section>
