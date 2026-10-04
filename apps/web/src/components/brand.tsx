@@ -70,8 +70,10 @@ export function Wordmark({
       <Mark height={nav ? 29 : 24} tone={tone} />
       <span
         className={cn(
-          'font-extrabold leading-none tracking-[-0.035em]',
+          'font-extrabold tracking-[-0.035em]',
           nav ? 'text-[23px]' : 'text-[19px]',
+          // After the size: tailwind-merge drops a line height that comes before a font size.
+          'leading-none',
           tone === 'poi' ? 'text-white' : 'text-ink'
         )}
       >
