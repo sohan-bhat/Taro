@@ -3,13 +3,13 @@ import Link from 'next/link';
 import { Wordmark } from '@/components/brand';
 import { HeyTaro, TranscriptRow } from '@/components/exchange';
 import { MissingPath } from '@/components/auth/missing-path';
-import { PrimaryCta } from '@/components/sign-in';
 import { Button } from '@/components/ui/button';
 
 export const metadata: Metadata = { title: 'Page not found' };
 
 // The landing's container, so the wordmark and the line track sit where they do on the home page.
 const C = 'mx-auto w-full max-w-page px-4 min-[400px]:px-5 md:px-10';
+const NAV_LINK = 'min-h-11 items-center rounded-sm text-ui font-medium text-ink-2 hover:text-ink md:min-h-0';
 
 export default function NotFound() {
   return (
@@ -19,14 +19,20 @@ export default function NotFound() {
           <Link href="/" aria-label="Taro home" className="rounded-control">
             <Wordmark size="nav" />
           </Link>
+          {/* The landing nav's right side: Sign in and Get started for visitors, Dashboard once signed in */}
           <div className="flex items-center gap-5">
-            <Link
-              href="/demo"
-              className="inline-flex min-h-11 items-center rounded-sm text-ui font-medium text-ink-2 hover:text-ink md:min-h-0"
-            >
+            <Link href="/demo" className={`${NAV_LINK} hidden sm:inline-flex`}>
               Demo
             </Link>
-            <PrimaryCta size="md" compact />
+            <Link href="/signin" className={`${NAV_LINK} session-out inline-flex`}>
+              Sign in
+            </Link>
+            <Button asChild size="md" className="session-out">
+              <Link href="/signin">Get started</Link>
+            </Button>
+            <Button asChild size="md" className="session-in">
+              <Link href="/dashboard">Dashboard</Link>
+            </Button>
           </div>
         </div>
       </header>

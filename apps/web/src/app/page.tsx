@@ -19,7 +19,7 @@ export default function Home() {
   return (
     <div className={slackFace.variable} style={ms({ rest: INTRO.rest })}>
       <IntroDone ms={INTRO.end} />
-      <Nav sections={NAV.sections} demo={NAV.demo} />
+      <Nav sections={NAV.sections} demo={NAV.demo} signIn={NAV.signIn} start={NAV.start} dashboard={NAV.dashboard} />
       <main id="main">
         <NavSentinel />
         <Hero />
