@@ -13,6 +13,7 @@ import { env } from '../config/env';
 import { randomToken, sha256 } from '../lib/crypto';
 import { log } from '../lib/logger';
 import type { MeetingLink } from '../lib/meetingUrl';
+import { watchJoin } from './joinWatcher';
 import { MeetingBaasClient, MeetingBaasError } from './meetingbaas';
 import { resolveProviders } from './workspaceProviders';
 
@@ -149,7 +150,9 @@ export async function launchMeeting(opts: {
     });
     meeting.botId = botId;
     meeting.status = 'joining';
+    meeting.joinStage = 'starting';
     await meeting.save();
+    watchJoin({ meetingId: meeting._id.toString(), botId, apiKey: providers.meetingBaasKey! });
     log.info(`[Launcher] Bot ${botId} joining ${opts.link.platform} meeting ${meeting._id} (${opts.source})`);
     return { meeting, alreadyActive: false };
   } catch (error) {

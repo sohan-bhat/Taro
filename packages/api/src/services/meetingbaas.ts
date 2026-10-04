@@ -122,6 +122,12 @@ export class MeetingBaasClient {
     return typeof data.data?.status === 'string' ? data.data.status : undefined;
   }
 
+  /** The bot's current status code, such as joining_call or in_waiting_room. */
+  async botStatus(botId: string): Promise<string | undefined> {
+    const data = await this.call<{ data?: { status?: string } }>('GET', `/bots/${encodeURIComponent(botId)}/status`);
+    return data.data?.status;
+  }
+
   async leave(botId: string): Promise<void> {
     await this.call('POST', `/bots/${encodeURIComponent(botId)}/leave`);
   }

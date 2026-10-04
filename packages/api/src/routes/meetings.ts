@@ -19,7 +19,7 @@ export const meetingsRouter: RouterType = Router();
 meetingsRouter.use(requireAuthOrExtension);
 
 // What the extension sees of a meeting: its state and Taro's last answer, never the transcript.
-async function extensionView(meeting: { _id: unknown; status: string; errorMessage?: string }) {
+async function extensionView(meeting: { _id: unknown; status: string; errorMessage?: string; joinStage?: string }) {
   const last = await ActionLogModel.findOne({ meetingId: String(meeting._id), status: 'success' })
     .sort({ createdAt: -1 })
     .select('summary result');
@@ -28,6 +28,8 @@ async function extensionView(meeting: { _id: unknown; status: string; errorMessa
   return {
     _id: String(meeting._id),
     status: meeting.status,
+    // While joining: 'starting' until the bot asks to be let in, then 'lobby'
+    joinStage: meeting.joinStage,
     errorMessage: meeting.errorMessage,
     lastAnswer: answer || undefined,
   };

@@ -140,6 +140,9 @@ export interface Meeting {
   archivedAt?: string;
   transcript?: string;
   liveTranscript?: string;
+  // While joining: MeetingBaas is still starting the bot, or it's asking to be let in (since lobbyAt)
+  joinStage?: 'starting' | 'lobby';
+  lobbyAt?: string;
   lastAudioAt?: string;
   startedAt?: string;
   endedAt?: string;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SignInProvider, WorkspaceOverview } from '@taro/shared';
-import { setupSteps, slackRequired } from './meeting-state';
+import { meetingPhase, setupSteps, slackRequired } from './meeting-state';
 
 type Setup = Pick<WorkspaceOverview, 'slack' | 'workspace' | 'ready'>;
 
@@ -39,4 +39,11 @@ test('Google and Microsoft workspaces are set up without Slack', () => {
 test('a server from before Google and Microsoft sign-in sends no signInWith, which means Slack', () => {
   assert.equal(slackRequired({ signInWith: undefined as unknown as SignInProvider }), true);
   assert.deepEqual(setupSteps(overview(undefined)).steps[0].id, 'slack');
+});
+
+test('a joining meeting is starting until the bot asks to be let in', () => {
+  assert.equal(meetingPhase({ status: 'joining', joinStage: 'starting' }), 'starting');
+  assert.equal(meetingPhase({ status: 'joining', joinStage: 'lobby' }), 'lobby');
+  // A server from before join stages: as before, the lobby
+  assert.equal(meetingPhase({ status: 'joining' }), 'lobby');
 });

@@ -60,6 +60,8 @@ export function publicMeeting(m: WithId<MeetingDoc>, tally?: MeetingTally): Meet
     transcript: m.transcript,
     liveTranscript: m.liveTranscript,
     lastAudioAt: iso(m.lastAudioAt),
+    joinStage: m.joinStage,
+    lobbyAt: iso(m.lobbyAt),
     startedAt: iso(m.startedAt),
     endedAt: iso(m.endedAt),
     createdAt: iso(m.createdAt)!,

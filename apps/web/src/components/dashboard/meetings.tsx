@@ -59,7 +59,7 @@ export interface SendResult {
 
 /** The toast after Taro is sent, from the composer or "Send again". */
 export function toastSent({ alreadyActive }: Pick<SendResult, 'alreadyActive'>) {
-  showToast(alreadyActive ? 'Taro is already in that meeting.' : 'Taro is joining. Admit it from the lobby.');
+  showToast(alreadyActive ? 'Taro is already in that meeting.' : 'Taro is on its way. Admit it when it asks to join.');
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -619,7 +619,7 @@ export function LiveSlab({
         <p className="mt-[18px] text-base text-white">
           Admit Taro from the lobby to start. It&apos;s listed as {botName}.
         </p>
-        <p className="mt-1 text-sm text-taro-200">Asked to join {timeAgo(meeting.createdAt, tick)}</p>
+        <p className="mt-1 text-sm text-taro-200">Asked to join {timeAgo(meeting.lobbyAt ?? meeting.createdAt, tick)}</p>
       </>
     );
   } else {

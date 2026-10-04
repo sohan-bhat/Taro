@@ -24,6 +24,9 @@ export interface MeetingDoc {
   transcript?: string;
   liveTranscript?: string; // what realtime transcription has heard so far
   lastAudioAt?: Date; // last time audio reached the realtime pipeline
+  // While joining: whether MeetingBaas is still starting the bot or it's asking to be let in
+  joinStage?: 'starting' | 'lobby';
+  lobbyAt?: Date; // when it started asking to be let in
   commandsProcessedAt?: Date; // claimed atomically so the end-of-call sweep runs once
   startedAt?: Date;
   endedAt?: Date;
@@ -57,6 +60,8 @@ const meetingSchema = new Schema<MeetingDoc>(
     transcript: { type: String },
     liveTranscript: { type: String },
     lastAudioAt: { type: Date },
+    joinStage: { type: String, enum: ['starting', 'lobby'] },
+    lobbyAt: { type: Date },
     commandsProcessedAt: { type: Date },
     startedAt: { type: Date },
     endedAt: { type: Date },

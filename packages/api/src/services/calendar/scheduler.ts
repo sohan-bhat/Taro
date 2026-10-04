@@ -16,6 +16,7 @@ import type { CalendarOccurrenceDoc } from '../../db/models/CalendarOccurrence';
 import type { HydratedDocument } from 'mongoose';
 import { log, errorMessage } from '../../lib/logger';
 import { MeetingBaasClient, MeetingBaasError } from '../meetingbaas';
+import { watchJoin } from '../joinWatcher';
 import { launchMeeting, LaunchError } from '../meetingLauncher';
 import { resolveProviders } from '../workspaceProviders';
 import { DIRTY, syncOccurrenceBot } from './bots';
@@ -196,8 +197,26 @@ export async function markJoining(now: Date): Promise<number> {
     .limit(200);
   const ids = rows.filter((r) => r.meetingId && r.meetingId === r.bot?.meetingId).map((r) => r.meetingId!);
   if (ids.length === 0) return 0;
-  const result = await MeetingModel.updateMany({ _id: { $in: ids }, status: 'pending' }, { $set: { status: 'joining' } });
+  const result = await MeetingModel.updateMany(
+    { _id: { $in: ids }, status: 'pending' },
+    { $set: { status: 'joining', joinStage: 'starting' } }
+  );
+  if (result.modifiedCount > 0) await watchScheduledJoins(ids);
   return result.modifiedCount;
+}
+
+/** Follows each scheduled bot from its join time until it's asking to be let in, as for an immediate one. */
+async function watchScheduledJoins(ids: string[]): Promise<void> {
+  const meetings = await MeetingModel.find({ _id: { $in: ids }, status: 'joining', botId: { $exists: true } }).select('companyId botId');
+  const companies = new Map<string, string | null>();
+  for (const meeting of meetings) {
+    if (!companies.has(meeting.companyId)) {
+      const company = await CompanyModel.findById(meeting.companyId);
+      companies.set(meeting.companyId, company ? resolveProviders(company).meetingBaasKey : null);
+    }
+    const apiKey = companies.get(meeting.companyId);
+    if (apiKey && meeting.botId) watchJoin({ meetingId: String(meeting._id), botId: meeting.botId, apiKey });
+  }
 }
 
 /** Occurrences whose MeetingBaas bot is out of step, oldest change first, a few per tick. */

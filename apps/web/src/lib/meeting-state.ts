@@ -10,12 +10,13 @@ export type MeetingPhase = 'starting' | 'lobby' | 'live' | 'ended' | 'not_admitt
 
 const toMs = (t: When) => (t instanceof Date ? t.getTime() : typeof t === 'number' ? t : Date.parse(t));
 
-export function meetingPhase(m: Pick<Meeting, 'status' | 'errorCode' | 'startedAt'>): MeetingPhase {
+export function meetingPhase(m: Pick<Meeting, 'status' | 'errorCode' | 'startedAt' | 'joinStage'>): MeetingPhase {
   switch (m.status) {
     case 'pending':
       return 'starting';
     case 'joining':
-      return 'lobby';
+      // Starting until MeetingBaas says the bot is asking to be let in. Older servers don't say, so: the lobby.
+      return m.joinStage === 'starting' ? 'starting' : 'lobby';
     case 'active':
       return 'live';
     case 'ended':
@@ -42,7 +43,7 @@ export interface StatusPhrase {
   clockSince?: string;
 }
 
-type MeetingTimes = Pick<Meeting, 'status' | 'errorCode' | 'startedAt' | 'endedAt' | 'createdAt'>;
+type MeetingTimes = Pick<Meeting, 'status' | 'errorCode' | 'startedAt' | 'endedAt' | 'createdAt' | 'joinStage'>;
 
 /** The words on the right of a list row's first line: "Starting", "Live 34:12", "Ended 2:34 PM", "Couldn't join". */
 export function statusPhrase(m: MeetingTimes, { now = Date.now(), ...zone }: Zone & { now?: When } = {}): StatusPhrase {
