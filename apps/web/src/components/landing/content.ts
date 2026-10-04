@@ -346,6 +346,8 @@ export const FOOTER = {
   links: [
     { label: 'Demo', href: '/demo' },
     { label: 'Sign in', href: '/signin' },
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'Terms', href: '/terms' },
   ],
   // Shown only when NEXT_PUBLIC_REPO_URL is set
   source: 'Source and deploy guide',
