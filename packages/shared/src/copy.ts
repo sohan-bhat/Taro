@@ -139,6 +139,10 @@ export const COPY = {
   meetingBaasNoCredit: `Your MeetingBaas account is out of credit.`,
   meetingBaasRateLimited: `MeetingBaas is rate limiting this key. Try again in a moment.`,
   meetingBaasUnreachable: (detail?: string) => withDetail(`Couldn't reach MeetingBaas.`, detail),
+  // Making Taro leave when MeetingBaas can't confirm it. The meeting stays open until the bot is really gone.
+  leaveUnconfirmed: `MeetingBaas didn't confirm Taro left, so it may still be in the call. Try again in a moment.`,
+  leaveRefused: (reason: string) => `${sentence(reason)} Taro may still be in the call, so remove it from the call yourself.`,
+  leaveNeedsKey: `Taro needs a MeetingBaas key to leave a call on its own. Remove it from the call yourself, or add the key in Setup.`,
 } as const;
 
 /**

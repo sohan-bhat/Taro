@@ -132,7 +132,7 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 
 1. Publish it (or load it unpacked while testing) and note its extension ID.
 2. On the API, set `EXTENSION_IDS` to that ID (comma separate several builds).
-3. On the dashboard, set `NEXT_PUBLIC_TARO_EXTENSION_IDS` to the same list, and `NEXT_PUBLIC_TARO_EXTENSION_URL` to the store listing so the dashboard can link to it.
+3. On the dashboard, set `NEXT_PUBLIC_TARO_EXTENSION_IDS` to the same list, and `NEXT_PUBLIC_TARO_EXTENSION_URL` to the store listing so the dashboard can link to it. They're compiled into the site, so redeploy after changing them. On Vercel they go in the project settings; with Docker they're build arguments, and `docker-compose.yml` fills in the IDs from `EXTENSION_IDS`.
 
 The extension gets a limited connection: it can send Taro to a meeting, check on it, and make Taro leave, and nothing else.
 

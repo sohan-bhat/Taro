@@ -9,7 +9,8 @@ import { rateLimit } from '../lib/rateLimit';
 import { log, errorMessage } from '../lib/logger';
 import { publicActionLog, publicMeeting } from '../lib/views';
 import { launchMeeting, LaunchError } from '../services/meetingLauncher';
-import { MeetingBaasClient } from '../services/meetingbaas';
+import { COPY } from '@taro/shared';
+import { MeetingBaasClient, MeetingBaasError } from '../services/meetingbaas';
 import { emptyTally, meetingTallies } from '../services/tallies';
 import { resolveProviders } from '../services/workspaceProviders';
 
@@ -158,21 +159,37 @@ meetingsRouter.post(
     if (fromExtension && meetLinkFromCode((req.body ?? {}).meetingCode)?.url !== meeting.meetUrl) {
       return res.status(403).json({ error: 'This browser can only remove Taro from the meeting it is in.', code: 'FORBIDDEN' });
     }
+    const open = ['pending', 'joining', 'active'].includes(meeting.status);
     // Asked even when the meeting already looks over: the dashboard can be wrong about
     // that (a dropped audio stream), and a bot left behind keeps billing the workspace.
     if (meeting.botId && !meeting.commandsProcessedAt && meeting.status !== 'error') {
       const company = await CompanyModel.findById(req.companyId);
       const key = company ? resolveProviders(company).meetingBaasKey : null;
-      if (key) {
+      // An open meeting only ends here once MeetingBaas confirms the bot is out. Otherwise it
+      // stays open, so the person can try again, and it still ends when the bot really leaves.
+      if (!key) {
+        if (open) return res.status(409).json({ error: COPY.leaveNeedsKey, code: 'NO_MEETING_BOT_KEY' });
+      } else {
         try {
           await new MeetingBaasClient(key).leave(meeting.botId);
         } catch (error) {
-          // Still mark it ended locally; the bot times out on its own if the call failed
-          log.warn(`[Meetings] Leave request failed for ${meeting._id}: ${errorMessage(error)}`);
+          const status = error instanceof MeetingBaasError ? error.status : undefined;
+          // MeetingBaas no longer having the bot means it's already out of the call.
+          if (status !== 404) {
+            log.warn(`[Meetings] Leave request failed for ${meeting._id}: ${errorMessage(error)}`);
+            if (open) {
+              const retryable = status === undefined || status === 429 || status >= 500;
+              return res.status(502).json(
+                retryable
+                  ? { error: COPY.leaveUnconfirmed, code: 'LEAVE_UNCONFIRMED' }
+                  : { error: COPY.leaveRefused(errorMessage(error)), code: 'LEAVE_REFUSED' }
+              );
+            }
+          }
         }
       }
     }
-    if (['pending', 'joining', 'active'].includes(meeting.status)) {
+    if (open) {
       meeting.status = 'ended';
       meeting.endedAt = new Date();
       await meeting.save();

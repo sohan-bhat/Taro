@@ -61,6 +61,9 @@ const SAMPLES: SampleArgs = {
   meetingBaasNoCredit: null,
   meetingBaasRateLimited: null,
   meetingBaasUnreachable: ['The request timed out.'],
+  leaveUnconfirmed: null,
+  leaveRefused: ['MeetingBaas rejected the API key. Update it in Setup.'],
+  leaveNeedsKey: null,
 };
 
 function render(key: keyof Copy): string {

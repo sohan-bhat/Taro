@@ -32,6 +32,10 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:4000}
         NEXT_PUBLIC_SITE_URL: ${APP_URL:-http://localhost:3000}
+        NEXT_PUBLIC_GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+        # The Google Meet button trusts the same extension IDs as the API
+        NEXT_PUBLIC_TARO_EXTENSION_IDS: ${EXTENSION_IDS:-}
+        NEXT_PUBLIC_TARO_EXTENSION_URL: ${NEXT_PUBLIC_TARO_EXTENSION_URL:-}
     restart: unless-stopped
     ports:
       - '3000:3000'

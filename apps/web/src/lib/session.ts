@@ -57,19 +57,28 @@ export function takeLoginNonce(): string | null {
 }
 
 /**
- * A page on this site to return to after signing in, or null. Anything that
- * could leave the site (another origin, a protocol-relative path) is refused,
- * so a crafted sign-in link can't send someone elsewhere afterward.
+ * The path of `next` if it stays on `origin`, else null. The check runs on the
+ * parsed result, because the URL parser turns input like "/.//evil.example"
+ * into "//evil.example", which a browser reads as another site.
  */
-export function safeNextPath(next: string | null | undefined): string | null {
-  if (typeof window === 'undefined' || !next) return null;
-  if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || /[\u0000-\u001f]/.test(next)) return null;
+export function sameSitePath(next: string | null | undefined, origin: string): string | null {
+  // Backslashes act like slashes in web URLs, and no Taro path needs one.
+  if (!next || !next.startsWith('/') || /[\\\u0000-\u001f]/.test(next)) return null;
+  let url: URL;
   try {
-    const url = new URL(next, window.location.origin);
-    return url.origin === window.location.origin ? url.pathname + url.search : null;
+    url = new URL(next, origin);
   } catch {
     return null;
   }
+  if (url.origin !== origin) return null;
+  const path = url.pathname + url.search;
+  return path.startsWith('/') && !path.startsWith('//') ? path : null;
+}
+
+/** A page on this site to return to after signing in, or null, so a crafted sign-in link can't send someone elsewhere. */
+export function safeNextPath(next: string | null | undefined): string | null {
+  if (typeof window === 'undefined') return null;
+  return sameSitePath(next, window.location.origin);
 }
 
 /** Kept for this tab only, next to the nonce, and read once by the callback. */
