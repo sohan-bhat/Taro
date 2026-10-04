@@ -1,7 +1,8 @@
 'use client';
 
 // The dashboard shell's header (9.3): the wordmark, the workspace, the Meetings and Setup tabs,
-// and the account menu. Below 768px the tabs move to their own sticky row under it.
+// and the account menu. Below 768px the tabs move to their own sticky row under it. The demo
+// uses the same header with "Exit demo" in place of the menu.
 
 import * as React from 'react';
 import Link from 'next/link';
@@ -26,6 +27,34 @@ export function HeaderBar({ children }: { children?: React.ReactNode }) {
   );
 }
 
+/** The loaded shell: the workspace and its domain, the tabs, and `end` on the right (it brings its own ml-auto). */
+export function WorkspaceHeader({
+  name,
+  domain,
+  tabs,
+  end,
+}: {
+  name: string;
+  domain?: string | null;
+  tabs: ViewTab[];
+  end: React.ReactNode;
+}) {
+  return (
+    <>
+      <HeaderBar>
+        <span aria-hidden="true" className="hidden h-[22px] w-px shrink-0 bg-rule md:block" />
+        <p className="min-w-0 truncate text-ui font-semibold text-ink">
+          {name}
+          {domain && <span className="ml-1.5 hidden font-normal text-ash lg:inline">{domain}</span>}
+        </p>
+        <ViewTabs tabs={tabs} className="ml-[18px] hidden h-full shrink-0 md:flex" />
+        {end}
+      </HeaderBar>
+      <ViewTabs tabs={tabs} className="sticky top-14 z-30 h-[46px] border-b border-rule bg-paper px-4 md:hidden" />
+    </>
+  );
+}
+
 export function DashboardHeader({
   workspace,
   me,
@@ -43,14 +72,11 @@ export function DashboardHeader({
 }) {
   const domain = workspace.slackTeamDomain ? `${workspace.slackTeamDomain}.slack.com` : null;
   return (
-    <>
-      <HeaderBar>
-        <span aria-hidden="true" className="hidden h-[22px] w-px shrink-0 bg-rule md:block" />
-        <p className="min-w-0 truncate text-ui font-semibold text-ink">
-          {workspace.name}
-          {domain && <span className="ml-1.5 hidden font-normal text-ash lg:inline">{domain}</span>}
-        </p>
-        <ViewTabs tabs={tabs} className="ml-[18px] hidden h-full shrink-0 md:flex" />
+    <WorkspaceHeader
+      name={workspace.name}
+      domain={domain}
+      tabs={tabs}
+      end={
         <Menu className="ml-auto shrink-0">
           <MenuTrigger className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 text-ui text-ink hover:bg-poi">
             <Avatar name={me.name} src={me.avatarUrl} />
@@ -68,8 +94,7 @@ export function DashboardHeader({
             <MenuItem onSelect={onSignOut}>Sign out</MenuItem>
           </MenuPopover>
         </Menu>
-      </HeaderBar>
-      <ViewTabs tabs={tabs} className="sticky top-14 z-30 h-[46px] border-b border-rule bg-paper px-4 md:hidden" />
-    </>
+      }
+    />
   );
 }
