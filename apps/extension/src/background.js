@@ -193,12 +193,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // the nonce makes sure it answers a connect this browser actually started.
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   (async () => {
-    if (message?.type !== 'taro.connect') return { ok: false, error: 'Unknown request.' };
     const { pendingConnect } = await chrome.storage.local.get('pendingConnect');
     const fresh = pendingConnect && Date.now() - pendingConnect.createdAt < CONNECT_TTL_MS;
-    if (!fresh || message.nonce !== pendingConnect.nonce || sender.origin !== pendingConnect.origin) {
-      return { ok: false, error: 'That connection request expired. Start again from the Taro button in Google Meet.' };
-    }
+    const expected = fresh && message?.nonce === pendingConnect.nonce && sender.origin === pendingConnect.origin;
+    const expired = { ok: false, error: 'That connection request expired. Start again from the Taro button in Google Meet.' };
+    // The connect page checks first, so it never asks Taro for a token this browser would refuse.
+    if (message?.type === 'taro.hello') return expected ? { ok: true } : expired;
+    if (message?.type !== 'taro.connect') return { ok: false, error: 'Unknown request.' };
+    if (!expected) return expired;
     const apiUrl = originOf(message.apiUrl);
     if (typeof message.token !== 'string' || !message.token || !apiUrl) return { ok: false, error: 'Taro sent an incomplete connection.' };
     await chrome.storage.local.set({
