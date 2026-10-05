@@ -258,6 +258,7 @@
     window.addEventListener('blur', onWindowBlur);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onResize);
+    document.fonts?.addEventListener('loadingdone', onFonts);
 
     place();
     watchBar();
@@ -273,6 +274,7 @@
     window.removeEventListener('blur', onWindowBlur);
     window.removeEventListener('scroll', onScroll, true);
     window.removeEventListener('resize', onResize);
+    document.fonts?.removeEventListener('loadingdone', onFonts);
     host?.remove();
     host = item = button = words = about = tip = menu = null;
     slot = placedBefore = null;
@@ -655,9 +657,10 @@
   // Meeting tools group, says in the page that extensions may put buttons
   // there, and leaves their contents alone when it redraws. Taro takes the
   // start: the left end of the bar, where the eye starts and nothing of Meet's
-  // competes. It takes only room that is free there, so where its words don't
-  // fit it shows just the mark, then moves to the end slot, and with no bar at
-  // all it floats at the bottom left.
+  // competes. Meet's fixed items never shrink and its center controls never
+  // move; a field Meet sizes to fit, like Ask Gemini, may give up width down to
+  // what keeps it whole. Where its words still don't fit it shows just the mark,
+  // then moves to the end slot, and with no bar at all it floats at the bottom left.
   const START = 'browser-extension-start-buttons';
   const END = 'browser-extension-end-buttons';
   const PLANS = /** @type {const} */ ([
@@ -697,9 +700,38 @@
     return null;
   }
 
-  /** Meet's own items in a slot's part of the bar, and other extensions' buttons in the slot: none of it may shrink or be cut off. */
+  /** Meet's own items in a slot's part of the bar, and other extensions' buttons in the slot. */
   function itemsBeside(s) {
     return [...s.parentElement.children, ...s.children].filter((el) => el !== s && el !== host && shown(el));
+  }
+
+  // A field Meet sizes to fit its part of the bar, like Ask Gemini: Meet lets it
+  // shrink, and it holds a text box. Everything else of Meet's is fixed.
+  const TEXT_BOX = 'input:not([type="hidden"]), textarea, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+  function isField(el) {
+    return parseFloat(getComputedStyle(el).flexShrink) > 0 && !!el.querySelector(TEXT_BOX);
+  }
+
+  /**
+   * How narrow a field may get: wide enough that its icon, its placeholder, and
+   * its send button stay whole, and never under 200px. Where Meet already shows
+   * it narrower than that, it keeps the width Meet gave it.
+   */
+  let ruler = null;
+  function fieldFloor(el, width) {
+    let need = 0;
+    const box = el.querySelector(TEXT_BOX);
+    const words = box?.getAttribute('placeholder') || box?.getAttribute('aria-placeholder') || box?.getAttribute('data-placeholder') || '';
+    if (box && words) {
+      const cs = getComputedStyle(box);
+      ruler ??= document.createElement('canvas').getContext('2d');
+      ruler.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const text = ruler.measureText(words).width + (parseFloat(cs.letterSpacing) || 0) * words.length;
+      const r = box.getBoundingClientRect();
+      const inner = r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+      need = Math.ceil(width - inner + text);
+    }
+    return Math.min(width, Math.max(200, need));
   }
 
   /** Where Meet's center controls are, to check they never move. */
@@ -709,29 +741,38 @@
     return buttons.map((b) => Math.round(b.getBoundingClientRect().left * 2) / 2).join();
   }
 
+  /** Meet's bar without Taro: each item with the narrowest it may become, and where the center controls are. */
   function measure(s) {
-    return { box: s.parentElement.getBoundingClientRect(), items: itemsBeside(s).map((el) => [el, el.getBoundingClientRect()]), center: centerKey() };
+    const items = itemsBeside(s).map((el) => {
+      const r = el.getBoundingClientRect();
+      return /** @type {const} */ ([el, r, isField(el) ? fieldFloor(el, r.width) : r.width]);
+    });
+    return { box: s.parentElement.getBoundingClientRect(), items, center: centerKey() };
   }
 
-  /** Whether the button, as it now stands in slot s, leaves everything of Meet's as it was. */
+  /** Whether the button, as it now stands in slot s, leaves Meet's bar whole. */
   function fits(s, before) {
     const box = s.parentElement.getBoundingClientRect();
     const inside = (r) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
     const own = item.getBoundingClientRect();
     if (!inside(own) || own.left < 0 || own.right > innerWidth || centerKey() !== before.center) return false;
-    // Nothing of Meet's may shrink, be cut off, or be pushed further out of the window.
-    return before.items.every(([el, was]) => {
+    // Nothing of Meet's may shrink past its floor, be cut off, or be pushed further out of the window.
+    return before.items.every(([el, was, floor]) => {
       const r = el.getBoundingClientRect();
-      return r.width >= was.width - 0.5 && inside(r) && r.right <= Math.max(was.right, innerWidth) + 0.5 && r.left >= Math.min(was.left, 0) - 0.5;
+      return r.width >= floor - 0.5 && inside(r) && r.right <= Math.max(was.right, innerWidth) + 0.5 && r.left >= Math.min(was.left, 0) - 0.5;
     });
   }
 
-  /** What the bar looked like, without Taro: placement is worked out again when this changes. */
+  /**
+   * What the bar looked like: placement is worked out again when this changes.
+   * Fields count by being there, not by their width, which Taro itself changes.
+   */
   function currentLayout() {
     const parts = [innerWidth, innerHeight];
     for (const id of [START, END]) {
       const s = findSlot(id);
-      parts.push(s ? [Math.round(s.parentElement.getBoundingClientRect().width), ...itemsBeside(s).map((el) => Math.round(el.getBoundingClientRect().width))].join('/') : '-');
+      const items = s ? itemsBeside(s).map((el) => (isField(el) ? 'field' : Math.round(el.getBoundingClientRect().width))) : [];
+      parts.push(s ? [Math.round(s.parentElement.getBoundingClientRect().width), ...items].join('/') : '-');
     }
     return parts.join(',');
   }
@@ -884,6 +925,18 @@
     // Meet lays its bar out again as the window changes; so does Taro, once it settles.
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(place, 150);
+  }
+
+  // Google Sans arriving after the button first fits changes how wide its words
+  // are, and Meet's; fit again once the fonts have loaded.
+  function onFonts() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      // Already showing its words at the left end, a check where it stands will do; anywhere
+      // else it is measured afresh, since the fonts may have made room for something better.
+      if (!(inSlot() && slot.id === START && item.classList.contains('wide'))) layoutKey = '';
+      place();
+    }, 100);
   }
 
   // ---------------------------------------------------------------- actions
