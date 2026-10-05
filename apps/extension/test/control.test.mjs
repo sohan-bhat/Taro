@@ -9,14 +9,14 @@ const lobby = meeting('joining', { joinStage: 'lobby' });
 // Every state the button can be in: the words on it (also its accessible name), its tooltip, what a click does, and its look.
 const STATES = [
   ['not connected', { connected: false }, 'Connect Taro', 'Connect Taro to this browser', 'connect', 'rest'],
-  ['signed out', { connected: false, expired: true }, 'Reconnect Taro', 'Reconnect Taro', 'connect', 'rest'],
+  ['signed out', { connected: false, expired: true }, 'Reconnect', 'Reconnect Taro', 'connect', 'rest'],
   ['ready', { connected: true }, 'Invite Taro', 'Invite Taro', 'invite', 'rest'],
-  ['sending', { connected: true, sending: true }, 'Taro is joining', 'Taro is joining', 'none', 'progress'],
-  ['pending', { connected: true, meeting: meeting('pending') }, 'Taro is joining', 'Taro is joining', 'menu', 'progress'],
-  ['bot starting', { connected: true, meeting: starting }, 'Taro is joining', 'Taro is joining', 'menu', 'progress'],
-  ['in the lobby', { connected: true, meeting: lobby }, 'Waiting to be admitted', 'Waiting for someone to admit Taro', 'menu', 'progress'],
-  ['in the lobby, older server', { connected: true, meeting: meeting('joining') }, 'Waiting to be admitted', 'Waiting for someone to admit Taro', 'menu', 'progress'],
-  ['in the call', { connected: true, meeting: meeting('active') }, 'Taro is listening', 'Taro is listening', 'menu', 'on'],
+  ['sending', { connected: true, sending: true }, 'Joining', 'Taro is joining', 'none', 'progress'],
+  ['pending', { connected: true, meeting: meeting('pending') }, 'Joining', 'Taro is joining', 'menu', 'progress'],
+  ['bot starting', { connected: true, meeting: starting }, 'Joining', 'Taro is joining', 'menu', 'progress'],
+  ['in the lobby', { connected: true, meeting: lobby }, 'In the lobby', 'Waiting for someone to admit Taro', 'menu', 'progress'],
+  ['in the lobby, older server', { connected: true, meeting: meeting('joining') }, 'In the lobby', 'Waiting for someone to admit Taro', 'menu', 'progress'],
+  ['in the call', { connected: true, meeting: meeting('active') }, 'Listening', 'Taro is listening', 'menu', 'on'],
   ['turned away', { connected: true, meeting: meeting('error', { errorMessage: 'Nobody admitted Taro.' }) }, 'Try again', 'Taro couldn’t join. Try again', 'retry', 'rest'],
   ['request failed', { connected: true, error: 'Taro answered 500.' }, 'Try again', 'Taro couldn’t join. Try again', 'retry', 'rest'],
   ['left', { connected: true, meeting: meeting('ended') }, 'Invite Taro', 'Invite Taro', 'invite', 'rest'],
@@ -33,16 +33,29 @@ for (const [name, input, label, tip, action, look] of STATES) {
   });
 }
 
-test('labels stay short enough for a button; tooltips carry the longer explanation', () => {
+test('no label is longer than Connect Taro, so the button keeps its words as Taro moves through its states', () => {
   for (const [, input] of STATES) {
     const v = controlView(input);
-    assert.ok(v.label.length <= 22, `short: ${v.label}`);
+    assert.ok(v.label.length <= 'Connect Taro'.length, `short: ${v.label}`);
     assert.ok(v.tip.length >= v.label.length, `the tooltip says at least as much: ${v.tip}`);
   }
 });
 
+test('once Taro is on its way the mark says whose button it is, so the words drop the name; the tooltip keeps the full sentence', () => {
+  for (const [input, label, tip] of [
+    [{ connected: true, meeting: starting }, 'Joining', 'Taro is joining'],
+    [{ connected: true, meeting: lobby }, 'In the lobby', 'Waiting for someone to admit Taro'],
+    [{ connected: true, meeting: meeting('active') }, 'Listening', 'Taro is listening'],
+    [{ connected: false, expired: true }, 'Reconnect', 'Reconnect Taro'],
+  ]) {
+    const v = controlView(input);
+    assert.equal(v.label, label);
+    assert.equal(v.tip, tip);
+  }
+});
+
 test('a sign-out wins over everything else, even mid-call', () => {
-  assert.equal(controlView({ connected: true, expired: true, meeting: meeting('active') }).label, 'Reconnect Taro');
+  assert.equal(controlView({ connected: true, expired: true, meeting: meeting('active') }).label, 'Reconnect');
   assert.equal(controlView({ connected: false, sending: true }).action, 'connect');
 });
 
@@ -55,7 +68,7 @@ test('the menu offers Remove Taro and Open in Taro, and the last answer once Tar
 });
 
 test('a live meeting outranks a stale request error', () => {
-  assert.equal(controlView({ connected: true, error: 'x', meeting: meeting('active') }).label, 'Taro is listening');
+  assert.equal(controlView({ connected: true, error: 'x', meeting: meeting('active') }).label, 'Listening');
 });
 
 test('inviting says what happens next', () => {

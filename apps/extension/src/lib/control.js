@@ -1,9 +1,10 @@
 // @ts-check
 // What Taro's button in Meet's bar says, how it looks, and what a click does,
 // from the extension's state and the meeting's status. The label is the short
-// word or two on the button and its accessible name; the tip is the longer
-// explanation, shown as a tooltip where it adds something and used as the
-// name when there is room only for the mark. Looks are a tonal ramp in Taro's
+// word or two on the button and its accessible name; the Taro mark beside it
+// already says whose it is, so once Taro is on its way the label drops the
+// name. The tip is the full sentence, shown as a tooltip where it adds
+// something and used as the name when there is room only for the mark. Looks are a tonal ramp in Taro's
 // purple: resting, a brighter one while Taro is on its way in, and a light,
 // unmistakable one while Taro is in the call. Nothing pulses or blinks.
 
@@ -43,14 +44,14 @@ const inLobby = (m) => m?.status === 'joining' && m.joinStage !== 'starting';
 
 /** @param {ControlInput} s @returns {ControlView} */
 export function controlView(s) {
-  if (s.expired) return { label: 'Reconnect Taro', tip: 'Reconnect Taro', action: 'connect', look: 'rest', menu: [] };
+  if (s.expired) return { label: 'Reconnect', tip: 'Reconnect Taro', action: 'connect', look: 'rest', menu: [] };
   if (!s.connected) return { label: 'Connect Taro', tip: 'Connect Taro to this browser', action: 'connect', look: 'rest', menu: [] };
-  if (s.sending) return { label: 'Taro is joining', tip: 'Taro is joining', action: 'none', look: 'progress', menu: [] };
+  if (s.sending) return { label: 'Joining', tip: 'Taro is joining', action: 'none', look: 'progress', menu: [] };
   const m = s.meeting;
-  if (starting(m)) return { label: 'Taro is joining', tip: 'Taro is joining', action: 'menu', look: 'progress', menu: MENU };
-  if (inLobby(m)) return { label: 'Waiting to be admitted', tip: 'Waiting for someone to admit Taro', action: 'menu', look: 'progress', menu: MENU };
+  if (starting(m)) return { label: 'Joining', tip: 'Taro is joining', action: 'menu', look: 'progress', menu: MENU };
+  if (inLobby(m)) return { label: 'In the lobby', tip: 'Waiting for someone to admit Taro', action: 'menu', look: 'progress', menu: MENU };
   if (m?.status === 'active') {
-    const view = /** @type {ControlView} */ ({ label: 'Taro is listening', tip: 'Taro is listening', action: 'menu', look: 'on', menu: MENU });
+    const view = /** @type {ControlView} */ ({ label: 'Listening', tip: 'Taro is listening', action: 'menu', look: 'on', menu: MENU });
     return m.lastAnswer ? { ...view, answer: m.lastAnswer } : view;
   }
   if (m?.status === 'error' || s.error) return { label: 'Try again', tip: 'Taro couldn’t join. Try again', action: 'retry', look: 'rest', menu: [] };
