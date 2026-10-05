@@ -12,7 +12,7 @@
 import { Types } from 'mongoose';
 import { CalendarOccurrenceModel, CompanyModel } from '../../db/models';
 import type { CalendarOccurrenceDoc, OccurrenceBot } from '../../db/models/CalendarOccurrence';
-import { env } from '../../config/env';
+import { env, googleCalendarConfigured } from '../../config/env';
 import { calendarInvitesConfigured } from '../../lib/inviteAddress';
 import { randomToken, sha256 } from '../../lib/crypto';
 import { log, errorMessage } from '../../lib/logger';
@@ -184,7 +184,7 @@ export function syncInBackground(ids: string[]) {
  * so a workspace that can no longer join meetings keeps no bots, and one that now can gets them.
  */
 export async function providersChanged(companyId: string, replacedKey: string | null): Promise<void> {
-  if (!calendarInvitesConfigured()) return;
+  if (!calendarInvitesConfigured() && !googleCalendarConfigured()) return;
   const now = new Date();
   if (replacedKey) {
     const held = await CalendarOccurrenceModel.find({ companyId, 'bot.id': { $type: 'string' }, status: { $ne: 'launched' } }).select('bot');

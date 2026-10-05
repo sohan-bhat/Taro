@@ -180,6 +180,7 @@ const SOURCE_PLACE: Record<NonNullable<Meeting['source']>, string> = {
   slack: 'Slack',
   dashboard: 'the dashboard',
   calendar: 'the calendar',
+  google_calendar: 'Google Calendar',
   slack_command: '/taro',
   extension: 'Google Meet',
 };
@@ -190,7 +191,7 @@ type WhoMeeting = Pick<Meeting, 'startedByName' | 'slackChannelName' | 'source' 
 
 /**
  * Who started a meeting and from where, first match wins.
- * row:    "Priya, from #product", "Sam, from the dashboard", "Started by Priya", "From Slack", "Started 9:58 AM"
+ * row:    "Priya, from #product", "Sam, from the dashboard", "Ana, from Google Calendar", "Started by Priya", "From Slack", "Started 9:58 AM"
  * detail: "Ana started it from #design", "Started by Priya", "Started from Slack", or ''
  * slab:   the detail form plus the time, "Priya started it from #product at 2:00 PM"
  */

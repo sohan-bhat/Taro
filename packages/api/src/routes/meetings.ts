@@ -175,7 +175,9 @@ meetingsRouter.post(
         try {
           // A calendar meeting's bot may still be a scheduled one that hasn't gone in; canceling it
           // stops it at any stage. It fails harmlessly once the bot is an ordinary one.
-          if (meeting.source === 'calendar') await new MeetingBaasClient(key).cancelScheduledBot(meeting.botId).catch(() => {});
+          if (meeting.source === 'calendar' || meeting.source === 'google_calendar') {
+            await new MeetingBaasClient(key).cancelScheduledBot(meeting.botId).catch(() => {});
+          }
           await new MeetingBaasClient(key).leave(meeting.botId);
         } catch (error) {
           const status = error instanceof MeetingBaasError ? error.status : undefined;

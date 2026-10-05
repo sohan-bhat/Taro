@@ -51,7 +51,7 @@ export interface DemoWorkspace {
 }
 
 const ACTIONS: ReadonlySet<string> = new Set(Object.values(INTENTS));
-const SOURCES: ReadonlyArray<NonNullable<Meeting['source']>> = ['slack', 'dashboard', 'calendar', 'slack_command', 'extension'];
+const SOURCES: ReadonlyArray<NonNullable<Meeting['source']>> = ['slack', 'dashboard', 'calendar', 'google_calendar', 'slack_command', 'extension'];
 const TALLY_KEY: Record<ActionOutcome, keyof MeetingTally> = {
   done: 'done',
   needs_you: 'needsYou',

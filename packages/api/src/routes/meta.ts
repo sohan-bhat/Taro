@@ -1,6 +1,6 @@
 import { Router, type Router as RouterType } from 'express';
 import type { ServerMeta } from '@taro/shared';
-import { env, githubAppConfigured, googleSignInConfigured, serverSttAvailable, slackConfigured } from '../config/env';
+import { env, githubAppConfigured, googleCalendarConfigured, googleSignInConfigured, serverSttAvailable, slackConfigured } from '../config/env';
 import { calendarInvitesConfigured } from '../lib/inviteAddress';
 
 export const metaRouter: RouterType = Router();
@@ -14,6 +14,7 @@ metaRouter.get('/', (_req, res) => {
     serverStt: serverSttAvailable(),
     meetExtension: env.extensionIds.length > 0,
     calendarInvites: calendarInvitesConfigured(),
+    googleCalendar: googleCalendarConfigured(),
   };
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.json(meta);

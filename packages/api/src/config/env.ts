@@ -92,7 +92,8 @@ export const env = {
   // Socket Mode token (xapp-...); without it Taro can't see meeting links posted in Slack.
   slackAppToken: optional('SLACK_APP_TOKEN'),
 
-  // Sign in with Google. Optional: it's offered once its client ID and secret are set.
+  // Sign in with Google, and Connect Google Calendar on the same client. Optional: both are offered
+  // once its client ID and secret are set.
   googleClientId: optional('GOOGLE_CLIENT_ID'),
   googleClientSecret: optional('GOOGLE_CLIENT_SECRET'),
 
@@ -146,6 +147,11 @@ export function googleSignInConfigured(): boolean {
   return !!(env.googleClientId && env.googleClientSecret);
 }
 
+/** Each member can connect their own Google Calendar through the sign-in client. */
+export function googleCalendarConfigured(): boolean {
+  return googleSignInConfigured();
+}
+
 export function serverSttAvailable(): boolean {
   return !!env.sttWsUrl || env.localAsr;
 }
@@ -170,5 +176,6 @@ console.log('[Config] Environment loaded:', {
   githubApp: githubAppConfigured(),
   githubInstallVerification: githubOAuthConfigured(),
   calendarInvites: !!(env.inviteAddress && env.inboundSecret),
+  googleCalendar: googleCalendarConfigured(),
   serverStt: env.sttWsUrl ? 'faster-whisper server' : env.localAsr ? 'local sherpa-onnx' : 'none',
 });

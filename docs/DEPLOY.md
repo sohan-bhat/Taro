@@ -50,16 +50,44 @@ Taro uses Socket Mode, so Slack needs no public events URL; only the two OAuth r
 
 ### Sign in with Google (optional)
 
-Taro asks Google only for the three basic sign-in scopes, so Google doesn't need to review the app.
+Sign-in asks Google only for the three basic scopes, which need no review from Google. Connect Google Calendar, below, uses the same client and adds one more scope.
 
 1. In the [Google Cloud console](https://console.cloud.google.com), create a project for Taro, or pick an existing one.
 2. Open **Google Auth Platform** (it was **APIs & Services**, **OAuth consent screen**). Under **Branding**, give the app a name (Taro), a support email, and your dashboard's address as its home page.
 3. Under **Audience**, choose **External**, then **Publish app** so its status is **In production**. While it's in testing, only the test users you list there can sign in.
-4. Under **Data Access**, add only `openid`, `.../auth/userinfo.email`, and `.../auth/userinfo.profile`. All three are non-sensitive.
+4. Under **Data Access**, add `openid`, `.../auth/userinfo.email`, and `.../auth/userinfo.profile`. All three are non-sensitive.
 5. Under **Clients**, **Create client**: choose **Web application**, and add `API_URL/api/auth/google/callback` under **Authorized redirect URIs**, for example `https://api.your-domain.com/api/auth/google/callback`.
 6. Copy the client ID and client secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
 Google shows your app's name and logo on its sign-in screen once the brand is verified (under **Branding**). Sign-in works before that.
+
+### Connect Google Calendar (optional)
+
+Each person can connect their own Google Calendar in **Setup**, and Taro joins the meetings on it that have a Google Meet, Zoom, or Teams link, with no link to paste and no inviting Taro. It runs on the sign-in client above and its redirect URI, so there's nothing new to register or to set on the server: it's offered as soon as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. Taro only reads calendars; it never asks for access that can change one.
+
+1. In the same Google Cloud project, open **APIs & Services**, **Library**, find **Google Calendar API**, and choose **Enable**.
+2. Open **Google Auth Platform**, **Data Access**, choose **Add or remove scopes**, and add `https://www.googleapis.com/auth/calendar.events.readonly` (listed as `.../auth/calendar.events.readonly`, "View events on all your calendars"). Save.
+3. Keep the app **In production** under **Audience**. While it's in testing, Google expires its refresh tokens after 7 days, and everyone would have to reconnect every week.
+
+`calendar.events.readonly` is a sensitive scope, so Google reviews the app before it lifts two limits:
+
+- People connecting see a "Google hasn't verified this app" screen, and have to choose **Advanced** and continue to Taro.
+- At most 100 people can connect.
+
+To get verified:
+
+1. Under **Branding**, fill in the app's home page (`APP_URL`), its privacy policy (`APP_URL/privacy`), and its terms of service (`APP_URL/terms`), and add your domain under **Authorized domains**.
+2. Verify that you own that domain in [Google Search Console](https://search.google.com/search-console), signed in as an owner or editor of the Cloud project. A domain of your own is the simple case; Search Console may not let you prove ownership of a hosting provider's shared domain.
+3. Submit the app from **Verification Center**. Google asks why Taro needs the scope (it reads each person's own calendar to find the meetings with a video link that Taro should join, and never changes it) and for a video showing someone connecting their calendar in Setup and Taro joining a meeting from it. Sensitive scope reviews usually take 3 to 5 business days.
+
+How it works:
+
+- Taro reads each connected person's primary calendar every 2 minutes, for meetings from 10 minutes ago to a week ahead, recurring meetings expanded into their occurrences. It also asks Google to tell `API_URL/api/google-calendar/notify` when the calendar changes, so a new or moved meeting shows up within seconds; once those notices arrive, polling slows to every 10 minutes as a safety net. Google only sends them to https with a valid certificate, which needs no domain verification; with an `http` `API_URL` (local development) Taro just polls.
+- It joins every meeting with a video link that the person hasn't declined, or only the ones they organize if they choose that in Setup. Canceled and all-day events are skipped. A person's own calendar vouches for its meetings, so nothing waits for approval.
+- The same meeting on two people's calendars is one meeting in Taro, with one bot. It's canceled only when nobody connected still has it.
+- Each person sees the meetings from their own calendar under **Upcoming** in **Meetings**, and can skip one. Once Taro joins, the meeting appears in **Meetings** for the whole workspace as "Priya, from Google Calendar".
+- If Google ends Taro's access (the person removed it in their Google account, or the grant expired), Setup asks them to reconnect, and Taro stops joining meetings from that calendar until they do.
+- Each read is one Calendar API request, so a connected person uses about 720 a day, or about 150 once notifications arrive. Google's default quota is 1,000,000 a day per project.
 
 ## 4. GitHub App (optional)
 
@@ -122,7 +150,7 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `API_URL` | yes | Public https URL of the API |
 | `APP_URL` | yes | Public URL of the dashboard |
 | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | for Slack | Section 3. At least one way to sign in (Slack or Google) is required |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in | Section 3 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in and Connect Google Calendar | Section 3 |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | for GitHub | Section 4 |
 | `WEB_ORIGINS` | no | Extra trusted dashboard origins, comma separated |
 | `EXTENSION_IDS` | for the Meet button | Chrome and Edge extension IDs allowed to call the API (section 7) |
@@ -164,7 +192,7 @@ The extension gets a limited connection: it can send Taro to a meeting, check on
 
 ## 9. Calendar invitations (optional)
 
-People add their workspace's Taro address to a meeting invite, once for a recurring series, and Taro joins at the start. Taro never reads anyone's calendar. The invitation email that every calendar sends its guests carries a calendar file saying when and where, and updates and cancellations arrive the same way. It works with Google Calendar and Outlook, and with Google Meet, Zoom, and Microsoft Teams links.
+People add their workspace's Taro address to a meeting invite, once for a recurring series, and Taro joins at the start. This way needs no one's calendar connected: the invitation email that every calendar sends its guests carries a calendar file saying when and where, and updates and cancellations arrive the same way. It works with Google Calendar and Outlook, and with Google Meet, Zoom, and Microsoft Teams links.
 
 How it works:
 
@@ -213,7 +241,8 @@ To use plus addressing on a domain you already receive mail on instead: turn on 
 
 - **One API instance per deployment.** A meeting's realtime session lives in the memory of the instance MeetingBaas connects to. Transcription and reasoning run on each workspace's own cloud providers, so a single instance mostly relays audio and handles many concurrent meetings; scale it up (CPU and memory) rather than out. If you do run several, route each meeting's sockets to one instance with sticky sessions.
 - **Slack Socket Mode** delivers each event to one open connection, so extra instances never double handle a link.
-- **Calendar invitations**: every API instance runs the calendar's 30 second clock, and each due meeting is taken with one atomic database update, so two instances never send Taro twice. Recurring series are kept two weeks ahead and extended daily; old invitation records expire a week after their meetings end.
+- **Calendar meetings**: every API instance runs the calendar's 30 second clock, and each due meeting is taken with one atomic database update, so two instances never send Taro twice. Recurring series are kept two weeks ahead and extended daily; old meeting records expire a week after their meetings end.
+- **Connected Google Calendars** are read on the same clock in a pass of their own, eight at a time, each taken with a short lease so two instances never read one calendar at once.
 - **Per-workspace limits**: `MAX_ACTIVE_MEETINGS_PER_WORKSPACE` and per-workspace rate limits on sending Taro to meetings protect each workspace's own MeetingBaas bill.
 - **Database**: indexes cover every hot query (sessions, meetings by workspace, bot lookups). Expired sessions and sign-in codes are removed automatically by TTL indexes.
 - **Deploys**: on shutdown Taro closes live sessions cleanly, but a meeting in progress can lose its audio connection, so deploy between meetings when you can.
@@ -225,6 +254,7 @@ To use plus addressing on a domain you already receive mail on instead: turn on 
 - Sign-in is authentication only. Taro asks Google and Slack for `openid`, `email`, and `profile`, checks that each ID token was issued to Taro for that very sign-in, and keeps no provider access token. Google workspaces are matched by the Google Workspace domain in the token, never by an email address.
 - A Slack workspace belongs to one Taro workspace at most. A Google workspace can't add a Slack workspace that another Taro workspace already has, and someone signing in with Slack from a Slack workspace that a Google workspace added is sent to sign in with Google instead.
 - GitHub actions only reach repositories the person who connected GitHub can push to, using tokens limited to the one repository Taro is working in.
+- Connecting a Google Calendar asks only to read events, plus the account's address so Setup can show which one is connected. Google's answer is parked as a 15 minute grant that only the session of the person who started connecting can redeem, so a consent link that ends up in someone else's browser connects nothing. The refresh token is encrypted with AES-256-GCM and bound to that person; access tokens live only in memory. Taro keeps the meetings it joins (title, times, link, organizer's email) and nothing else from the calendar: no other events, descriptions, or guest lists. It asks Google for no guest list, only the person's own reply, so other guests' details never reach it. Google's change notices carry no event data and are checked against a per-channel token before Taro rereads the calendar. Disconnecting revokes the grant at Google.
 - Every MeetingBaas callback and audio socket carries a per-meeting secret; nothing else can feed audio into a meeting or report results for it.
 - The calendar webhook is public, so it treats every message as hostile. It checks `INBOUND_SECRET` in constant time before reading anything, caps message size, reads only calendar parts, follows no links, and routes mail only by the token in the address it was sent to, so one workspace's mail never reaches another. Invitations nobody in the workspace vouched for wait for approval, and so do changes to an approved meeting's time or link that arrive in such mail. For each invitation Taro keeps the title, times, link, organizer, and sender, never the description or guest list.
 - Custom AI endpoints are limited to public https addresses, checked when the connection opens, so a workspace can't point Taro at your internal network.

@@ -2,9 +2,10 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { CalendarOccurrenceModel, CompanyModel } from '../../db/models';
 import { encryptSecret } from '../../lib/crypto';
-import { ConflictError } from '../../lib/errors';
+import { ConflictError, NotFoundError } from '../../lib/errors';
+import { memoryModel, useMemory } from '../../lib/testing/memoryModel';
 import { keyContext } from '../workspaceProviders';
-import { skipOccurrence } from './invitations';
+import { decideOccurrence, restoreOccurrence, skipOccurrence, upcomingFor } from './invitations';
 
 const COMPANY_ID = '6a1f00000000000000000001';
 const NOW = new Date('2026-10-07T20:00:00Z');
@@ -74,4 +75,45 @@ test('Taro on its way already, or a canceled meeting, cannot be skipped', async 
   t.mock.restoreAll();
   fake(t, { status: 'canceled', start: new Date(NOW.getTime() + 60 * MIN) });
   await assert.rejects(skipOccurrence(COMPANY_ID, 'occ-1', 'u_priya', NOW), /was canceled/);
+});
+
+test("a meeting from someone's Google Calendar is in their own Upcoming, and only they can skip it", async (t) => {
+  const at = (minutes: number) => new Date(NOW.getTime() + minutes * MIN);
+  const row = (fields: Record<string, unknown>) => ({
+    companyId: COMPANY_ID,
+    recurrenceKey: '',
+    meetUrl: 'https://meet.google.com/kdp-wqmx-tvr',
+    platform: 'google_meet',
+    status: 'scheduled',
+    botRev: 1,
+    ...fields,
+  });
+  const occurrences = useMemory(
+    t,
+    CalendarOccurrenceModel,
+    memoryModel([
+      row({ uid: 'g:one-on-one', source: 'google', holders: ['u_priya'], title: 'Priya and Maya', start: at(60), end: at(90) }),
+      row({ uid: 'vendor@outlook.com', seriesId: 'series-1', title: 'Vendor review', start: at(120), end: at(150) }),
+      row({ uid: 'g:elsewhere', source: 'google', holders: ['u_priya'], title: 'Another workspace', start: at(60), end: at(90), companyId: '6a1f00000000000000000009' }),
+    ])
+  );
+  t.mock.method(CompanyModel, 'findById', (async () => ({ _id: COMPANY_ID, providers: {} })) as never);
+  const oneOnOne = String(occurrences.docs[0]._id);
+
+  const sams = await upcomingFor(COMPANY_ID, 'u_sam', NOW);
+  assert.deepEqual(sams.map((m) => m.title), ['Vendor review']);
+  const priyas = await upcomingFor(COMPANY_ID, 'u_priya', NOW);
+  assert.deepEqual(priyas.map((m) => [m.title, m.source]), [['Priya and Maya', 'google'], ['Vendor review', 'invite']]);
+  // A workspace that isn't ready says why, for these as for invitations
+  assert.match(priyas[0].problem ?? '', /isn't set up yet/);
+
+  await assert.rejects(skipOccurrence(COMPANY_ID, oneOnOne, 'u_sam', NOW), NotFoundError);
+  await skipOccurrence(COMPANY_ID, oneOnOne, 'u_priya', NOW);
+  assert.equal(occurrences.docs[0].status, 'skipped');
+  await assert.rejects(restoreOccurrence(COMPANY_ID, oneOnOne, 'u_sam', NOW), NotFoundError);
+  await restoreOccurrence(COMPANY_ID, oneOnOne, 'u_priya', NOW);
+  assert.equal(occurrences.docs[0].status, 'scheduled');
+  // Her own calendar vouched for it, so there's nothing to approve
+  await assert.rejects(decideOccurrence(COMPANY_ID, oneOnOne, 'approve', { userId: 'u_priya' }, NOW), ConflictError);
+  for (let i = 0; i < 50; i++) await new Promise((resolve) => setImmediate(resolve));
 });

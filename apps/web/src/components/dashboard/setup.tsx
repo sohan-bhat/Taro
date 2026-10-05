@@ -2,8 +2,9 @@
 
 // The Setup view (9.5): the required set in its one order (Slack, meeting bot, AI model,
 // transcription), then the optional connections. Slack is required only in Slack workspaces;
-// Google workspaces find it first under Optional. Rows and cards are exported so the demo can
-// build its read-only version from the same pieces.
+// Google workspaces find it first under Optional. Google Calendar is each person's own, so every
+// member can connect theirs. Rows and cards are exported so the demo can build its read-only
+// version from the same pieces.
 
 import * as React from 'react';
 import Link from 'next/link';
@@ -12,6 +13,8 @@ import {
   getLlmProvider,
   getSttProvider,
   type ConnectedSession,
+  type GoogleCalendarJoinMode,
+  type GoogleCalendarStatus,
   type ProviderSettings,
   type ServerMeta,
   type WorkspaceOverview,
@@ -24,6 +27,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
+import { SwitchRow } from '@/components/ui/switch';
 import { Time } from '@/components/ui/time';
 import { showToast } from '@/components/ui/toast-store';
 import { errorText, focusIfLost, useSessionGuard } from './common';
@@ -402,6 +406,15 @@ export function SetupView({
               actions={slackActionsFor()}
             />
           ))}
+        {overview.googleCalendar && (meta?.googleCalendar || overview.googleCalendar.connected) && (
+          <GoogleCalendarRow
+            calendar={overview.googleCalendar}
+            workspaceName={workspace.name}
+            leaving={leaving}
+            onConnect={() => leaveFor('google-calendar', () => api.googleCalendar.connectUrl(), "Couldn't reach Google.")}
+            onChanged={onChanged}
+          />
+        )}
         <GithubRow
           overview={overview}
           canEdit={canEdit}
@@ -655,6 +668,183 @@ function GithubRow({
         ) : null
       }
     />
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Google Calendar, each person's own
+
+const JOIN_MODES: ReadonlyArray<{ value: GoogleCalendarJoinMode; label: string }> = [
+  { value: 'all', label: "All meetings with a video link that I haven't declined" },
+  { value: 'organizer', label: 'Only meetings I organize' },
+];
+
+/**
+ * The signed-in person's own Google Calendar. Connected, Taro reads it, never changes it, and joins
+ * the meetings on it with a video link, which the person can narrow to the ones they organize or
+ * turn off. When Google stops honoring Taro's access, the row asks them to reconnect.
+ */
+function GoogleCalendarRow({
+  calendar,
+  workspaceName,
+  leaving,
+  onConnect,
+  onChanged,
+}: {
+  calendar: GoogleCalendarStatus;
+  workspaceName: string;
+  leaving: string | null;
+  onConnect: () => void;
+  onChanged: () => void;
+}) {
+  const guard = useSessionGuard();
+  const [saving, setSaving] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  // The choice shows at once while it saves; the overview catches up after.
+  const [draft, setDraft] = React.useState<{ autoJoin: boolean; joinMode: GoogleCalendarJoinMode } | null>(null);
+  React.useEffect(() => setDraft(null), [calendar.autoJoin, calendar.joinMode]);
+  const autoJoin = draft?.autoJoin ?? calendar.autoJoin ?? true;
+  const joinMode = draft?.joinMode ?? calendar.joinMode ?? 'all';
+  const opening = leaving === 'google-calendar';
+
+  // Disconnecting replaces the row's buttons; focus moves to the new one once it shows.
+  const refocus = React.useRef(false);
+  React.useEffect(() => {
+    if (!refocus.current || calendar.connected) return;
+    refocus.current = false;
+    document.querySelector<HTMLElement>('#setup-google-calendar button')?.focus();
+  }, [calendar.connected]);
+
+  const save = async (changes: { autoJoin?: boolean; joinMode?: GoogleCalendarJoinMode }) => {
+    setDraft({ autoJoin, joinMode, ...changes });
+    setSaving(true);
+    try {
+      await api.googleCalendar.update(changes);
+      showToast(
+        changes.autoJoin === false
+          ? "Taro won't join your calendar meetings on its own."
+          : changes.autoJoin
+            ? 'Taro joins your calendar meetings on its own.'
+            : changes.joinMode === 'organizer'
+              ? 'Taro joins only the meetings you organize.'
+              : 'Taro joins all your meetings with a video link.'
+      );
+      onChanged();
+    } catch (error) {
+      setDraft(null);
+      if (!guard(error)) showToast(errorText(error, "Couldn't save that. Try again."), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const connectButton = (label: string, variant: 'primary' | 'secondary') => (
+    <Button variant={variant} size="sm" className={ROW_BUTTON} onClick={onConnect} pending={opening} disabled={!!leaving && !opening}>
+      {opening ? 'Opening Google' : label}
+    </Button>
+  );
+
+  const confirm = (
+    <ConfirmDialog
+      open={confirming}
+      onClose={() => setConfirming(false)}
+      title="Disconnect Google Calendar?"
+      body="Taro stops reading your calendar and gives up its access at Google. Meetings only your calendar brought in won't be joined."
+      confirmLabel="Disconnect"
+      pendingLabel="Disconnecting"
+      fallback="Couldn't disconnect Google Calendar."
+      onConfirm={async () => {
+        await api.googleCalendar.disconnect();
+        refocus.current = true;
+        setConfirming(false);
+        showToast('Google Calendar disconnected.');
+        onChanged();
+      }}
+    />
+  );
+
+  if (!calendar.connected) {
+    return (
+      <SetupRow
+        id="setup-google-calendar"
+        label="Google Calendar"
+        state="Not connected"
+        purpose="Connect your own calendar and Taro joins your meetings that have a video link, with nothing to paste. It only reads your calendar and never changes it."
+        actions={connectButton('Connect Google Calendar', 'secondary')}
+      />
+    );
+  }
+
+  if (calendar.needsReconnect) {
+    return (
+      <>
+        <SetupRow
+          id="setup-google-calendar"
+          label="Google Calendar"
+          state="Reconnect needed"
+          purpose={
+            <>
+              Taro lost access to <span className="wrap-anywhere">{calendar.email ?? 'your calendar'}</span>, so it isn&apos;t
+              joining meetings from that calendar. Reconnect to pick up again.
+            </>
+          }
+          stackActions
+          actions={
+            <>
+              {connectButton('Reconnect Google Calendar', 'primary')}
+              <Button variant="ghost" size="sm" className={ROW_BUTTON} onClick={() => setConfirming(true)} disabled={opening}>
+                Disconnect
+              </Button>
+            </>
+          }
+        />
+        {confirm}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <SetupRow
+        id="setup-google-calendar"
+        label="Google Calendar"
+        state={
+          <>
+            Connected as <span className="wrap-anywhere">{calendar.email}</span>
+          </>
+        }
+        purpose={`Taro reads your calendar and never changes it. Meetings it joins show up in Meetings for everyone in ${workspaceName}.`}
+        meta={calendar.lastSyncedAt ? `Synced ${timeAgo(calendar.lastSyncedAt)}` : 'Not synced yet'}
+        actions={
+          <Button variant="destructive" size="sm" className={ROW_BUTTON} onClick={() => setConfirming(true)}>
+            Disconnect
+          </Button>
+        }
+      >
+        <div className="mt-3 border-t border-rule-soft pt-1">
+          <SwitchRow label="Join my meetings automatically" checked={autoJoin} onCheckedChange={(on) => save({ autoJoin: on })} disabled={saving} />
+          {autoJoin && (
+            <fieldset disabled={saving} className="pb-1">
+              <legend className="sr-only">Which meetings Taro joins</legend>
+              {JOIN_MODES.map((mode) => (
+                <label key={mode.value} className="flex min-h-11 cursor-pointer items-start gap-3 py-2.5 text-sm text-ink-2">
+                  <input
+                    type="radio"
+                    name="google-calendar-join"
+                    value={mode.value}
+                    checked={joinMode === mode.value}
+                    onChange={() => save({ joinMode: mode.value })}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-taro"
+                  />
+                  {mode.label}
+                </label>
+              ))}
+            </fieldset>
+          )}
+        </div>
+      </SetupRow>
+      {confirm}
+    </>
   );
 }
 

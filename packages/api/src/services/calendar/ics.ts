@@ -194,7 +194,8 @@ function methodOf(value: unknown): CalendarMethod | null {
   return null;
 }
 
-function cleanText(value: unknown, max: number): string | undefined {
+/** One line of text from someone else's calendar: control and direction characters gone, whitespace collapsed, capped. */
+export function cleanText(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined;
   const text = value.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim();
   return text ? text.slice(0, max).trim() : undefined;
@@ -228,7 +229,7 @@ function asciiChar(code: number): string | undefined {
 }
 
 // Descriptions are often HTML. Quotes end the link in an href, and entities hide characters.
-function linkText(value: string): string {
+export function linkText(value: string): string {
   return value
     .slice(0, 50_000)
     .replace(/&#(\d{1,6});/g, (match, n: string) => asciiChar(Number(n)) ?? match)

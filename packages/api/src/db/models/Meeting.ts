@@ -7,7 +7,7 @@ export interface MeetingDoc {
   meetUrl: string;
   platform?: MeetingPlatform;
   status: MeetingStatus;
-  source?: 'slack' | 'dashboard' | 'extension' | 'calendar' | 'slack_command';
+  source?: 'slack' | 'dashboard' | 'extension' | 'calendar' | 'google_calendar' | 'slack_command';
   botId?: string; // MeetingBaas bot ID
   // Hash of the per-meeting secret MeetingBaas presents on its audio socket and webhooks
   secretHash?: string;
@@ -44,7 +44,7 @@ const meetingSchema = new Schema<MeetingDoc>(
       enum: Object.values(MEETING_STATUS),
       default: MEETING_STATUS.PENDING,
     },
-    source: { type: String, enum: ['slack', 'dashboard', 'extension', 'calendar', 'slack_command'] },
+    source: { type: String, enum: ['slack', 'dashboard', 'extension', 'calendar', 'google_calendar', 'slack_command'] },
     botId: { type: String },
     secretHash: { type: String, select: false },
     slackChannelId: { type: String },

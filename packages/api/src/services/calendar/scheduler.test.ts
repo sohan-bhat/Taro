@@ -235,3 +235,50 @@ test('a scheduled bot that failed is replaced by one Taro sends a minute before 
   assert.ok(world.calls.includes('POST /bots'));
   assert.equal(world.meetings.at(-1)!.title, 'Export fix review');
 });
+
+// -------------------------------------------------------------------------------------------
+// Meetings from connected Google Calendars
+
+const PRIYA_ID = '6a1f0000000000000000aa01';
+const SAM_ID = '6a1f0000000000000000aa02';
+
+const fromGoogle = (holders: string[], bot?: Record<string, unknown>) =>
+  ({
+    _id: 'occ-g',
+    companyId: COMPANY_ID,
+    source: 'google',
+    holders,
+    title: 'Design review',
+    start: START,
+    meetUrl: MEET,
+    platform: 'google_meet',
+    ...(bot ? { bot } : {}),
+  }) as never;
+
+test('a meeting from Google Calendar is brought by the first member whose calendar has it, from Google Calendar', async (t) => {
+  const world = fakeWorld(t, { ready: true, scheduledStatus: 'scheduled' });
+  // Members come back from the database in any order; who connected first is what counts
+  t.mock.method(UserModel, 'find', (() => ({
+    select: async () => [
+      { _id: SAM_ID, name: 'Sam Whitfield' },
+      { _id: PRIYA_ID, name: 'Priya Raman' },
+    ],
+  })) as never);
+  await startOccurrence(fromGoogle([PRIYA_ID, SAM_ID], BOT), new Date(START.getTime() - 5 * MIN));
+  const [meeting] = world.meetings;
+  assert.equal(meeting.source, 'google_calendar');
+  assert.equal(meeting.startedByName, 'Priya Raman');
+  assert.equal(meeting.startedByUserId, PRIYA_ID);
+  assert.equal(meeting.title, 'Design review');
+  assert.deepEqual(world.calls, ['GET /bots/scheduled/sched-bot-1']);
+});
+
+test('a Google Calendar meeting that nobody still in the workspace has is canceled, not joined', async (t) => {
+  const world = fakeWorld(t, { ready: true });
+  // Priya was removed from the workspace after her calendar brought the meeting in
+  t.mock.method(UserModel, 'find', (() => ({ select: async () => [] })) as never);
+  await startOccurrence(fromGoogle([PRIYA_ID]), new Date(START.getTime() - MIN));
+  assert.equal(world.meetings.length, 0);
+  assert.deepEqual(world.calls, []);
+  assert.equal((world.occurrenceUpdates.at(-1)!.$set as { status: string }).status, 'canceled');
+});

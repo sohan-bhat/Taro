@@ -95,6 +95,24 @@ export interface GithubAccountChoice {
   repoCount: number; // repos there they can push to
 }
 
+// Which meetings on a connected Google Calendar Taro joins on its own: every one with a video link
+// the person hasn't declined, or only the ones they organize.
+export type GoogleCalendarJoinMode = 'all' | 'organizer';
+
+// The signed-in person's own Google Calendar connection. Personal: each member connects their own.
+export interface GoogleCalendarStatus {
+  connected: boolean;
+  // Google stopped letting Taro read the calendar (access revoked or expired); nothing syncs until they reconnect
+  needsReconnect?: boolean;
+  // The Google account it reads
+  email?: string;
+  connectedAt?: string;
+  lastSyncedAt?: string;
+  // "Join my meetings automatically", and which ones
+  autoJoin?: boolean;
+  joinMode?: GoogleCalendarJoinMode;
+}
+
 // Everything the dashboard needs to render, in one request.
 export interface WorkspaceOverview {
   workspace: Workspace;
@@ -102,6 +120,8 @@ export interface WorkspaceOverview {
   providers: ProviderSettings;
   slack: SlackStatus;
   github: GithubStatus;
+  // Set when the server can connect Google Calendars: the signed-in person's own connection
+  googleCalendar?: GoogleCalendarStatus;
   ready: {
     meetingBot: boolean;
     llm: boolean;
@@ -129,8 +149,9 @@ export interface Meeting {
   meetUrl: string;
   platform?: MeetingPlatform;
   status: MeetingStatus;
+  // calendar: an invitation to Taro's address. google_calendar: a member's connected Google Calendar.
   // slack_command is reserved for the next way in.
-  source?: 'slack' | 'dashboard' | 'calendar' | 'slack_command' | 'extension';
+  source?: 'slack' | 'dashboard' | 'calendar' | 'google_calendar' | 'slack_command' | 'extension';
   startedByName?: string;
   slackChannelName?: string; // resolved at launch, for "Priya, from #product"
   title?: string; // the calendar event's title
@@ -228,12 +249,13 @@ export interface ServerMeta {
   googleSignIn: boolean;
   githubApp: boolean;
   serverStt: boolean;
-  // Calendar invitations and the Google Meet button; unset means off.
+  // Calendar invitations, Connect Google Calendar, and the Google Meet button; unset means off.
   calendarInvites?: boolean;
+  googleCalendar?: boolean;
   meetExtension?: boolean;
 }
 
-// A meeting Taro was invited to by calendar, before it starts. One per occurrence of a series.
+// A meeting Taro will join from a calendar, before it starts. One per occurrence of a series.
 export interface UpcomingMeeting {
   _id: string;
   title?: string;
@@ -241,6 +263,9 @@ export interface UpcomingMeeting {
   endsAt: string;
   meetUrl: string;
   platform: MeetingPlatform;
+  // Where Taro heard about it: an invitation to its address, or a connected Google Calendar (the
+  // viewer's own; each person sees only the meetings from their own calendar)
+  source?: 'invite' | 'google';
   // scheduled: Taro joins at the start. needs_approval: an owner or admin approves it first.
   // skipped: someone skipped this one occurrence.
   status: 'scheduled' | 'needs_approval' | 'skipped';

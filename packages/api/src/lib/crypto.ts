@@ -84,6 +84,22 @@ export function signToken(typ: string, payload: Record<string, unknown>, ttlSeco
   return `${body}.${sig}`;
 }
 
+/**
+ * The `typ` a token claims, unverified. Only for saying where an expired or broken one came from;
+ * nothing in it is trusted.
+ */
+export function peekTokenType(token: string | undefined): string | undefined {
+  if (!token || typeof token !== 'string') return undefined;
+  const dot = token.lastIndexOf('.');
+  if (dot <= 0) return undefined;
+  try {
+    const typ = (JSON.parse(Buffer.from(token.slice(0, dot), 'base64url').toString('utf8')) as { typ?: unknown } | null)?.typ;
+    return typeof typ === 'string' ? typ : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function verifyToken<T extends Record<string, unknown>>(typ: string, token: string | undefined): T | null {
   if (!token || typeof token !== 'string') return null;
   const dot = token.lastIndexOf('.');

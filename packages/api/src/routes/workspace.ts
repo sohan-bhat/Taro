@@ -7,13 +7,14 @@ import {
   CompanyModel,
   GithubConnectionModel,
   GithubGrantModel,
+  GoogleCalendarConnectionModel,
   LoginCodeModel,
   MeetingModel,
   SessionModel,
   SlackConnectionModel,
   UserModel,
 } from '../db/models';
-import { githubAppConfigured } from '../config/env';
+import { githubAppConfigured, googleCalendarConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { requireAdmin, requireAuth, requireOwner, type AuthedRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError } from '../lib/errors';
@@ -22,6 +23,7 @@ import { log, errorMessage } from '../lib/logger';
 import { providerReadiness, providerSettings } from '../services/workspaceProviders';
 import { readSlackToken } from '../services/slack';
 import { forgetWorkspace } from '../services/calendar/invitations';
+import { calendarStatus, forgetCalendars } from '../services/calendar/googleConnect';
 import { WebClient } from '@slack/web-api';
 
 export const workspaceRouter: RouterType = Router();
@@ -30,11 +32,12 @@ workspaceRouter.use(requireAuth);
 workspaceRouter.get(
   '/',
   asyncHandler(async (req: AuthedRequest, res) => {
-    const [company, me, slack, github] = await Promise.all([
+    const [company, me, slack, github, calendar] = await Promise.all([
       CompanyModel.findById(req.companyId),
       UserModel.findById(req.userId),
       SlackConnectionModel.findOne({ companyId: req.companyId }),
       GithubConnectionModel.findOne({ companyId: req.companyId }),
+      GoogleCalendarConnectionModel.findOne({ companyId: req.companyId, userId: req.userId }),
     ]);
     if (!company || !me) throw new NotFoundError('Workspace');
 
@@ -60,6 +63,8 @@ workspaceRouter.get(
         reconnectable: !!github?.installationId && !!github.disconnectedAt,
         connectedAt: githubLive ? github?.createdAt?.toISOString() : undefined,
       },
+      // The signed-in person's own calendar, or one they connected before the server stopped offering it
+      ...(googleCalendarConfigured() || calendar ? { googleCalendar: calendarStatus(calendar) } : {}),
       ready: {
         ...readiness,
         slack: !!slack,
@@ -194,7 +199,9 @@ workspaceRouter.delete(
         log.warn('[Workspace] Slack token revoke failed during delete:', errorMessage(error));
       }
     }
-    // Calendar meetings first, while the MeetingBaas key is still there to cancel their scheduled bots
+    // Connected calendars first, so no read adds meetings back, revoking each grant at Google
+    await forgetCalendars(companyId).catch((error) => log.warn('[Workspace] Google Calendar cleanup failed during delete:', errorMessage(error)));
+    // Calendar meetings next, while the MeetingBaas key is still there to cancel their scheduled bots
     await forgetWorkspace(companyId).catch((error) => log.warn('[Workspace] Calendar cleanup failed during delete:', errorMessage(error)));
     await Promise.all([
       MeetingModel.deleteMany({ companyId }),

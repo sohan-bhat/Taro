@@ -65,15 +65,19 @@ export function toastSent({ alreadyActive }: Pick<SendResult, 'alreadyActive'>) 
 // ---------------------------------------------------------------------------------------------
 // Ways in
 
+/** Whether Taro joins this person's own Google Calendar meetings: on, off (offered, not on), or not offered. */
+export type CalendarJoining = 'on' | 'off' | undefined;
+
 /**
  * "Send Taro to a meeting": the link form and the line about the other ways in. It is a slot for
- * every way in; `upcoming` lists the meetings Taro is invited to by calendar.
+ * every way in; `upcoming` lists the meetings Taro will join from calendars.
  */
 export function MeetingSources({
   canJoin,
   missing,
   slackConnected,
   calendarInvites = false,
+  googleCalendar,
   upcoming,
   onSent,
   onNotReady,
@@ -85,6 +89,8 @@ export function MeetingSources({
   slackConnected: boolean;
   // The server takes calendar invitations, so the line mentions them
   calendarInvites?: boolean;
+  // The server can connect Google Calendars; the line says what the person's own one does
+  googleCalendar?: CalendarJoining;
   upcoming?: React.ReactNode;
   onSent: (result: SendResult) => void;
   // The API answered 412: the workspace changed since the overview loaded
@@ -190,6 +196,20 @@ export function MeetingSources({
           </Link>
           .
         </p>
+      ) : googleCalendar === 'on' ? (
+        <p id="send-line" className="mt-2.5 text-sm text-ash">
+          {slackConnected
+            ? "Taro also joins your Google Calendar meetings on its own, and links posted in any Slack channel it's in."
+            : 'Taro also joins your Google Calendar meetings on its own.'}
+        </p>
+      ) : googleCalendar === 'off' ? (
+        <p id="send-line" className="mt-2.5 text-sm text-ash">
+          {slackConnected ? 'Or post the link in any Slack channel Taro is in. ' : null}
+          <Link href="/dashboard?view=setup" scroll={false} onClick={onSetupLink} className={LINK}>
+            Connect your Google Calendar
+          </Link>{' '}
+          and Taro joins your meetings on its own.
+        </p>
       ) : slackConnected ? (
         <p id="send-line" className="mt-2.5 text-sm text-ash">
           {calendarInvites
@@ -237,8 +257,17 @@ function sentByLine(meeting: UpcomingMeeting): string | undefined {
   return `Sent by ${meeting.sentBy}, naming ${organizer} as the organizer.`;
 }
 
+// The meta line: when and where. Among invitations, a meeting from the person's own calendar says so.
+function upcomingMeta(meeting: UpcomingMeeting, mixed: boolean, now: number, timeZone?: string): string {
+  const parts = [formatUpcoming(meeting.startsAt, { now, timeZone }), platformLabel(meeting.platform, meeting.meetUrl)];
+  if (meeting.recurring) parts.push('Repeats');
+  if (mixed && meeting.source === 'google') parts.push('Your calendar');
+  return parts.join(' · ');
+}
+
 function UpcomingRow({
   meeting,
+  mixed,
   canDecide,
   busy,
   onAction,
@@ -246,6 +275,8 @@ function UpcomingRow({
   timeZone,
 }: {
   meeting: UpcomingMeeting;
+  // The list has invitations and calendar meetings both
+  mixed: boolean;
   canDecide: boolean;
   // The action running on this row
   busy: UpcomingAction | null;
@@ -287,10 +318,7 @@ function UpcomingRow({
             </Status>
           )}
         </div>
-        <p className="mt-0.5 text-meta text-ash">
-          {formatUpcoming(meeting.startsAt, { now, timeZone })} · {platformLabel(meeting.platform, meeting.meetUrl)}
-          {meeting.recurring ? ' · Repeats' : ''}
-        </p>
+        <p className="mt-0.5 text-meta text-ash">{upcomingMeta(meeting, mixed, now, timeZone)}</p>
         {waiting && (
           <p className="mt-1 text-sm text-ink-2">
             {sentByLine(meeting)}
@@ -309,10 +337,11 @@ function UpcomingRow({
 }
 
 /**
- * Meetings Taro is invited to by calendar, soonest first, under the link form. Rows follow the
- * meeting row: the event title and room code, then when and where. Anyone can skip one occurrence;
- * owners and admins approve or decline invitations nobody in the workspace vouched for. Renders
- * nothing until there are some.
+ * Meetings Taro will join from calendars, soonest first, under the link form: invitations to its
+ * address, and the ones from this person's own Google Calendar. Rows follow the meeting row: the
+ * event title and room code, then when and where. Whoever sees one can skip it; owners and admins
+ * approve or decline invitations nobody in the workspace vouched for. Renders nothing until there
+ * are some.
  */
 export function UpcomingInvites({
   meetings,
@@ -332,6 +361,7 @@ export function UpcomingInvites({
   const [showAll, setShowAll] = React.useState(false);
   if (!meetings || meetings.length === 0) return null;
   const shown = showAll ? meetings : meetings.slice(0, UPCOMING_SHOWN);
+  const mixed = meetings.some((m) => m.source === 'google') && meetings.some((m) => m.source !== 'google');
   return (
     <div className="mt-5 border-t border-rule-soft pt-4">
       <h3 id="upcoming-title" tabIndex={-1} className="text-meta font-semibold text-ash">
@@ -342,6 +372,7 @@ export function UpcomingInvites({
           <UpcomingRow
             key={meeting._id}
             meeting={meeting}
+            mixed={mixed}
             canDecide={canDecide}
             busy={pending?.id === meeting._id ? pending.action : null}
             onAction={onAction}
@@ -477,6 +508,7 @@ export function MeetingList({
   archiving = false,
   error,
   calendarInvites = false,
+  googleCalendar,
   now,
   timeZone,
   maxDurationMs,
@@ -496,6 +528,8 @@ export function MeetingList({
   error?: string;
   // The server takes calendar invitations, so the empty list mentions them
   calendarInvites?: boolean;
+  // Or connects Google Calendars, and the person's own is on or off
+  googleCalendar?: CalendarJoining;
   now: number;
   timeZone?: string;
   maxDurationMs?: number;
@@ -513,9 +547,13 @@ export function MeetingList({
       <p className="px-5 py-6 text-sm text-ink-2">
         {mode === 'archive'
           ? 'Nothing archived yet. Archived meetings stay here for good.'
-          : calendarInvites
-            ? 'No meetings yet. Invite Taro from your calendar or paste a link above, then say “Hey Taro.”'
-            : 'No meetings yet. Paste a link above, then say “Hey Taro.”'}
+          : googleCalendar === 'on'
+            ? 'No meetings yet. Taro joins the next one on your calendar, or paste a link above. Then say “Hey Taro.”'
+            : googleCalendar === 'off'
+              ? 'No meetings yet. Connect your Google Calendar in Setup or paste a link above, then say “Hey Taro.”'
+              : calendarInvites
+                ? 'No meetings yet. Invite Taro from your calendar or paste a link above, then say “Hey Taro.”'
+                : 'No meetings yet. Paste a link above, then say “Hey Taro.”'}
       </p>
     );
   } else if (rows.length > 0) {

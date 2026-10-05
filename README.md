@@ -18,7 +18,8 @@ Keys are checked with the provider, encrypted at rest, and never shown again. Ta
 ## How a meeting goes
 
 ```
-Meeting link posted in Slack (or pasted in the dashboard)
+A meeting on someone's connected Google Calendar,
+or a link posted in Slack (or pasted in the dashboard)
         │
         ▼
 Taro sends a bot with the workspace's MeetingBaas key
@@ -95,7 +96,7 @@ Workspaces normally use Groq or OpenAI for transcription. For fully offline deve
 
 ## Deploying
 
-See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full guide: MongoDB, Slack and Google sign-in, the GitHub app, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full guide: MongoDB, Slack and Google sign-in, Connect Google Calendar, the GitHub app, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
 
 ## Troubleshooting
 

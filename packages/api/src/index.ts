@@ -1,5 +1,5 @@
 // Must be the first import so a missing env var fails fast, before anything else loads.
-import { env } from './config/env';
+import { env, googleCalendarConfigured } from './config/env';
 
 import express from 'express';
 import http from 'http';
@@ -20,7 +20,9 @@ import { metaRouter } from './routes/meta';
 import { extensionRouter, sessionsRouter } from './routes/extension';
 import { inboundRouter } from './routes/inbound';
 import { calendarRouter } from './routes/calendar';
+import { googleCalendarRouter } from './routes/googleCalendar';
 import { calendarTick } from './services/calendar/scheduler';
+import { googleCalendarTick } from './services/calendar/googleSync';
 import { calendarInvitesConfigured } from './lib/inviteAddress';
 import { slackListener } from './services/slackListener';
 import { realtimeSessions, type Direction } from './services/realtime';
@@ -80,6 +82,7 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/extension', extensionRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/calendar', calendarRouter);
+app.use('/api/google-calendar', googleCalendarRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
@@ -141,10 +144,15 @@ setInterval(() => {
   realtimeSessions.sweepStale().catch((error) => log.warn('[Realtime] Stale meeting sweep failed:', errorMessage(error)));
 }, 2 * 60 * 1000).unref();
 
-// Calendar invitations: confirms and sends bots for meetings about to start, and keeps MeetingBaas in step.
+// Calendar meetings: confirms and sends bots for meetings about to start, and keeps MeetingBaas in step.
+// Connected Google Calendars are read on the same clock, in a pass of their own so a slow read never
+// holds up a meeting that's starting.
 setInterval(() => {
-  if (mongoose.connection.readyState !== 1 || !calendarInvitesConfigured()) return;
+  if (mongoose.connection.readyState !== 1) return;
+  const google = googleCalendarConfigured();
+  if (!calendarInvitesConfigured() && !google) return;
   calendarTick().catch((error) => log.warn('[Calendar] Tick failed:', errorMessage(error)));
+  if (google) googleCalendarTick().catch((error) => log.warn('[Calendar] Google Calendar pass failed:', errorMessage(error)));
 }, 30 * 1000).unref();
 
 async function start() {

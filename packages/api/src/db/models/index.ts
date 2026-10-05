@@ -9,3 +9,5 @@ export { MeetingModel } from './Meeting';
 export { ActionLogModel } from './ActionLog';
 export { CalendarSeriesModel } from './CalendarSeries';
 export { CalendarOccurrenceModel } from './CalendarOccurrence';
+export { GoogleCalendarConnectionModel } from './GoogleCalendarConnection';
+export { GoogleCalendarGrantModel } from './GoogleCalendarGrant';

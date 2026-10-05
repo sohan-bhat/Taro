@@ -1,8 +1,8 @@
 /**
  * Sends Taro into a meeting. Shared by the Slack listener (a link posted in a
- * channel), the dashboard ("Send Taro to a meeting"), and calendar invitations,
- * so every path gets the same readiness checks, de-duplication, concurrency
- * cap, and error handling.
+ * channel), the dashboard ("Send Taro to a meeting"), and calendar meetings
+ * (invitations and connected Google Calendars), so every path gets the same
+ * readiness checks, de-duplication, concurrency cap, and error handling.
  */
 
 import { COPY } from '@taro/shared';
@@ -67,7 +67,7 @@ export function missingSetup(p: { meetingBaasKey: unknown; llm: unknown; stt: un
 export async function launchMeeting(opts: {
   companyId: string;
   link: MeetingLink;
-  source: 'slack' | 'dashboard' | 'extension' | 'calendar';
+  source: 'slack' | 'dashboard' | 'extension' | 'calendar' | 'google_calendar';
   slackChannelId?: string;
   slackChannelName?: string;
   slackThreadTs?: string;

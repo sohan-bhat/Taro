@@ -1,7 +1,8 @@
 /**
  * Calendar invitations in the database. Mail that arrived for a workspace's Taro address becomes a
- * series and its occurrences; the dashboard's Skip, Approve, and Decline act on them. Every query is
- * scoped to one workspace, so one workspace's mail never touches another's meetings.
+ * series and its occurrences; the dashboard's Skip, Approve, and Decline act on them, and on the
+ * occurrences members' connected Google Calendars make. Every query is scoped to one workspace, so one
+ * workspace's mail never touches another's meetings.
  */
 
 import { Error as MongooseError, type HydratedDocument } from 'mongoose';
@@ -19,6 +20,7 @@ import { resolveProviders } from '../workspaceProviders';
 import { botContext, DIRTY, syncInBackground } from './bots';
 import { parseCalendar, type CalendarMethod, type ParsedCalendar, type ParsedEvent } from './ics';
 import type { InboundMail } from './mail';
+import { writeOccurrence } from './occurrences';
 import {
   applyMessage,
   CONFIRM_LEAD_MS,
@@ -148,8 +150,6 @@ async function storeMessage(companyId: string, uid: string, message: SeriesMessa
   return null;
 }
 
-const sameTime = (a?: Date, b?: Date) => (a ? a.getTime() : undefined) === (b ? b.getTime() : undefined);
-
 /**
  * Makes the stored occurrences match the series over the next two weeks, and moves the series'
  * window and lifetime along. Returns the occurrences whose MeetingBaas bot may need syncing.
@@ -190,62 +190,16 @@ export async function reconcileSeries(seriesId: string, now = new Date()): Promi
       continue;
     }
 
-    const d = change.desired;
-    const row = byKey.get(d.recurrenceKey);
-    const botMatters = !row || !sameTime(row.start, d.start) || row.meetUrl !== d.meetUrl || row.status !== change.status || change.relaunch;
-    const unchanged =
-      row &&
-      !botMatters &&
-      sameTime(row.end, d.end) &&
-      row.title === d.title &&
-      row.organizerEmail === state.organizerEmail &&
-      row.organizerName === state.organizerName &&
-      row.senderEmail === state.senderEmail;
-    if (unchanged) continue;
-
-    const values: Record<string, unknown> = {
-      seriesId,
-      recurring: d.recurring,
-      title: d.title,
-      organizerEmail: state.organizerEmail,
-      organizerName: state.organizerName,
-      senderEmail: state.senderEmail,
-      start: d.start,
-      end: d.end,
-      meetUrl: d.meetUrl,
-      platform: d.platform,
+    const id = await writeOccurrence({
+      companyId,
+      uid,
+      row: byKey.get(change.desired.recurrenceKey),
+      desired: change.desired,
       status: change.status,
-      launchAt: launchAtFor(d.start, d.meetUrl, change.relaunch ? undefined : row?.bot),
-      expiresAt: new Date(d.end.getTime() + KEEP_AFTER_END_MS),
-    };
-    const $set: Record<string, unknown> = {};
-    const $unset: Record<string, 1> = {};
-    for (const [field, value] of Object.entries(values)) {
-      if (value === undefined) $unset[field] = 1;
-      else $set[field] = value;
-    }
-    if (change.status !== 'skipped') Object.assign($unset, { skipReason: 1, skippedByUserId: 1 });
-    // Moved to a later time after Taro went: a new occurrence, with its own bot and meeting.
-    if (change.relaunch) Object.assign($unset, { meetingId: 1, launchedAt: 1, bot: 1 });
-    if (botMatters) $set.botDirty = true;
-
-    const saved = await CalendarOccurrenceModel.findOneAndUpdate(
-      { companyId, uid, recurrenceKey: d.recurrenceKey },
-      {
-        $set,
-        ...(Object.keys($unset).length ? { $unset } : {}),
-        ...(botMatters ? { $inc: { botRev: 1 } } : {}),
-        $setOnInsert: { companyId, uid, recurrenceKey: d.recurrenceKey },
-      },
-      { upsert: true, new: true }
-    )
-      .select('_id')
-      .catch((error) => {
-        // Two copies of one invitation inserted the same occurrence; the other one's insert stands.
-        if ((error as { code?: unknown }).code === 11000) return null;
-        throw error;
-      });
-    if (saved && botMatters) touched.push(String(saved._id));
+      relaunch: change.relaunch,
+      values: { seriesId, organizerEmail: state.organizerEmail, organizerName: state.organizerName, senderEmail: state.senderEmail },
+    });
+    if (id) touched.push(id);
   }
 
   // A series still running keeps its two week window; anything that's over goes away a week after it ends.
@@ -335,6 +289,7 @@ function publicUpcoming(o: CalendarOccurrenceDoc & { _id: unknown }, missing: st
     endsAt: o.end.toISOString(),
     meetUrl: o.meetUrl,
     platform: o.platform,
+    source: o.source === 'google' ? 'google' : 'invite',
     status: o.status as UpcomingMeeting['status'],
     recurring: !!o.recurring,
     organizerName: o.organizerName,
@@ -344,24 +299,32 @@ function publicUpcoming(o: CalendarOccurrenceDoc & { _id: unknown }, missing: st
   };
 }
 
-/** The next two weeks of meetings Taro is invited to, soonest first. */
-export async function upcomingFor(companyId: string, now = new Date()): Promise<UpcomingMeeting[]> {
+/**
+ * The next two weeks of meetings Taro will join, soonest first, as `userId` sees them: everything
+ * invited to the workspace's address, and the meetings from their own Google Calendar.
+ */
+export async function upcomingFor(companyId: string, userId: string, now = new Date()): Promise<UpcomingMeeting[]> {
   const company = await CompanyModel.findById(companyId);
   if (!company) throw new NotFoundError('Workspace');
   const missing = missingSetup(resolveProviders(company));
   const rows = await CalendarOccurrenceModel.find({
     companyId,
     start: { $gte: new Date(now.getTime() - LATE_MS), $lte: new Date(now.getTime() + WINDOW_MS) },
-    $or: [{ status: { $in: ['scheduled', 'needs_approval'] } }, { status: 'skipped', skipReason: 'person' }],
+    $and: [
+      { $or: [{ status: { $in: ['scheduled', 'needs_approval'] } }, { status: 'skipped', skipReason: 'person' }] },
+      // A connected calendar's meetings are its owner's: only the members whose calendars have one see it here.
+      { $or: [{ source: { $ne: 'google' } }, { holders: userId }] },
+    ],
   })
     .sort({ start: 1 })
     .limit(50);
   return rows.map((row) => publicUpcoming(row, missing));
 }
 
-async function findOccurrence(companyId: string, id: string) {
+async function findOccurrence(companyId: string, id: string, userId: string) {
   const occurrence = await CalendarOccurrenceModel.findOne({ _id: id, companyId });
-  if (!occurrence) throw new NotFoundError('Meeting');
+  // Members who can't see a meeting from someone's Google Calendar can't act on it either.
+  if (!occurrence || (occurrence.source === 'google' && !occurrence.holders?.includes(userId))) throw new NotFoundError('Meeting');
   return occurrence;
 }
 
@@ -374,7 +337,7 @@ const TOO_LATE_TO_SKIP = "Taro is already on its way to that meeting, so it can'
 
 /** Skips one occurrence. Its scheduled bot is canceled right away, so a refusal reaches the person who asked. */
 export async function skipOccurrence(companyId: string, id: string, userId: string, now = new Date()): Promise<void> {
-  const occurrence = await findOccurrence(companyId, id);
+  const occurrence = await findOccurrence(companyId, id, userId);
   if (occurrence.status !== 'scheduled' && occurrence.status !== 'needs_approval') {
     throw new ConflictError(NOT_UPCOMING[occurrence.status] ?? 'That meeting has already started.');
   }
@@ -411,14 +374,19 @@ export async function skipOccurrence(companyId: string, id: string, userId: stri
   await CalendarOccurrenceModel.updateOne({ _id: occurrence._id, botRev: skipped.botRev }, { $set: { botDirty: false }, $unset: { bot: 1 } });
 }
 
+/** What an occurrence would be without a Skip: what its series says, or for a Google Calendar meeting, whether anyone still has it. */
+async function unskippedStatus(occurrence: CalendarOccurrenceDoc): Promise<OccurrenceStatus> {
+  if (occurrence.source === 'google') return occurrence.holders?.length ? 'scheduled' : 'canceled';
+  const series = await CalendarSeriesModel.findOne({ _id: occurrence.seriesId, companyId: occurrence.companyId });
+  return !series || series.canceledAt || series.approval === 'declined' ? 'canceled' : series.approval === 'approved' ? 'scheduled' : 'needs_approval';
+}
+
 /** Undoes a person's Skip, while there's still time to join. */
-export async function restoreOccurrence(companyId: string, id: string, now = new Date()): Promise<void> {
-  const occurrence = await findOccurrence(companyId, id);
+export async function restoreOccurrence(companyId: string, id: string, userId: string, now = new Date()): Promise<void> {
+  const occurrence = await findOccurrence(companyId, id, userId);
   if (occurrence.status !== 'skipped' || occurrence.skipReason !== 'person') throw new ConflictError("That meeting isn't skipped.");
   if (occurrence.start.getTime() < now.getTime() - LATE_MS) throw new ConflictError('That meeting started too long ago to join.');
-  const series = await CalendarSeriesModel.findOne({ _id: occurrence.seriesId, companyId });
-  const status: OccurrenceStatus =
-    !series || series.canceledAt || series.approval === 'declined' ? 'canceled' : series.approval === 'approved' ? 'scheduled' : 'needs_approval';
+  const status = await unskippedStatus(occurrence);
   await CalendarOccurrenceModel.updateOne(
     { _id: occurrence._id, status: 'skipped' },
     { ...DIRTY, $set: { ...DIRTY.$set, status, launchAt: launchAtFor(occurrence.start, occurrence.meetUrl) }, $unset: { skipReason: 1, skippedByUserId: 1 } }
@@ -434,7 +402,8 @@ export async function decideOccurrence(
   by: { userId: string; name?: string },
   now = new Date()
 ): Promise<void> {
-  const occurrence = await findOccurrence(companyId, id);
+  const occurrence = await findOccurrence(companyId, id, by.userId);
+  if (occurrence.source === 'google') throw new ConflictError("That meeting is on a member's own calendar, so it doesn't need approval.");
   const series = await CalendarSeriesModel.findOne({ _id: occurrence.seriesId, companyId });
   if (!series || series.canceledAt) throw new ConflictError('That meeting was canceled.');
   if (series.approval !== 'pending') {

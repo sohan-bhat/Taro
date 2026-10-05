@@ -320,7 +320,7 @@ export const FAQ = {
     },
     {
       q: 'Which meetings can Taro join?',
-      a: "Google Meet, Zoom, and Microsoft Teams. Post the link in any Slack channel Taro is in, or paste it in your dashboard. Taro joins your public channels when it's added to Slack. For a channel created later, type /invite @taro there.",
+      a: "Google Meet, Zoom, and Microsoft Teams. Connect your Google Calendar and Taro joins your meetings on its own, with no link to paste. You can also post a link in any Slack channel Taro is in, or paste it in your dashboard. Taro joins your public channels when it's added to Slack. For a channel created later, type /invite @taro there.",
     },
     {
       q: 'Does Taro record our meetings?',

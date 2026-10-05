@@ -13,6 +13,10 @@
  *
  * Sign-in is authentication only: Taro asks for openid, email, and profile, and
  * never keeps a provider's access token.
+ *
+ * Google's callback is shared with Connect Google Calendar (services/calendar/googleConnect),
+ * so the one redirect URI registered with Google serves both. The signed state's type says
+ * which flow a callback finishes.
  */
 
 import { Router, type Request, type Response, type Router as RouterType } from 'express';
@@ -20,12 +24,14 @@ import { CompanyModel, LoginCodeModel, SessionModel, UserModel } from '../db/mod
 import { env, googleSignInConfigured, slackConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createSession, requireAuth, type AuthedRequest } from '../middleware/auth';
-import { randomToken, sha256, signToken, verifyToken } from '../lib/crypto';
+import { peekTokenType, randomToken, sha256, signToken, verifyToken } from '../lib/crypto';
 import { checkGoogleIdToken, decodeJwtPayload, IdTokenRejected, oidcNonce, type Claims } from '../lib/oidc';
 import { resolveReturnTo } from '../lib/origins';
 import { rateLimit } from '../lib/rateLimit';
 import { log, errorMessage } from '../lib/logger';
 import { publicUser, publicWorkspace } from '../lib/views';
+import { CALENDAR_STATE, calendarState } from '../services/calendar/googleConnect';
+import { finishCalendarCallback } from './googleCalendar';
 import {
   googleIdentity,
   signInWithDirectory,
@@ -270,8 +276,23 @@ function finishDirectorySignIn(provider: DirectoryProvider) {
   };
 }
 
+const finishGoogleSignIn = finishDirectorySignIn('google');
+
 authRouter.get('/google/start', authLimiter, startDirectorySignIn('google'));
-authRouter.get('/google/callback', authLimiter, asyncHandler(finishDirectorySignIn('google')));
+authRouter.get(
+  '/google/callback',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const stateParam = typeof req.query.state === 'string' ? req.query.state : '';
+    const calendar = calendarState(stateParam);
+    if (calendar) return finishCalendarCallback(req, res, calendar, stateParam);
+    // An expired calendar state goes back to Setup, not to the sign-in page
+    if (peekTokenType(stateParam) === CALENDAR_STATE) {
+      return res.redirect(`${resolveReturnTo(undefined)}/dashboard?error=calendar_expired`);
+    }
+    return finishGoogleSignIn(req, res);
+  })
+);
 
 // ---------------------------------------------------------------------------------------------
 

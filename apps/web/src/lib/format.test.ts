@@ -28,3 +28,10 @@ test('a calendar meeting is titled by its event and comes from the calendar', ()
   assert.equal(whoAndWhere(meeting), 'Maya, from the calendar');
   assert.equal(whoAndWhere({ ...meeting, startedByName: undefined }), 'From the calendar');
 });
+
+test('a meeting from a connected Google Calendar names whose calendar brought Taro', () => {
+  const meeting = { source: 'google_calendar' as const, startedByName: 'Priya Raman', createdAt: '2026-10-05T16:00:00Z' };
+  assert.equal(whoAndWhere(meeting), 'Priya, from Google Calendar');
+  assert.equal(whoAndWhere(meeting, 'detail'), 'Priya started it from Google Calendar');
+  assert.equal(whoAndWhere({ ...meeting, startedByName: undefined }), 'From Google Calendar');
+});

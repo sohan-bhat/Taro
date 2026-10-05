@@ -5,6 +5,8 @@ import type { MeetingPlatform } from '@taro/shared';
 // meeting. skipped: a person skipped it, or the server was too late. canceled: the invitation went away.
 export type OccurrenceStatus = 'scheduled' | 'needs_approval' | 'launched' | 'skipped' | 'canceled';
 
+export type OccurrenceSource = 'invite' | 'google';
+
 /** A MeetingBaas scheduled bot waiting to join this occurrence. */
 export interface OccurrenceBot {
   // MeetingBaas reuses this as the bot's own ID once it joins
@@ -19,13 +21,23 @@ export interface OccurrenceBot {
   keyHint?: string;
 }
 
-/** One time Taro is invited to join: a one-off event, or one occurrence of a series. */
+/**
+ * One time Taro joins a meeting from a calendar: a one-off event, or one occurrence of a series. It
+ * comes from an invitation to Taro's address (a series), or from members' connected Google Calendars.
+ */
 export interface CalendarOccurrenceDoc {
   companyId: string;
-  seriesId: string;
+  // Unset means an invitation, from before Google Calendar
+  source?: OccurrenceSource;
+  // Invitations: the series it belongs to
+  seriesId?: string;
+  // The event's UID. Google Calendar's are kept as "g:" and a digest of its iCalUID.
   uid: string;
   // '' for a one-off event, else the ISO time of the occurrence's original start (its RECURRENCE-ID)
   recurrenceKey: string;
+  // Google Calendar: the connected members whose calendars have it and who want Taro there. When the
+  // last one goes, it's canceled.
+  holders?: string[];
   recurring: boolean;
   title?: string;
   organizerEmail?: string;
@@ -75,9 +87,11 @@ const botSchema = new Schema<OccurrenceBot>(
 const calendarOccurrenceSchema = new Schema<CalendarOccurrenceDoc>(
   {
     companyId: { type: String, required: true, ref: 'Company' },
-    seriesId: { type: String, required: true, ref: 'CalendarSeries' },
+    source: { type: String, enum: ['invite', 'google'] },
+    seriesId: { type: String, ref: 'CalendarSeries' },
     uid: { type: String, required: true },
     recurrenceKey: { type: String, default: '' },
+    holders: { type: [String], default: undefined },
     recurring: { type: Boolean, default: false },
     title: { type: String },
     organizerEmail: { type: String },
@@ -114,6 +128,7 @@ calendarOccurrenceSchema.index({ status: 1, launchAt: 1 });
 calendarOccurrenceSchema.index({ status: 1, start: 1 });
 calendarOccurrenceSchema.index({ companyId: 1, start: 1 });
 calendarOccurrenceSchema.index({ seriesId: 1, start: 1 });
+calendarOccurrenceSchema.index({ holders: 1, start: 1 }, { partialFilterExpression: { source: 'google' } });
 calendarOccurrenceSchema.index({ status: 1, 'bot.joinAt': 1 }, { partialFilterExpression: { 'bot.id': { $type: 'string' } } });
 calendarOccurrenceSchema.index({ botNextSyncAt: 1 }, { partialFilterExpression: { botDirty: true } });
 calendarOccurrenceSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

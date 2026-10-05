@@ -1,6 +1,6 @@
 /**
- * The calendar's clock, run every 30 seconds next to the stale meeting sweep. It never reads anyone's
- * calendar; it works from the occurrences invitations created:
+ * The calendar's clock, run every 30 seconds next to the stale meeting sweep. It reads no calendar
+ * itself; it works from the occurrences that invitations and connected Google Calendars created:
  *
  *  1. Occurrences more than 10 minutes past their start are skipped, not joined late.
  *  2. Due occurrences are taken with one atomic update each, so two API instances never both act on
@@ -72,13 +72,16 @@ export async function skipLate(now: Date): Promise<number> {
   return result.modifiedCount;
 }
 
+type Sponsor = { name?: string; userId?: string };
+type CalendarSource = 'calendar' | 'google_calendar';
+
 /** A meeting Taro couldn't start still shows up, with why, instead of quietly not happening. */
-async function recordFailure(occurrence: Occurrence, sponsor: { name?: string; userId?: string }, message: string, now: Date) {
+async function recordFailure(occurrence: Occurrence, sponsor: Sponsor, source: CalendarSource, message: string, now: Date) {
   const meeting = await MeetingModel.create({
     companyId: occurrence.companyId,
     meetUrl: occurrence.meetUrl,
     platform: occurrence.platform,
-    source: 'calendar',
+    source,
     title: occurrence.title,
     status: 'error',
     errorMessage: message,
@@ -98,23 +101,54 @@ async function letGo(key: string | null, botId: string) {
   });
 }
 
-/** Confirms the occurrence's scheduled bot, or sends one, and records the meeting it became. */
-export async function startOccurrence(occurrence: Occurrence, now: Date): Promise<void> {
+/** Who brings Taro to an invited meeting: its series' sponsor. Null after putting it back, when the series no longer says go. */
+async function inviteSponsor(occurrence: Occurrence, now: Date): Promise<Sponsor | null> {
   const id = occurrence._id;
   const series = await CalendarSeriesModel.findOne({ _id: occurrence.seriesId, companyId: occurrence.companyId });
   if (!series || series.canceledAt || series.approval !== 'approved') {
     // The series changed after this was scheduled; put it back the way the series says.
     const status = series && !series.canceledAt && series.approval === 'pending' ? 'needs_approval' : 'canceled';
     await CalendarOccurrenceModel.updateOne({ _id: id, status: 'launched' }, { ...DIRTY, $set: { ...DIRTY.$set, status }, $unset: { launchedAt: 1 } });
-    return;
+    return null;
   }
   // Someone an owner removed can't bring Taro to meetings anymore; their series waits for approval.
   if (series.sponsorUserId && (await UserModel.exists({ _id: series.sponsorUserId, removedAt: { $exists: true } }))) {
     await CalendarSeriesModel.updateOne({ _id: series._id }, { $set: { approval: 'pending' }, $unset: { sponsorUserId: 1, sponsorName: 1 } });
     await CalendarOccurrenceModel.updateOne({ _id: id, status: 'launched' }, { ...DIRTY, $set: { ...DIRTY.$set, status: 'needs_approval' }, $unset: { launchedAt: 1 } });
     await reconcileSeries(String(series._id), now);
-    return;
+    return null;
   }
+  return { name: series.sponsorName, userId: series.sponsorUserId };
+}
+
+/**
+ * Who brings Taro to a meeting from Google Calendar: the first member whose calendar has it and who
+ * still belongs to the workspace. Null after canceling it, when nobody does.
+ */
+async function calendarSponsor(occurrence: Occurrence): Promise<Sponsor | null> {
+  const holders = occurrence.holders ?? [];
+  const people = holders.length
+    ? await UserModel.find({ _id: { $in: holders }, companyId: occurrence.companyId, removedAt: { $exists: false } }).select('name')
+    : [];
+  const byId = new Map(people.map((person) => [String(person._id), person]));
+  const first = holders.map((holder) => byId.get(holder)).find((person) => !!person);
+  if (!first) {
+    await CalendarOccurrenceModel.updateOne(
+      { _id: occurrence._id, status: 'launched' },
+      { ...DIRTY, $set: { ...DIRTY.$set, status: 'canceled' }, $unset: { launchedAt: 1 } }
+    );
+    return null;
+  }
+  return { name: first.name, userId: String(first._id) };
+}
+
+/** Confirms the occurrence's scheduled bot, or sends one, and records the meeting it became. */
+export async function startOccurrence(occurrence: Occurrence, now: Date): Promise<void> {
+  const id = occurrence._id;
+  const fromGoogle = occurrence.source === 'google';
+  const source: CalendarSource = fromGoogle ? 'google_calendar' : 'calendar';
+  const sponsor = fromGoogle ? await calendarSponsor(occurrence) : await inviteSponsor(occurrence, now);
+  if (!sponsor) return;
 
   const company = await CompanyModel.findById(occurrence.companyId);
   if (!company) {
@@ -147,11 +181,10 @@ export async function startOccurrence(occurrence: Occurrence, now: Date): Promis
     return;
   }
 
-  const sponsor = { name: series.sponsorName, userId: series.sponsorUserId };
   const base = {
     companyId: occurrence.companyId,
     link: { url: occurrence.meetUrl, platform: occurrence.platform },
-    source: 'calendar' as const,
+    source,
     title: occurrence.title,
     startedByName: sponsor.name,
     startedByUserId: sponsor.userId,
@@ -180,7 +213,7 @@ export async function startOccurrence(occurrence: Occurrence, now: Date): Promis
     } else {
       const message = error instanceof LaunchError ? error.message : "Taro couldn't join because something went wrong on its end.";
       if (!(error instanceof LaunchError)) log.error(`[Calendar] Launch failed for occurrence ${id}:`, errorMessage(error));
-      meetingId = await recordFailure(occurrence, sponsor, message, now);
+      meetingId = await recordFailure(occurrence, sponsor, source, message, now);
     }
   }
   await CalendarOccurrenceModel.updateOne({ _id: id }, { $set: { meetingId } });

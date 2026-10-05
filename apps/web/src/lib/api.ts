@@ -5,6 +5,8 @@ import type {
   ConnectedSession,
   GithubAccountChoice,
   GithubStatus,
+  GoogleCalendarJoinMode,
+  GoogleCalendarStatus,
   LlmProviderId,
   Meeting,
   MeetingDetail,
@@ -147,8 +149,20 @@ export const api = {
     revoke: (id: string) => request<{ revoked: boolean }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
 
-  // Calendar invitations: the workspace's Taro address and the meetings it's invited to. Each
-  // action answers with the refreshed list.
+  // The signed-in person's own Google Calendar, read only. Connecting leaves for Google and comes
+  // back to Setup with a grant that only this person's session can redeem.
+  googleCalendar: {
+    connectUrl: () =>
+      request<{ url: string }>('/api/google-calendar/connect-url', { method: 'POST', body: { returnTo: origin() } }),
+    connect: (token: string) =>
+      request<{ calendar: GoogleCalendarStatus }>('/api/google-calendar/connect', { method: 'POST', body: { token } }),
+    update: (changes: { autoJoin?: boolean; joinMode?: GoogleCalendarJoinMode }) =>
+      request<{ calendar: GoogleCalendarStatus }>('/api/google-calendar', { method: 'PATCH', body: changes }),
+    disconnect: () => request<{ calendar: GoogleCalendarStatus }>('/api/google-calendar', { method: 'DELETE' }),
+  },
+
+  // Calendar meetings: the workspace's Taro address, and the meetings Taro will join from invitations
+  // and from this person's own Google Calendar. Each action answers with the refreshed list.
   calendar: {
     address: () => request<{ address: string }>('/api/calendar'),
     rotate: () => request<{ address: string }>('/api/calendar/rotate', { method: 'POST' }),
@@ -158,4 +172,4 @@ export const api = {
   },
 };
 
-export type { ConnectedSession, GithubStatus, Meeting, MeetingDetail, ProviderSettings, UpcomingMeeting, User, Workspace, WorkspaceOverview };
+export type { ConnectedSession, GithubStatus, GoogleCalendarStatus, Meeting, MeetingDetail, ProviderSettings, UpcomingMeeting, User, Workspace, WorkspaceOverview };

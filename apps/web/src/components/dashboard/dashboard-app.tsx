@@ -1,8 +1,8 @@
 'use client';
 
 // The signed-in dashboard: loading and polling, the URL state (?view, ?m, ?open), the results
-// of the Slack and GitHub install flows, focus on view changes, and the shell around the
-// Meetings and Setup views.
+// of the Slack, GitHub, and Google Calendar flows, focus on view changes, and the shell around
+// the Meetings and Setup views.
 
 import * as React from 'react';
 import Link from 'next/link';
@@ -26,6 +26,7 @@ import {
   MeetingSources,
   toastSent,
   UpcomingInvites,
+  type CalendarJoining,
   type ListMode,
   type SendResult,
   type UpcomingAction,
@@ -51,8 +52,13 @@ const RETURN_ERRORS: Record<string, string> = {
   github_no_push_access:
     "Your GitHub account can't push to any repository the Taro app has access to. Grant Taro a repository you can push to, then connect again.",
   github_failed: "GitHub didn't finish connecting. Try again.",
+  calendar_expired: 'Connecting Google Calendar took too long. Try again.',
+  calendar_denied: 'Connecting Google Calendar was canceled.',
+  calendar_scope: 'Taro can only join your meetings if it can see your calendar events. Connect again and allow that.',
+  calendar_unavailable: "Google Calendar isn't set up on this Taro server.",
+  calendar_failed: "Google didn't finish connecting your calendar. Try again.",
 };
-const RETURN_PARAMS = ['slack', 'github', 'error', 'githubConnect'];
+const RETURN_PARAMS = ['slack', 'github', 'error', 'githubConnect', 'calendarConnect'];
 
 const MAIN = 'mx-auto max-w-app px-4 pb-16 pt-4 md:px-6 md:pt-7';
 const FAST_POLL = 4_000;
@@ -95,7 +101,7 @@ export function DashboardApp() {
   const [overview, setOverview] = React.useState<WorkspaceOverview | null>(null);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [meta, setMeta] = React.useState<ServerMeta | null>(null);
-  // Meetings Taro is invited to by calendar; null until loaded, and while the server doesn't take invitations
+  // Meetings Taro will join from calendars; null until loaded, and while the server offers no calendar
   const [upcoming, setUpcoming] = React.useState<UpcomingMeeting[] | null>(null);
   const [upcomingPending, setUpcomingPending] = React.useState<{ id: string; action: UpcomingAction } | null>(null);
   const [meetings, setMeetings] = React.useState<Meeting[] | null>(null);
@@ -207,8 +213,8 @@ export function DashboardApp() {
       .catch(() => {});
   }, [router, loadOverview, loadMeetings]);
 
-  // The Slack and GitHub install flows come back with their result in the address. Show it once,
-  // then drop it. Every install starts on Setup, so that's where it lands.
+  // The Slack, GitHub, and Google Calendar flows come back with their result in the address. Show
+  // it once, then drop it. Every one starts on Setup, so that's where it lands.
   const handledReturn = React.useRef(false);
   React.useEffect(() => {
     if (handledReturn.current || exiting.current) return;
@@ -217,7 +223,8 @@ export function DashboardApp() {
     const github = params.get('github');
     const error = params.get('error');
     const connectToken = params.get('githubConnect');
-    if (!slack && !github && !error && !connectToken) return;
+    const calendarToken = params.get('calendarConnect');
+    if (!slack && !github && !error && !connectToken && !calendarToken) return;
     if (slack === 'connected') showToast('Taro is in your Slack.');
     if (github === 'connected') showToast('GitHub connected.');
     if (error) {
@@ -241,8 +248,25 @@ export function DashboardApp() {
           if (!handleError(e)) showToast(errorText(e, "Couldn't connect GitHub."), 'error');
         });
     }
+    if (calendarToken) {
+      // Google confirmed the account; only this person's session can finish connecting it.
+      api.googleCalendar
+        .connect(calendarToken)
+        .then(() => {
+          showToast('Google Calendar connected. Taro joins your meetings from now on.');
+          loadOverview();
+          // The first read of the calendar takes a moment; its meetings show up without waiting for the next poll.
+          window.setTimeout(() => {
+            loadOverview();
+            loadUpcoming();
+          }, 4_000);
+        })
+        .catch((e) => {
+          if (!handleError(e)) showToast(errorText(e, "Couldn't connect Google Calendar."), 'error');
+        });
+    }
     router.replace('/dashboard?view=setup', { scroll: false });
-  }, [params, router, loadOverview, handleError]);
+  }, [params, router, loadOverview, loadUpcoming, handleError]);
 
   // Meetings poll every 4 seconds while one is starting, in the lobby, or live; every 30 otherwise.
   const loaded = !!overview;
@@ -257,8 +281,9 @@ export function DashboardApp() {
 
   // Upcoming calendar meetings refresh every 30 seconds, and when the tab comes back.
   const calendarInvites = !!meta?.calendarInvites;
+  const upcomingOn = calendarInvites || !!meta?.googleCalendar;
   React.useEffect(() => {
-    if (!loaded || !calendarInvites) return;
+    if (!loaded || !upcomingOn) return;
     loadUpcoming();
     const onVisible = () => {
       if (document.visibilityState === 'visible') loadUpcoming();
@@ -269,7 +294,7 @@ export function DashboardApp() {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [loaded, calendarInvites, loadUpcoming]);
+  }, [loaded, upcomingOn, loadUpcoming]);
 
   // Hidden tabs skip their polls, so a tab coming back catches up at once.
   React.useEffect(() => {
@@ -601,6 +626,12 @@ export function DashboardApp() {
 
   const { workspace, me, ready, slack, github } = overview;
   const canEdit = me.role !== 'member';
+  const myCalendar = overview.googleCalendar;
+  const googleCalendar: CalendarJoining = !meta?.googleCalendar
+    ? undefined
+    : myCalendar?.connected && !myCalendar.needsReconnect && myCalendar.autoJoin !== false
+      ? 'on'
+      : 'off';
   const todo = steps?.todo ?? 0;
   const now = Date.now();
   const tabs: ViewTab[] = [
@@ -655,7 +686,11 @@ export function DashboardApp() {
               // Readiness is worked out on the server from the providers.
               loadOverview();
             }}
-            onChanged={loadOverview}
+            onChanged={() => {
+              loadOverview();
+              // Disconnecting a calendar, or changing which meetings it joins, changes Upcoming too
+              if (upcomingOn) loadUpcoming();
+            }}
             openPermissions={openParam === 'permissions'}
             onPermissionsClosed={() => {
               if (openParam) router.replace('/dashboard?view=setup', { scroll: false });
@@ -680,8 +715,9 @@ export function DashboardApp() {
                   missing={missingToJoin(ready)}
                   slackConnected={slack.connected}
                   calendarInvites={calendarInvites}
+                  googleCalendar={googleCalendar}
                   upcoming={
-                    calendarInvites ? (
+                    upcomingOn ? (
                       <UpcomingInvites meetings={upcoming} canDecide={canEdit} onAction={actOnUpcoming} pending={upcomingPending} now={now} />
                     ) : null
                   }
@@ -712,6 +748,7 @@ export function DashboardApp() {
                       archiving={archiving}
                       error={mode === 'archive' ? archiveError : meetingsError}
                       calendarInvites={calendarInvites}
+                      googleCalendar={googleCalendar}
                       now={now}
                     />
                   </div>
