@@ -89,3 +89,32 @@ test('the prompt asks for plain sentences and its examples practice it', () => {
     assert.doesNotMatch(line, /Reported by|during a meeting|Sarah/, line);
   }
 });
+
+test('fallback parses tickets, with the tracker when one is named', () => {
+  const plain = parseIntentSimple('file a ticket about the invite emails landing in spam');
+  assert.equal(plain.action, INTENTS.CREATE_TICKET);
+  assert.equal(plain.params.title, 'The invite emails landing in spam');
+  assert.equal(plain.params.tracker, undefined);
+
+  const jira = parseIntentSimple('make a jira ticket for rotating the staging password');
+  assert.equal(jira.params.tracker, 'jira');
+  assert.equal(jira.params.title, 'Rotating the staging password');
+
+  const trailing = parseIntentSimple('create a ticket to update the docs in linear');
+  assert.equal(trailing.params.tracker, 'linear');
+  assert.equal(trailing.params.title, 'To update the docs');
+
+  const close = parseIntentSimple('close ticket eng 42');
+  assert.equal(close.action, INTENTS.CLOSE_TICKET);
+  assert.equal(close.params.ticket, 'ENG-42');
+  assert.equal(parseIntentSimple('reopen the linear ticket 7').params.tracker, 'linear');
+  assert.equal(parseIntentSimple('close issue 9').action, INTENTS.CLOSE_GITHUB_ISSUE);
+});
+
+test('the model hears what is connected, and ticket fields are kept', async () => {
+  const intent = buildIntent({ action: 'comment_ticket', confidence: 0.9, ticket: 'ENG-12', tracker: 'linear', body: 'Shipped.' }, 'c', 'groq');
+  assert.equal(intent.params.ticket, 'ENG-12');
+  assert.equal(intent.params.tracker, 'linear');
+  assert.equal(buildIntent({ action: 'create_ticket', confidence: 1, tracker: 'asana' }, 'c', 'groq').params.tracker, undefined);
+  assert.match(SYSTEM_PROMPT, /create_ticket/);
+});

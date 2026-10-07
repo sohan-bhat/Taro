@@ -1,3 +1,5 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # The Jira app is deployed to Atlassian with the Forge CLI and installs its own packages with npm
+  - "!apps/jira"

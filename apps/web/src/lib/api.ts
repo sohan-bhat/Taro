@@ -14,6 +14,8 @@ import type {
   ServerMeta,
   SignInProvider,
   SttProviderId,
+  TrackerId,
+  TrackerStatus,
   UpcomingMeeting,
   User,
   Workspace,
@@ -137,6 +139,33 @@ export const api = {
     reconnect: () => request<{ connected: boolean }>('/api/github/reconnect', { method: 'POST' }),
     disconnect: () => request<{ connected: boolean }>('/api/github', { method: 'DELETE' }),
   },
+
+  // Linear, installed as the Taro app. Connecting leaves for Linear and comes back to Setup with a
+  // grant that only this person's session can redeem.
+  linear: {
+    connectUrl: () => request<{ url: string }>('/api/linear/connect-url', { method: 'POST', body: { returnTo: origin() } }),
+    connect: (token: string) => request<{ linear: TrackerStatus }>('/api/linear/connect', { method: 'POST', body: { token } }),
+    setTeam: (teamId: string) => request<{ linear: TrackerStatus }>('/api/linear/team', { method: 'POST', body: { teamId } }),
+    refresh: () => request<{ linear: TrackerStatus }>('/api/linear/refresh', { method: 'POST' }),
+    setCapabilities: (actions: string[]) =>
+      request<{ enabledActions: string[] }>('/api/linear/capabilities', { method: 'POST', body: { actions } }),
+    disconnect: () => request<{ linear: TrackerStatus }>('/api/linear', { method: 'DELETE' }),
+  },
+
+  // Jira, through the Taro app for Jira: a Jira admin makes a connection key there, and it's pasted here.
+  jira: {
+    installUrl: () => request<{ url: string }>('/api/jira/install-url'),
+    connect: (key: string) => request<{ jira: TrackerStatus }>('/api/jira/connect', { method: 'POST', body: { key } }),
+    setProject: (projectKey: string) => request<{ jira: TrackerStatus }>('/api/jira/project', { method: 'POST', body: { projectKey } }),
+    refresh: () => request<{ jira: TrackerStatus }>('/api/jira/refresh', { method: 'POST' }),
+    setCapabilities: (actions: string[]) =>
+      request<{ enabledActions: string[] }>('/api/jira/capabilities', { method: 'POST', body: { actions } }),
+    disconnect: () => request<{ jira: TrackerStatus }>('/api/jira', { method: 'DELETE' }),
+  },
+
+  // With Linear and Jira both connected: where a ticket goes when nobody says which
+  setTicketTracker: (tracker: TrackerId) =>
+    request<{ ticketTracker: TrackerId }>('/api/workspace/ticket-tracker', { method: 'PUT', body: { tracker } }),
 
   extension: {
     // A limited token for the Google Meet button: it can send Taro, check on it, and make it leave.

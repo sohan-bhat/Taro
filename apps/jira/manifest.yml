@@ -1,0 +1,34 @@
+# The Taro app for Jira. Taro calls its web trigger, and it makes each Jira change as itself, so
+# tickets come from the Taro app, never from a person's account. `forge register` fills in app.id.
+modules:
+  jira:adminPage:
+    - key: taro-admin
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: Taro
+  webtrigger:
+    - key: taro-actions
+      function: actions
+      urlFormat: v2
+      response:
+        type: dynamic
+  function:
+    - key: resolver
+      handler: index.resolver
+    - key: actions
+      handler: index.actions
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs22.x
+  id: ari:cloud:ecosystem::app/run-forge-register
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+    - storage:app

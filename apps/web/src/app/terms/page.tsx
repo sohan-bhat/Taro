@@ -11,7 +11,7 @@ export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of Service"
-      updated="October 4, 2026"
+      updated="October 7, 2026"
       intro={
         <>
           These terms cover using Taro at trytaro.vercel.app. By signing in, you agree to them and to the{' '}
@@ -29,7 +29,7 @@ export default function TermsPage() {
       <Section title="Your accounts and costs">
         <p>
           You bring your own keys for the meeting bot, the AI model, and transcription, and you pay those providers directly.
-          You are responsible for your accounts with them and with Slack, GitHub, and Google, and for following their terms.
+          You are responsible for your accounts with them and with Slack, GitHub, Linear, Jira, and Google, and for following their terms.
         </p>
       </Section>
 
@@ -43,7 +43,7 @@ export default function TermsPage() {
 
       <Section title="What Taro does for you">
         <p>
-          Taro acts through its own Slack and GitHub apps, and only within the permissions your workspace allows. It uses AI and
+          Taro acts through its own Slack, GitHub, Linear, and Jira apps, and only within the permissions your workspace allows. It uses AI and
           can get things wrong, so check its work. You are responsible for what you ask it to do.
         </p>
       </Section>

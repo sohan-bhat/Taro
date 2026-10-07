@@ -4,7 +4,9 @@
 import {
   COPY,
   DEFAULT_GITHUB_ACTIONS,
+  TRACKERS,
   isGithubAction,
+  isTicketAction,
   locateCommand,
   sentence,
   type ActionOutcome,
@@ -48,6 +50,9 @@ export interface RequestView {
 
 const RECASE: Array<[RegExp, string]> = [
   [/\bgithub\b/gi, 'GitHub'],
+  // Only when it names the tracker; "linear" is an ordinary word too
+  [/\b(in|to|a|the) linear\b/gi, '$1 Linear'],
+  [/\bjira\b/gi, 'Jira'],
   [/\bgoogle meet\b/gi, 'Google Meet'],
   [/\bslack\b/gi, 'Slack'],
   [/\bzoom\b/gi, 'Zoom'],
@@ -164,6 +169,13 @@ export function describeRequest(
       branch = log.branch;
       const url = ref?.[3] ?? summary?.url;
       if (url) link = { label: 'View on GitHub', href: url, external: true };
+    } else if (isTicketAction(action)) {
+      // "Filed ENG-12 in Linear: https://…"
+      const url = log.result?.match(/: (https?:\/\/\S+)$/)?.[1] ?? summary?.url;
+      answer = summary?.text ?? sentence(log.result?.replace(/: https?:\/\/\S+$/, '') ?? 'Done');
+      detail = p.title;
+      const tracker = p.tracker ? TRACKERS[p.tracker] : undefined;
+      if (url) link = { label: tracker ? `View in ${tracker}` : 'View ticket', href: url, external: true };
     } else {
       answer = summary?.text ?? sentence(log.result ?? 'Done');
     }
@@ -175,7 +187,9 @@ export function describeRequest(
     if (canEdit) {
       link = slackAction
         ? { label: 'Set up Slack', href: '?view=setup', external: false }
-        : { label: 'Change GitHub permissions', href: '?view=setup&open=permissions', external: false };
+        : isTicketAction(action)
+          ? { label: `Change ${p.tracker ? TRACKERS[p.tracker] : 'ticket'} permissions`, href: '?view=setup', external: false }
+          : { label: 'Change GitHub permissions', href: '?view=setup&open=permissions', external: false };
     }
   } else if (summary) {
     [answer, detail] = firstSentence(summary.text);
@@ -186,7 +200,9 @@ export function describeRequest(
         : "Couldn't post in Slack."
       : isGithubAction(action)
         ? COPY.githubCouldnt(action, p.issueNumber)
-        : COPY.unexpected(log.command);
+        : isTicketAction(action)
+          ? COPY.ticketCouldnt(action, p.ticket)
+          : COPY.unexpected(log.command);
     detail = failureDetail(log.errorMessage);
   }
 

@@ -28,8 +28,42 @@ export const INTENTS = {
   MERGE_PULL_REQUEST: 'merge_pull_request',
   REQUEST_GITHUB_REVIEW: 'request_github_review',
   CREATE_PULL_REQUEST: 'create_pull_request',
+  CREATE_TICKET: 'create_ticket',
+  COMMENT_TICKET: 'comment_ticket',
+  CLOSE_TICKET: 'close_ticket',
+  REOPEN_TICKET: 'reopen_ticket',
+  ASSIGN_TICKET: 'assign_ticket',
+  LABEL_TICKET: 'label_ticket',
   UNKNOWN: 'unknown',
 } as const;
+
+// Where tickets go: Linear, Jira, or both. A workspace can connect either one or both.
+export const TRACKERS = {
+  linear: 'Linear',
+  jira: 'Jira',
+} as const;
+
+export type TrackerId = keyof typeof TRACKERS;
+
+export const isTrackerId = (v: unknown): v is TrackerId => v === 'linear' || v === 'jira';
+
+// Ticket actions a workspace can turn on or off for each tracker, in the order the dashboard lists them.
+export const TICKET_CAPABILITIES = [
+  { action: 'create_ticket', label: 'Create tickets', description: 'File new tickets from what people ask for', gerund: 'Filing tickets' },
+  { action: 'comment_ticket', label: 'Comment on tickets', description: 'Add a comment to a ticket by its key', gerund: 'Commenting on tickets' },
+  { action: 'assign_ticket', label: 'Assign tickets', description: 'Assign a teammate to a ticket', gerund: 'Assigning tickets' },
+  { action: 'label_ticket', label: 'Label tickets', description: 'Add labels to a ticket', gerund: 'Labeling tickets' },
+  { action: 'close_ticket', label: 'Close tickets', description: 'Move a ticket to done', gerund: 'Closing tickets' },
+  { action: 'reopen_ticket', label: 'Reopen tickets', description: 'Move a done ticket back to to do', gerund: 'Reopening tickets' },
+] as const;
+
+export type TicketAction = (typeof TICKET_CAPABILITIES)[number]['action'];
+
+export const isTicketAction = (action: string): action is TicketAction =>
+  TICKET_CAPABILITIES.some((c) => c.action === action);
+
+// Filing and commenting add to a tracker without changing anyone's work; the rest stay opt-in.
+export const DEFAULT_TICKET_ACTIONS: TicketAction[] = ['create_ticket', 'comment_ticket'];
 
 // GitHub capabilities a company can turn on/off for Taro; the GitHub App permission is the ceiling, this is the company's policy within it.
 // In the order the dashboard lists them. `gerund` names a refused action: "Merging is turned off for this workspace."

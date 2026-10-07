@@ -1,6 +1,6 @@
 /**
- * Runs one spoken request: works out what was asked, does it in Slack or
- * GitHub, and logs how it went. Shared by the realtime pipeline (mid-meeting)
+ * Runs one spoken request: works out what was asked, does it in Slack,
+ * GitHub, Linear, or Jira, and logs how it went. Shared by the realtime pipeline (mid-meeting)
  * and the end-of-call sweep. Every sentence it returns or stores comes from
  * the copy deck, through ./outcomes.
  */
@@ -9,19 +9,23 @@ import {
   COPY,
   DEFAULT_GITHUB_ACTIONS,
   INTENTS,
+  TRACKERS,
   isGithubAction,
+  isTicketAction,
   sentence,
   type ActionOutcome,
   type GithubAction,
   type IntentParams,
   type ParsedIntent,
+  type TicketAction,
 } from '@taro/shared';
-import { ActionLogModel } from '../db/models';
+import { ActionLogModel, GithubConnectionModel, SlackConnectionModel } from '../db/models';
 import { log, errorMessage } from '../lib/logger';
 import { SlackService, normalizeChannel } from './slack';
 import { GithubService, type GithubResult } from './github';
 import { parseIntent } from './intent';
 import type { LlmConfig } from './llm';
+import { anyTracker, chooseTracker, describeTools, loadTrackers, normalizeTicketKey, type Tracker, type Trackers } from './trackers';
 import {
   cleanParams,
   done,
@@ -33,6 +37,8 @@ import {
   quoted,
   slackFailed,
   slackOff,
+  ticketDone,
+  ticketFailed,
   turnedOff,
   type Settled,
 } from './outcomes';
@@ -55,10 +61,11 @@ export async function executeCommand(
   let intent: ParsedIntent = { action: INTENTS.UNKNOWN, confidence: 0, params: {} };
   let settled: Settled;
   try {
-    const parsed = await parseIntent(command, meetingContext, llm);
+    const { trackers, tools } = await connectedTools(companyId);
+    const parsed = await parseIntent(command, meetingContext, llm, tools);
     intent = { ...parsed, params: cleanParams(parsed.params) };
     log.debug(`[Executor:${mode}] Parsed intent:`, JSON.stringify(intent));
-    settled = await perform(companyId, command, intent);
+    settled = await perform(companyId, command, intent, trackers);
   } catch (error) {
     log.error(`[Executor:${mode}] Command execution error:`, error);
     settled = failed(COPY.unexpected(quoted(command)), errorMessage(error));
@@ -86,7 +93,29 @@ export async function executeCommand(
   return { status: settled.status, outcome: settled.outcome, summary: settled.summary };
 }
 
-async function perform(companyId: string, command: string, intent: ParsedIntent): Promise<Settled> {
+/** What the workspace has connected: the trackers to act in, and one line telling the model. */
+async function connectedTools(companyId: string): Promise<{ trackers: Trackers; tools?: string }> {
+  try {
+    const [trackers, slack, github] = await Promise.all([
+      loadTrackers(companyId),
+      SlackConnectionModel.exists({ companyId }),
+      GithubConnectionModel.findOne({ companyId }, 'repo disconnectedAt'),
+    ]);
+    const repo = github && !github.disconnectedAt ? github.repo ?? 'no repository chosen' : undefined;
+    return { trackers, tools: describeTools({ slack: !!slack, github: repo, trackers }) };
+  } catch (error) {
+    // The request still runs; the model just routes it without knowing what's connected
+    log.warn('[Executor] Could not read the connected tools:', errorMessage(error));
+    return { trackers: {} };
+  }
+}
+
+/**
+ * Does what was asked. A request can land somewhere other than where it was parsed: an issue goes
+ * to Linear or Jira when GitHub isn't connected, and a ticket to GitHub when no tracker is. `intent`
+ * is updated to say where it went, so the log and the dashboard match what happened.
+ */
+async function perform(companyId: string, command: string, intent: ParsedIntent, trackers: Trackers): Promise<Settled> {
   const { action, params: p } = intent;
   if (action === INTENTS.UNKNOWN) return needsYou(p.reason ? sentence(p.reason) : COPY.heardUnclear(quoted(command)));
 
@@ -111,9 +140,34 @@ async function perform(companyId: string, command: string, intent: ParsedIntent)
     });
   }
 
+  if (isTicketAction(action)) {
+    if (!anyTracker(trackers)) {
+      if (action === 'create_ticket') {
+        const github = await GithubService.fromCompanyId(companyId);
+        if (github) {
+          intent.action = INTENTS.CREATE_GITHUB_ISSUE;
+          delete p.tracker;
+          return performGithub(github, 'create_github_issue', p);
+        }
+      }
+      return failed(COPY.noTracker, 'No ticket tracker connected');
+    }
+    return performTicket(action, p, trackers);
+  }
+
   if (!isGithubAction(action)) return needsYou(COPY.heardUnclear(quoted(command)));
   const github = await GithubService.fromCompanyId(companyId);
-  if (!github) return failed(COPY.githubNotConnected, 'GitHub not connected');
+  if (!github) {
+    if (action === INTENTS.CREATE_GITHUB_ISSUE && anyTracker(trackers)) {
+      intent.action = INTENTS.CREATE_TICKET;
+      return performTicket('create_ticket', p, trackers);
+    }
+    return failed(COPY.githubNotConnected, 'GitHub not connected');
+  }
+  return performGithub(github, action, p);
+}
+
+async function performGithub(github: GithubService, action: GithubAction, p: IntentParams): Promise<Settled> {
   // The workspace's own policy, inside whatever the GitHub App may technically do
   if (!(github.enabledActions ?? DEFAULT_GITHUB_ACTIONS).includes(action)) return turnedOff(action);
   if (!github.repo) return failed(COPY.noRepository, 'No repository selected');
@@ -122,6 +176,45 @@ async function perform(companyId: string, command: string, intent: ParsedIntent)
 
   const gh = await runGithub(github, action, p);
   return gh.success ? githubDone(action, gh, github.repo, p) : githubFailed(action, p.issueNumber, gh);
+}
+
+/** A ticket request, in the tracker it belongs to. Stores which one in `p.tracker` and the full key in `p.ticket`. */
+async function performTicket(action: TicketAction, p: IntentParams, trackers: Trackers): Promise<Settled> {
+  const { tracker, named } = chooseTracker(p, trackers);
+  if (!tracker) return failed(COPY.trackerNotConnected(TRACKERS[named ?? 'linear']), `${TRACKERS[named ?? 'linear']} not connected`);
+  p.tracker = tracker.id;
+  if (!tracker.enabledActions.includes(action)) return turnedOff(action);
+  const question = missingDetail(action, p);
+  if (question) return needsYou(question);
+
+  let key: string | undefined;
+  if (action === 'create_ticket') {
+    if (!tracker.defaultSpaceKey) return failed(COPY.noTrackerSpace(tracker.name), 'No team or project chosen for new tickets');
+  } else {
+    key = normalizeTicketKey(p.ticket, tracker.defaultSpaceKey) ?? undefined;
+    if (!key) return needsYou(COPY.askTicket);
+    p.ticket = key;
+  }
+  const result = await runTicket(tracker, action, p, key!);
+  return result.success ? ticketDone(action, result, tracker.name, p) : ticketFailed(action, key, tracker.name, result);
+}
+
+// missingDetail has already checked every field used here; `key` is set for everything but create.
+function runTicket(tracker: Tracker, action: TicketAction, p: IntentParams, key: string) {
+  switch (action) {
+    case 'create_ticket':
+      return tracker.createTicket(p.title!, `${p.body ?? ''}${COPY.ticketFooter}`.trim());
+    case 'comment_ticket':
+      return tracker.comment(key, p.body!);
+    case 'close_ticket':
+      return tracker.close(key);
+    case 'reopen_ticket':
+      return tracker.reopen(key);
+    case 'assign_ticket':
+      return tracker.assign(key, p.assignees!);
+    case 'label_ticket':
+      return tracker.addLabels(key, p.labels!);
+  }
 }
 
 // missingDetail has already checked every field used here.

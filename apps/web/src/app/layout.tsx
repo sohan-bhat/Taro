@@ -10,10 +10,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
   title: { default: 'Taro, a voice assistant for your meetings', template: '%s · Taro' },
   description:
-    'Meeting follow-ups get lost. Taro joins your call and does them in Slack and GitHub the moment someone says “Hey Taro.”',
+    'Meeting follow-ups get lost. Taro joins your call and does them in Slack, GitHub, Linear, or Jira the moment someone says “Hey Taro.”',
   openGraph: {
     title: 'Taro, a voice assistant for your meetings',
-    description: 'Meeting follow-ups get lost. Taro joins your call and does them in Slack and GitHub the moment someone says “Hey Taro.”',
+    description: 'Meeting follow-ups get lost. Taro joins your call and does them in Slack, GitHub, Linear, or Jira the moment someone says “Hey Taro.”',
     type: 'website',
     siteName: 'Taro',
   },

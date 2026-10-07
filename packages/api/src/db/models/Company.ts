@@ -40,6 +40,8 @@ export interface CompanyDoc {
   ownerClaimedAt?: Date;
   // The unguessable part of this workspace's Taro address for calendar invitations
   inviteToken?: string;
+  // With Linear and Jira both connected: where a ticket goes when nobody says which
+  ticketTracker?: 'linear' | 'jira';
   providers?: {
     meetingBaas?: StoredKey;
     llm?: LlmConfigDoc;
@@ -67,6 +69,7 @@ const companySchema = new Schema<CompanyDoc>(
     onboardedAt: { type: Date },
     ownerClaimedAt: { type: Date },
     inviteToken: { type: String },
+    ticketTracker: { type: String, enum: ['linear', 'jira'] },
     providers: {
       meetingBaas: { type: new Schema(storedKey, { _id: false }), default: undefined },
       llm: {

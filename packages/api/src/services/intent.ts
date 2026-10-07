@@ -1,7 +1,10 @@
-import type { LlmProviderId, ParsedIntent } from '@taro/shared';
-import { COPY, INTENTS, cleanDashes } from '@taro/shared';
+import type { LlmProviderId, ParsedIntent, TrackerId } from '@taro/shared';
+import { COPY, INTENTS, cleanDashes, isTrackerId } from '@taro/shared';
 import { completeJson, LlmError, type LlmConfig } from './llm';
 import { log } from '../lib/logger';
+
+const trackerNamed = (name: string | undefined): { tracker?: TrackerId } =>
+  name === 'linear' || name === 'jira' ? { tracker: name } : {};
 
 // Regex fallback for when no LLM is reachable. Handles the common commands only.
 export function parseIntentSimple(command: string): ParsedIntent {
@@ -51,7 +54,33 @@ export function parseIntentSimple(command: string): ParsedIntent {
       source: 'fallback_regex',
     };
   }
-  const stateMatch = lower.match(/(close|reopen)\s+(?:issue|ticket)\s*#?\s*(\d+)/);
+  // "close ticket ENG 12", "reopen the jira ticket ops-4"
+  const ticketState = lower.match(/(close|reopen)\s+(?:the\s+)?(?:(linear|jira)\s+)?ticket\s+#?\s*([a-z][a-z0-9_]{0,9}[\s-]*\d+|\d+)/);
+  if (ticketState) {
+    return {
+      action: ticketState[1] === 'reopen' ? INTENTS.REOPEN_TICKET : INTENTS.CLOSE_TICKET,
+      confidence: 0.85,
+      params: { ticket: ticketState[3].toUpperCase().replace(/[\s-]+/, '-'), ...trackerNamed(ticketState[2]) },
+      source: 'fallback_regex',
+    };
+  }
+
+  // "file a ticket about X", "make a linear ticket for X"
+  const ticketMatch = lower.match(
+    /(?:create|make|open|file|raise|add)\s+(?:a\s+)?(?:new\s+)?(?:(linear|jira)\s+)?ticket\s+(?:in\s+(linear|jira)\s+)?(?:about|for|saying|that|titled|called|regarding)?\s*(.+)/
+  );
+  if (ticketMatch) {
+    const title = ticketMatch[3].replace(/\s+in\s+(?:linear|jira)\s*$/, '').replace(/[.?!]+$/, '').trim();
+    const named = ticketMatch[1] ?? ticketMatch[2] ?? ticketMatch[3].match(/\bin\s+(linear|jira)\s*[.?!]*$/)?.[1];
+    return {
+      action: INTENTS.CREATE_TICKET,
+      confidence: 0.85,
+      params: { title: title.charAt(0).toUpperCase() + title.slice(1), ...trackerNamed(named) },
+      source: 'fallback_regex',
+    };
+  }
+
+  const stateMatch = lower.match(/(close|reopen)\s+issue\s*#?\s*(\d+)/);
   if (stateMatch) {
     return {
       action: stateMatch[1] === 'reopen' ? INTENTS.REOPEN_GITHUB_ISSUE : INTENTS.CLOSE_GITHUB_ISSUE,
@@ -137,11 +166,22 @@ Actions:
 - "request_github_review": user wants to request reviewers on a PR. Extract "issueNumber" (PR number) and "reviewers" (array of usernames).
 - "create_pull_request": user wants to open a NEW pull request (often phrased as "make a branch and a pull request", "open a PR for...", "make a PR to main"). This is a valid, supported action, never say you cannot do it. Extract "title" (short imperative summary), ALWAYS write a full "body" (markdown with ## Summary and a ## Changes checklist, see WRITING CONTENT), and optional "branch" (only if they named one). Taro creates the branch, makes the commits, and opens the PR itself.
 There is one configured repo, so never extract a repo or channel for GitHub actions.
+- "create_ticket": user wants a ticket filed in Linear or Jira. Extract "title" and ALWAYS write a full "body", written exactly like a GitHub issue body (see WRITING CONTENT). Set "tracker" to "linear" or "jira" only if they named one.
+- "comment_ticket": user wants to comment on an existing Linear or Jira ticket. Extract "ticket" and "body".
+- "close_ticket": user wants a ticket closed, done, or resolved. Extract "ticket".
+- "reopen_ticket": user wants a ticket reopened. Extract "ticket".
+- "assign_ticket": user wants a teammate assigned to a ticket. Extract "ticket" and "assignees" (names as spoken).
+- "label_ticket": user wants labels added to a ticket. Extract "ticket" and "labels".
+
+TICKETS (Linear and Jira):
+- Ticket keys are a team or project prefix and a number, like ENG-123 or OPS-7. People say them as "eng one twenty three", "E N G 123", or just "ticket 123". Write "ticket" as PREFIX-NUMBER in capitals when a prefix was said ("ENG-123"), else just the number ("123").
+- Set "tracker" only when they say Linear or Jira (often heard as "gira", "jeera", or "lenear"). Never guess it.
+- The CONNECTED line says what this workspace has. When Linear or Jira is connected, "ticket", "bug", "task", and a plain "issue" mean the ticket actions, unless they say GitHub, the repo, or a pull request. When neither is connected, a plain "issue" or "bug" means the GitHub actions. A number with a known ticket prefix is always a ticket.
 - "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
 WRITING CONTENT (produce final, publishable content, never placeholders or raw transcript):
-- create_github_issue / create_pull_request: "title" is a short imperative summary. "body" is REQUIRED and must be real GitHub-flavored markdown, never a single short phrase, never a copy of the title, never empty. Always include a "## Summary" of two to three full sentences describing the problem or request grounded in the discussion. When specifics were mentioned (browsers, error codes, pages, affected customers), add a "## Details" section as a bullet list. For a pull request, add a "## Changes" section as a markdown checklist ("- [ ] ...") of the work being proposed. If little detail was given, still write a proper Summary but do not invent facts, just omit the Details section. A body like "customer dissatisfaction" is WRONG; write it up like a real engineer filing the ticket.
-- comment_github: "body" is a clean, professional comment.
+- create_github_issue / create_pull_request / create_ticket: "title" is a short imperative summary. "body" is REQUIRED and must be real GitHub-flavored markdown, never a single short phrase, never a copy of the title, never empty. Always include a "## Summary" of two to three full sentences describing the problem or request grounded in the discussion. When specifics were mentioned (browsers, error codes, pages, affected customers), add a "## Details" section as a bullet list. For a pull request, add a "## Changes" section as a markdown checklist ("- [ ] ...") of the work being proposed. If little detail was given, still write a proper Summary but do not invent facts, just omit the Details section. A body like "customer dissatisfaction" is WRONG; write it up like a real engineer filing the ticket.
+- comment_github / comment_ticket: "body" is a clean, professional comment.
 - post_message: if the user dictated a message, clean it up; if they asked you to WRITE something (an opinion, statement, announcement, summary), actually author it well for a workplace Slack channel.
 - create_todo_list: "items" are clean, deduplicated imperative tasks.
 - Everywhere: Write every field (message, title, body, items, comment, reason) as plain sentences. Never use em dashes or en dashes; use a comma, a period, or the word 'to'. Never name who said something. Markdown headings, lists, and checklists in a body are fine; the sentences inside them follow the same rule.
@@ -202,8 +242,23 @@ Output: {"action":"create_pull_request","confidence":0.88,"title":"Speed up the 
 Input (transcript mentions: "the export keeps timing out for our biggest customers. same on northwind, it fails after about thirty seconds") COMMAND: "hey taro file an issue about that"
 Output: {"action":"create_github_issue","confidence":0.88,"title":"Export times out on large accounts","body":"## Summary\nThe export times out for our largest customers. It fails after roughly 30 seconds, so those customers can't export their data.\n\n## Details\n- Affected: large accounts, including Northwind\n- Symptom: the export fails after about 30 seconds"}
 
+Input (CONNECTED: Slack; Linear (ticket prefixes: ENG, DES; new tickets go to ENG)) COMMAND: "file a ticket that the invite emails are going to spam"
+Output: {"action":"create_ticket","confidence":0.9,"title":"Invite emails are landing in spam","body":"## Summary\nInvite emails are being delivered to spam folders, so new teammates miss their invitations and can't join."}
+
+Input: "make a jira ticket to rotate the staging database password"
+Output: {"action":"create_ticket","confidence":0.9,"tracker":"jira","title":"Rotate the staging database password","body":"## Summary\nRotate the password for the staging database and update everything that uses it."}
+
+Input: "close eng one forty two"
+Output: {"action":"close_ticket","confidence":0.9,"ticket":"ENG-142"}
+
+Input: "assign ops 7 to priya"
+Output: {"action":"assign_ticket","confidence":0.9,"ticket":"OPS-7","assignees":["priya"]}
+
+Input: "comment on des 12 that the mockups are approved"
+Output: {"action":"comment_ticket","confidence":0.9,"ticket":"DES-12","body":"The mockups are approved."}
+
 Input: "what's the weather like"
-Output: {"action":"unknown","confidence":0.2,"reason":"I can't check the weather. I can post in Slack, make a checklist, or work on GitHub issues and pull requests."}`;
+Output: {"action":"unknown","confidence":0.2,"reason":"I can't check the weather. I can post in Slack, make a checklist, file and update tickets, or work on GitHub issues and pull requests."}`;
 
 // One schema for every provider with structured output (Claude, Gemini). The
 // OpenAI-compatible providers run in JSON mode, so buildIntent re-validates.
@@ -224,6 +279,8 @@ const INTENT_SCHEMA: Record<string, unknown> = {
     assignees: { type: 'array', items: { type: 'string' } },
     reviewers: { type: 'array', items: { type: 'string' } },
     branch: { type: 'string' },
+    ticket: { type: 'string' },
+    tracker: { type: 'string', enum: ['linear', 'jira'] },
     reason: { type: 'string' },
   },
 };
@@ -241,6 +298,8 @@ interface RawParsed {
   assignees?: unknown;
   reviewers?: unknown;
   branch?: unknown;
+  ticket?: unknown;
+  tracker?: unknown;
   reason?: unknown;
 }
 
@@ -296,6 +355,8 @@ export function buildIntent(raw: unknown, command: string, source: LlmProviderId
       assignees: strList(parsed.assignees, 10, 40),
       reviewers: strList(parsed.reviewers, 10, 40),
       branch: str(parsed.branch, 60),
+      ticket: str(parsed.ticket, 30),
+      tracker: isTrackerId(parsed.tracker) ? parsed.tracker : undefined,
       reason: prose(parsed.reason, 300),
       ...(parsed.action === 'unknown' ? { original: command } : {}),
     },
@@ -303,11 +364,12 @@ export function buildIntent(raw: unknown, command: string, source: LlmProviderId
   };
 }
 
-function buildUserPrompt(command: string, context?: string): string {
+function buildUserPrompt(command: string, context?: string, tools?: string): string {
   const transcript = (context || '').slice(-3500).trim();
+  const connected = tools ? `CONNECTED: ${tools}\n\n` : '';
   return transcript
-    ? `MEETING TRANSCRIPT (context, may contain unrelated chatter):\n${transcript}\n\nCOMMAND: "${command}"`
-    : `COMMAND: "${command}"`;
+    ? `${connected}MEETING TRANSCRIPT (context, may contain unrelated chatter):\n${transcript}\n\nCOMMAND: "${command}"`
+    : `${connected}COMMAND: "${command}"`;
 }
 
 // Provider hiccups (overloaded, rate limited, a dropped connection) usually clear in a second.
@@ -344,13 +406,19 @@ function contextOnlyReference(intent: ParsedIntent): string | null {
  * engineering"); anything it would have to guess at, like "that", is refused
  * with the provider's error so the person knows why and can say it again.
  */
-export async function parseIntent(command: string, context: string | undefined, llm: LlmConfig | null): Promise<ParsedIntent> {
+export async function parseIntent(
+  command: string,
+  context: string | undefined,
+  llm: LlmConfig | null,
+  // What the workspace has connected, from describeTools
+  tools?: string
+): Promise<ParsedIntent> {
   let reason: string = COPY.noModel;
   if (llm) {
     try {
       const raw = await completeWithRetry(llm, {
         system: SYSTEM_PROMPT,
-        user: buildUserPrompt(command, context),
+        user: buildUserPrompt(command, context, tools),
         schema: INTENT_SCHEMA,
       });
       return buildIntent(raw, command, llm.provider);

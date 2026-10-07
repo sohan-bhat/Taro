@@ -81,7 +81,7 @@ export const HERO = {
   request: 'Hey Taro, file an issue about that.',
   answer: OPENED_ISSUE,
   ding: 'Hear the ding',
-  lede: 'Say “Hey Taro” in any Google Meet, Zoom, or Teams call, and it does the work in Slack and GitHub while you keep talking.',
+  lede: 'Say “Hey Taro” in any Google Meet, Zoom, or Teams call, and it does the work in Slack, GitHub, Linear, or Jira while you keep talking.',
   demo: 'See the demo',
 };
 
@@ -298,7 +298,7 @@ export const KEYS = {
   lane: {
     title: 'Stays in its lane',
     items: [
-      'Acts as its own Slack and GitHub bot, never as you.',
+      'Acts as its own bot in Slack, GitHub, Linear, and Jira, never as you.',
       'Does only the GitHub actions your workspace turns on.',
       'Keeps the text of what it heard, never the audio.',
     ],
@@ -316,7 +316,7 @@ export const FAQ = {
     },
     {
       q: 'What do I need to get started?',
-      a: 'A Google or Slack account to sign in with, a MeetingBaas API key, and a key for an AI model. A Groq or OpenAI key can cover transcription too. Slack and GitHub are optional.',
+      a: 'A Google or Slack account to sign in with, a MeetingBaas API key, and a key for an AI model. A Groq or OpenAI key can cover transcription too. Slack, GitHub, Linear, and Jira are optional.',
     },
     {
       q: 'Which meetings can Taro join?',
@@ -351,5 +351,5 @@ export const FOOTER = {
   ],
   // Shown only when NEXT_PUBLIC_REPO_URL is set
   source: 'Source and deploy guide',
-  credits: 'Works with Slack, GitHub, Google Meet, Zoom, and Microsoft Teams. Those names and logos belong to their owners.',
+  credits: 'Works with Slack, GitHub, Linear, Jira, Google Meet, Zoom, and Microsoft Teams. Those names and logos belong to their owners.',
 };

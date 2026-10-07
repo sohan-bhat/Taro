@@ -105,6 +105,12 @@ export const env = {
   githubAppClientId: optional('GITHUB_APP_CLIENT_ID'),
   githubAppClientSecret: optional('GITHUB_APP_CLIENT_SECRET'),
 
+  // Taro's app on Linear, which files tickets as itself. Optional: without it Linear is hidden.
+  linearClientId: optional('LINEAR_CLIENT_ID'),
+  linearClientSecret: optional('LINEAR_CLIENT_SECRET'),
+  // Where Jira admins install the Taro app for Jira (its Forge install link). Optional: without it Jira is hidden.
+  jiraInstallUrl: optional('JIRA_APP_INSTALL_URL'),
+
   // Calendar invitations. Optional: each workspace's Taro address is INVITE_ADDRESS with {token}
   // replaced, and the mail provider posts invitations to the webhook with INBOUND_SECRET.
   inviteAddress: optional('INVITE_ADDRESS'),
@@ -152,6 +158,14 @@ export function googleCalendarConfigured(): boolean {
   return googleSignInConfigured();
 }
 
+export function linearConfigured(): boolean {
+  return !!(env.linearClientId && env.linearClientSecret);
+}
+
+export function jiraConfigured(): boolean {
+  return /^https:\/\//.test(env.jiraInstallUrl);
+}
+
 export function serverSttAvailable(): boolean {
   return !!env.sttWsUrl || env.localAsr;
 }
@@ -175,6 +189,8 @@ console.log('[Config] Environment loaded:', {
   signIn: [slackConfigured() && 'slack', googleSignInConfigured() && 'google'].filter(Boolean),
   githubApp: githubAppConfigured(),
   githubInstallVerification: githubOAuthConfigured(),
+  linear: linearConfigured(),
+  jira: jiraConfigured(),
   calendarInvites: !!(env.inviteAddress && env.inboundSecret),
   googleCalendar: googleCalendarConfigured(),
   serverStt: env.sttWsUrl ? 'faster-whisper server' : env.localAsr ? 'local sherpa-onnx' : 'none',

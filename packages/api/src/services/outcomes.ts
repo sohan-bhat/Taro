@@ -14,6 +14,7 @@ import {
   type GithubAction,
   type IntentAction,
   type IntentParams,
+  type TicketAction,
 } from '@taro/shared';
 
 export type LogStatus = 'success' | 'failed' | 'clarification_needed';
@@ -97,6 +98,17 @@ export function missingDetail(action: IntentAction, p: IntentParams): string | n
       return p.title ? null : COPY.askIssueTitle;
     case 'create_pull_request':
       return p.title ? null : COPY.askPullTitle;
+    case 'create_ticket':
+      return p.title ? null : COPY.askTicketTitle;
+    case 'comment_ticket':
+      return !p.ticket ? COPY.askTicket : p.body ? null : COPY.askComment;
+    case 'close_ticket':
+    case 'reopen_ticket':
+      return p.ticket ? null : COPY.askTicket;
+    case 'assign_ticket':
+      return !p.ticket ? COPY.askTicket : p.assignees?.length ? null : COPY.askTicketAssignee;
+    case 'label_ticket':
+      return !p.ticket ? COPY.askTicket : p.labels?.length ? null : COPY.askLabels;
   }
   // Everything else acts on an existing issue or pull request.
   if (!p.issueNumber) return COPY.askNumber;
@@ -146,6 +158,32 @@ export function githubFailed(action: GithubAction, n: number | undefined, gh: { 
     ? COPY.githubFailed(action, n, gh.error)
     : `${COPY.githubCouldnt(action, n)}${gh.error?.trim() ? ` ${sentence(gh.error)}` : ''}`;
   return failed(summary, gh.error);
+}
+
+/**
+ * A Linear or Jira request that worked. The summary links the key for Slack; `result` keeps
+ * "Filed ENG-12 in Linear: url" for the dashboard and the webhooks.
+ */
+export function ticketDone(action: TicketAction, t: { key: string; url: string; names?: string[] }, tracker: string, p: IntentParams): Settled {
+  const names = t.names ?? (action === 'label_ticket' ? p.labels ?? [] : action === 'assign_ticket' ? p.assignees ?? [] : []);
+  const plain = COPY.ticketDone(action, t.key, tracker, names);
+  return done(COPY.ticketDone(action, slackLink(t.url, t.key), tracker, names), { result: `${plain.replace(/\.$/, '')}: ${t.url}` });
+}
+
+/** A Linear or Jira request that failed. "<Tracker> says" only when it actually answered. */
+export function ticketFailed(
+  action: TicketAction,
+  key: string | undefined,
+  tracker: string,
+  t: { error: string; status?: number; notFound?: boolean; reconnect?: boolean; missingPeople?: string[] }
+): Settled {
+  if (t.reconnect) return failed(COPY.trackerReconnect(tracker), t.error);
+  if (t.missingPeople?.length) return failed(COPY.personNotFound(t.missingPeople, tracker), t.error);
+  if (t.notFound && key) return failed(COPY.ticketNotFound(key, tracker), t.error);
+  const summary = t.status
+    ? COPY.ticketFailed(action, key, tracker, t.error)
+    : `${COPY.ticketCouldnt(action, key)}${t.error?.trim() ? ` ${sentence(t.error)}` : ''}`;
+  return failed(summary, t.error);
 }
 
 /** A Slack post that failed. `channel` is the name as it was asked for. */

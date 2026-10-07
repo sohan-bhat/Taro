@@ -104,6 +104,28 @@ Without it, Taro still works in Slack; the GitHub card is simply hidden.
 9. **Generate a new client secret**: `GITHUB_APP_CLIENT_SECRET`.
 10. **Generate a private key**, then encode it on one line: `base64 -i your-app.private-key.pem | tr -d '\n'`. That is `GITHUB_APP_PRIVATE_KEY`.
 
+### Linear (optional)
+
+Taro files Linear tickets as its own app, never as a person. Without these, the Linear row is hidden.
+
+1. In Linear, open **Settings**, **API**, **OAuth applications**, and create one. Name it Taro and give it the Taro logo.
+2. **Callback URL**: `API_URL/api/linear/callback`.
+3. Make it **public** so other Linear workspaces can install it.
+4. Copy the client ID and secret: `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
+
+Installing asks for `read`, `write`, `issues:create`, and `comments:create`, with `actor=app`, so everything Taro does shows as the app.
+
+### Jira (optional)
+
+Jira's own OAuth always acts as whoever signed in, so Taro uses a small Forge app instead (`apps/jira`), which makes every change as itself. Forge is free within Atlassian's monthly allowance, and Taro's few calls a meeting stay far below it.
+
+1. `npm install -g @forge/cli`, then `forge login` with an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens).
+2. `cd apps/jira && npm install && forge register` (name it Taro). This writes the app's ID into `manifest.yml`; commit that.
+3. `forge deploy -e production`.
+4. In the [developer console](https://developer.atlassian.com/console/myapps/), open the app, then **Distribution**. Turn on sharing, fill in the short form, and copy the **installation link**. That is `JIRA_APP_INSTALL_URL`.
+
+To connect, a Jira admin opens the link, installs Taro on their site, opens **Jira settings**, **Apps**, **Taro**, and makes a connection key. An owner or admin pastes the key into Setup. The app passes on only the Jira calls listed in `apps/jira/src/gate.js`, and only when they're signed with the key's secret.
+
 ## 5. API
 
 The API needs to stay running (no sleeping instances) and must be reachable over https and WebSockets.
@@ -152,6 +174,8 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_APP_TOKEN` | for Slack | Section 3. At least one way to sign in (Slack or Google) is required |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in and Connect Google Calendar | Section 3 |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | for GitHub | Section 4 |
+| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | for Linear | Section 4 |
+| `JIRA_APP_INSTALL_URL` | for Jira | Section 4 |
 | `WEB_ORIGINS` | no | Extra trusted dashboard origins, comma separated |
 | `EXTENSION_IDS` | for the Meet button | Chrome and Edge extension IDs allowed to call the API (section 7) |
 | `INVITE_ADDRESS`, `INBOUND_SECRET` | for calendar invitations | Section 9 |
@@ -255,6 +279,7 @@ To use plus addressing on a domain you already receive mail on instead: turn on 
 - A Slack workspace belongs to one Taro workspace at most. A Google workspace can't add a Slack workspace that another Taro workspace already has, and someone signing in with Slack from a Slack workspace that a Google workspace added is sent to sign in with Google instead.
 - GitHub actions only reach repositories the person who connected GitHub can push to, using tokens limited to the one repository Taro is working in.
 - Connecting a Google Calendar asks only to read events, plus the account's address so Setup can show which one is connected. Google's answer is parked as a 15 minute grant that only the session of the person who started connecting can redeem, so a consent link that ends up in someone else's browser connects nothing. The refresh token is encrypted with AES-256-GCM and bound to that person; access tokens live only in memory. Taro keeps the meetings it joins (title, times, link, organizer's email) and nothing else from the calendar: no other events, descriptions, or guest lists. It asks Google for no guest list, only the person's own reply, so other guests' details never reach it. Google's change notices carry no event data and are checked against a per-channel token before Taro rereads the calendar. Disconnecting revokes the grant at Google.
+- Linear and Jira act as the Taro app. Linear's tokens are encrypted, refreshed before they expire, and revoked when someone disconnects; connecting goes through the same single use grant as Google Calendar. A Jira connection key is encrypted at rest, only accepted when it points at Atlassian's own web trigger hosts, and every request to the app is signed with its secret and expires after five minutes. Each workspace chooses which ticket actions Taro may take; filing and commenting are on from the start, the rest stay off until an owner or admin turns them on.
 - Every MeetingBaas callback and audio socket carries a per-meeting secret; nothing else can feed audio into a meeting or report results for it.
 - The calendar webhook is public, so it treats every message as hostile. It checks `INBOUND_SECRET` in constant time before reading anything, caps message size, reads only calendar parts, follows no links, and routes mail only by the token in the address it was sent to, so one workspace's mail never reaches another. Invitations nobody in the workspace vouched for wait for approval, and so do changes to an approved meeting's time or link that arrive in such mail. For each invitation Taro keeps the title, times, link, organizer, and sender, never the description or guest list.
 - Custom AI endpoints are limited to public https addresses, checked when the connection opens, so a workspace can't point Taro at your internal network.

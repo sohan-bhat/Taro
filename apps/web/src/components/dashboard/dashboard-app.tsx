@@ -57,8 +57,11 @@ const RETURN_ERRORS: Record<string, string> = {
   calendar_scope: 'Taro can only join your meetings if it can see your calendar events. Connect again and allow that.',
   calendar_unavailable: "Google Calendar isn't set up on this Taro server.",
   calendar_failed: "Google didn't finish connecting your calendar. Try again.",
+  linear_expired: 'Connecting Linear took too long. Try again.',
+  linear_denied: 'Connecting Linear was canceled.',
+  linear_failed: "Linear didn't finish connecting. Try again.",
 };
-const RETURN_PARAMS = ['slack', 'github', 'error', 'githubConnect', 'calendarConnect'];
+const RETURN_PARAMS = ['slack', 'github', 'error', 'githubConnect', 'calendarConnect', 'linearConnect'];
 
 const MAIN = 'mx-auto max-w-app px-4 pb-16 pt-4 md:px-6 md:pt-7';
 const FAST_POLL = 4_000;
@@ -224,7 +227,8 @@ export function DashboardApp() {
     const error = params.get('error');
     const connectToken = params.get('githubConnect');
     const calendarToken = params.get('calendarConnect');
-    if (!slack && !github && !error && !connectToken && !calendarToken) return;
+    const linearToken = params.get('linearConnect');
+    if (!slack && !github && !error && !connectToken && !calendarToken && !linearToken) return;
     if (slack === 'connected') showToast('Taro is in your Slack.');
     if (github === 'connected') showToast('GitHub connected.');
     if (error) {
@@ -263,6 +267,18 @@ export function DashboardApp() {
         })
         .catch((e) => {
           if (!handleError(e)) showToast(errorText(e, "Couldn't connect Google Calendar."), 'error');
+        });
+    }
+    if (linearToken) {
+      // Linear installed the app; only this person's session can finish connecting it.
+      api.linear
+        .connect(linearToken)
+        .then(({ linear }) => {
+          showToast(`Linear connected${linear.siteName ? ` to ${linear.siteName}` : ''}.`);
+          loadOverview();
+        })
+        .catch((e) => {
+          if (!handleError(e)) showToast(errorText(e, "Couldn't connect Linear."), 'error');
         });
     }
     router.replace('/dashboard?view=setup', { scroll: false });

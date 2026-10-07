@@ -3,7 +3,7 @@
 // same functions, so the site shows exactly what the product posts. Done work is past tense;
 // questions, refusals, and instructions are present tense; Taro speaks in the first person.
 
-import { GITHUB_CAPABILITIES, type GithubAction } from './constants';
+import { GITHUB_CAPABILITIES, TICKET_CAPABILITIES, type GithubAction, type TicketAction } from './constants';
 import type { ActionOutcome } from './types';
 
 /** Adds a period when a spoken command has no end punctuation. */
@@ -54,6 +54,25 @@ const GITHUB_TRIED: Record<GithubAction, (n?: number) => string> = {
   merge_pull_request: (n) => (n ? `merge pull request #${n}` : 'merge the pull request'),
 };
 
+// Done work in Linear or Jira. `ref` is a Slack link in posts ("<url|ENG-12>") and plain "ENG-12" elsewhere.
+const TICKET_DONE: Record<TicketAction, (ref: string, names: readonly string[]) => string> = {
+  create_ticket: (ref) => `Filed ${ref}`,
+  comment_ticket: (ref) => `Commented on ${ref}`,
+  close_ticket: (ref) => `Closed ${ref}`,
+  reopen_ticket: (ref) => `Reopened ${ref}`,
+  assign_ticket: (ref, people) => (people.length ? `Assigned ${andList(people)} to ${ref}` : `Assigned ${ref}`),
+  label_ticket: (ref, labels) => (labels.length ? `Added ${andList(labels)} to ${ref}` : `Added labels to ${ref}`),
+};
+
+const TICKET_TRIED: Record<TicketAction, (key?: string) => string> = {
+  create_ticket: () => 'file the ticket',
+  comment_ticket: (key) => (key ? `comment on ${key}` : 'add the comment'),
+  close_ticket: (key) => (key ? `close ${key}` : 'close the ticket'),
+  reopen_ticket: (key) => (key ? `reopen ${key}` : 'reopen the ticket'),
+  assign_ticket: (key) => (key ? `assign ${key}` : 'assign it'),
+  label_ticket: (key) => (key ? `add labels to ${key}` : 'add the labels'),
+};
+
 export const COPY = {
   // Slack thread replies
   slackJoinReply: (platform: string) =>
@@ -100,9 +119,24 @@ export const COPY = {
   githubDone: (action: GithubAction, ref: string, repo: string, names: readonly string[] = []) =>
     `${GITHUB_DONE[action](ref, names)} in ${repo}.`,
 
+  // Linear and Jira. `tracker` is the product's name.
+  ticketDone: (action: TicketAction, ref: string, tracker: string, names: readonly string[] = []) =>
+    `${TICKET_DONE[action](ref, names)} in ${tracker}.`,
+  ticketCouldnt: (action: TicketAction, key?: string) => `Couldn't ${TICKET_TRIED[action](key)}.`,
+  ticketFailed: (action: TicketAction, key: string | undefined, tracker: string, error?: string) =>
+    withDetail(`Couldn't ${TICKET_TRIED[action](key)}.`, error?.trim() && `${tracker} says: ${error.trim()}`),
+  noTracker: `No ticket tracker is connected. An owner or admin can connect Linear or Jira in Setup.`,
+  trackerNotConnected: (tracker: string) => `${tracker} isn't connected. An owner or admin can connect it in Setup.`,
+  trackerReconnect: (tracker: string) => `${tracker} stopped accepting Taro's access. An owner or admin can reconnect it in Setup.`,
+  noTrackerSpace: (tracker: string) => `Choose where new ${tracker} tickets go in Setup.`,
+  ticketNotFound: (key: string, tracker: string) => `Couldn't find ${key} in ${tracker}.`,
+  personNotFound: (names: readonly string[], tracker: string) =>
+    `Couldn't find ${andList(names)} in ${tracker}. Say their name the way it appears there.`,
+  ticketFooter: `\n\n_Filed by Taro during a meeting._`,
+
   // Turned off for the workspace
   turnedOff: (action: string) =>
-    `${GITHUB_CAPABILITIES.find((c) => c.action === action)?.gerund ?? 'That'} is turned off for this workspace.`,
+    `${[...GITHUB_CAPABILITIES, ...TICKET_CAPABILITIES].find((c) => c.action === action)?.gerund ?? 'That'} is turned off for this workspace.`,
   // Posts and checklists, in a workspace that hasn't added Taro to Slack
   slackNotConnected: `Slack isn't connected. An owner or admin can add Taro to Slack in Setup.`,
 
@@ -116,6 +150,9 @@ export const COPY = {
   askAssignees: `Who should I assign? Say their GitHub username.`,
   askPullTitle: `What should the pull request do? Say it again with a few more words.`,
   askReviewers: `Who should review it? Say their GitHub username.`,
+  askTicket: `Which ticket? Say its key, like “close ENG 12.”`,
+  askTicketTitle: `What should the ticket be about? Say it again with a few more words.`,
+  askTicketAssignee: `Who should I assign? Say their name.`,
   heardUnclear: (command: string) => `I heard “${sentence(command)}” but couldn't tell what to do.`,
   noModel: `No AI model is set up for this workspace yet. Add one in Setup.`,
   modelUnreachable: (detail?: string) => withDetail(`I couldn't reach your AI model.`, detail),

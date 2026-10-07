@@ -10,6 +10,8 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   GITHUB_CAPABILITIES,
+  TICKET_CAPABILITIES,
+  TRACKERS,
   getLlmProvider,
   getSttProvider,
   type ConnectedSession,
@@ -17,6 +19,8 @@ import {
   type GoogleCalendarStatus,
   type ProviderSettings,
   type ServerMeta,
+  type TrackerId,
+  type TrackerStatus,
   type WorkspaceOverview,
 } from '@taro/shared';
 import { api, ApiError } from '@/lib/api';
@@ -32,6 +36,7 @@ import { Time } from '@/components/ui/time';
 import { showToast } from '@/components/ui/toast-store';
 import { errorText, focusIfLost, useSessionGuard } from './common';
 import { DisconnectGithubDialog, PermissionsDialog } from './github-dialogs';
+import { DisconnectTrackerDialog, JiraKeyDialog, TicketPermissionsDialog } from './tracker-dialogs';
 import { KeyDialogs, type KeySlot } from './key-dialogs';
 import { ROW_BUTTON } from './styles';
 import { ConfirmDialog, RemoveSlackDialog } from './workspace-dialogs';
@@ -176,6 +181,9 @@ export function SetupView({
   const [editing, setEditing] = React.useState<KeySlot | null>(null);
   const [confirm, setConfirm] = React.useState<'slack' | 'github' | null>(null);
   const [permsOpen, setPermsOpen] = React.useState(false);
+  const [ticketPerms, setTicketPerms] = React.useState<TrackerId | null>(null);
+  const [disconnectTracker, setDisconnectTracker] = React.useState<TrackerId | null>(null);
+  const [jiraKeyOpen, setJiraKeyOpen] = React.useState(false);
   const [leaving, setLeaving] = useLeaving();
   const [reconnecting, setReconnecting] = React.useState(false);
 
@@ -427,6 +435,28 @@ export function SetupView({
           onDisconnect={() => setConfirm('github')}
           onChanged={onChanged}
         />
+        {(['linear', 'jira'] as const).map((id) =>
+          overview[id].connected || meta?.[id] ? (
+            <TrackerRow
+              key={id}
+              id={id}
+              status={overview[id]}
+              canEdit={canEdit}
+              leaving={leaving}
+              onConnect={() =>
+                id === 'linear'
+                  ? leaveFor('linear', () => api.linear.connectUrl(), "Couldn't reach Linear.")
+                  : setJiraKeyOpen(true)
+              }
+              onPermissions={() => setTicketPerms(id)}
+              onDisconnect={() => setDisconnectTracker(id)}
+              onChanged={onChanged}
+            />
+          ) : null
+        )}
+        {overview.linear.connected && overview.jira.connected && (
+          <TicketsRow chosen={overview.ticketTracker} canEdit={canEdit} onChanged={onChanged} />
+        )}
         {meta?.meetExtension && <MeetButtonRow canEdit={canEdit} />}
         {meta?.calendarInvites && <CalendarRow canEdit={canEdit} />}
       </SetupCard>
@@ -459,6 +489,26 @@ export function SetupView({
           onChanged();
         }}
       />
+      <TicketPermissionsDialog
+        tracker={ticketPerms && overview[ticketPerms].connected ? ticketPerms : null}
+        enabled={(ticketPerms && overview[ticketPerms].enabledActions) || []}
+        readOnly={!canEdit}
+        onClose={() => {
+          setTicketPerms(null);
+          focusIfLost('setup-title');
+        }}
+        onSaved={onChanged}
+      />
+      <DisconnectTrackerDialog
+        tracker={disconnectTracker}
+        onClose={() => setDisconnectTracker(null)}
+        onDone={() => {
+          setDisconnectTracker(null);
+          onChanged();
+          focusIfLost('setup-title');
+        }}
+      />
+      <JiraKeyDialog open={jiraKeyOpen} jira={overview.jira} onClose={() => setJiraKeyOpen(false)} onConnected={onChanged} />
       <PermissionsDialog
         open={permsOpen && github.connected}
         enabled={github.enabledActions ?? []}
@@ -667,6 +717,233 @@ function GithubRow({
           </>
         ) : null
       }
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Linear and Jira
+
+const SPACE_WORD: Record<TrackerId, { one: string; many: string }> = {
+  linear: { one: 'team', many: 'teams' },
+  jira: { one: 'project', many: 'projects' },
+};
+
+/**
+ * Linear or Jira, shared by the workspace. Connected, it says where new tickets go, which owners and
+ * admins can change. When the tracker stops accepting Taro, the row asks for a reconnect.
+ */
+function TrackerRow({
+  id,
+  status,
+  canEdit,
+  leaving,
+  onConnect,
+  onPermissions,
+  onDisconnect,
+  onChanged,
+}: {
+  id: TrackerId;
+  status: TrackerStatus;
+  canEdit: boolean;
+  leaving: string | null;
+  onConnect: () => void;
+  onPermissions: () => void;
+  onDisconnect: () => void;
+  onChanged: () => void;
+}) {
+  const guard = useSessionGuard();
+  const name = TRACKERS[id];
+  const word = SPACE_WORD[id];
+  const [saving, setSaving] = React.useState(false);
+  const [reloading, setReloading] = React.useState(false);
+  const selectId = `${id}-space`;
+
+  const choose = async (space: string) => {
+    setSaving(true);
+    try {
+      const next = id === 'linear' ? (await api.linear.setTeam(space)).linear : (await api.jira.setProject(space)).jira;
+      const chosen = next.spaces?.find((s) => s.id === next.defaultSpace);
+      showToast(chosen ? `New ${name} tickets go to ${chosen.name} now.` : 'Saved.');
+      onChanged();
+    } catch (error) {
+      if (!guard(error)) showToast(errorText(error, `Couldn't save the ${word.one}.`), 'error');
+    } finally {
+      setSaving(false);
+      focusIfLost(selectId);
+    }
+  };
+
+  const reload = async () => {
+    setReloading(true);
+    try {
+      await (id === 'linear' ? api.linear.refresh() : api.jira.refresh());
+      showToast(`${name} ${word.many} reloaded.`);
+      onChanged();
+    } catch (error) {
+      if (!guard(error)) showToast(errorText(error, `Couldn't reload your ${word.many}.`), 'error');
+    } finally {
+      setReloading(false);
+    }
+  };
+
+  if (!status.connected) {
+    return (
+      <SetupRow
+        id={`setup-${id}`}
+        label={name}
+        state="Not connected"
+        purpose={`Lets Taro file and update ${name} tickets as its own app, never as you.`}
+        actions={
+          canEdit ? (
+            <Button size="sm" className={ROW_BUTTON} onClick={onConnect} pending={leaving === id} disabled={!!leaving}>
+              {leaving === id ? `Opening ${name}` : `Connect ${name}`}
+            </Button>
+          ) : null
+        }
+      />
+    );
+  }
+
+  const spaces = status.spaces ?? [];
+  const chosen = spaces.find((s) => s.id === status.defaultSpace);
+  const on = status.enabledActions?.length ?? 0;
+  const where = canEdit && spaces.length > 0 && (!chosen || spaces.length > 1) ? (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+      <label htmlFor={selectId}>New tickets go to</label>
+      <Select
+        id={selectId}
+        value={chosen?.id ?? ''}
+        disabled={saving}
+        onChange={(e) => e.target.value && choose(e.target.value)}
+        wrapperClassName="w-full max-w-[240px]"
+      >
+        {!chosen && (
+          <option value="" disabled>
+            Choose a {word.one}
+          </option>
+        )}
+        {spaces.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name} ({s.key})
+          </option>
+        ))}
+      </Select>
+    </span>
+  ) : chosen ? (
+    <>
+      New tickets go to {chosen.name} <span className="font-mono text-[0.88em]">{chosen.key}</span>
+    </>
+  ) : null;
+
+  return (
+    <SetupRow
+      id={`setup-${id}`}
+      label={name}
+      state={status.siteName ? `In ${status.siteName}` : 'Connected'}
+      purpose={
+        <>
+          {where}
+          {status.needsReconnect ? (
+            <Alert tone="error" className={where ? 'mt-3' : undefined}>
+              <p>
+                {id === 'linear'
+                  ? 'Linear stopped accepting Taro’s access. Connect it again to keep filing tickets.'
+                  : 'The Taro app for Jira refused the connection key. It was replaced or the app was removed. Paste a new key.'}
+              </p>
+              {canEdit && (
+                <Button variant="secondary" size="sm" className="mt-3" onClick={onConnect} pending={leaving === id} disabled={!!leaving}>
+                  {id === 'linear' ? 'Reconnect Linear' : 'Paste a new key'}
+                </Button>
+              )}
+            </Alert>
+          ) : spaces.length === 0 ? (
+            <Alert tone="info" className={where ? 'mt-3' : undefined}>
+              <p>
+                Taro can&apos;t see any {name} {word.many} yet.{' '}
+                {id === 'jira' ? 'Check that the Taro app has access to a project, then reload.' : 'Add one in Linear, then reload.'}
+              </p>
+              {canEdit && (
+                <Button variant="secondary" size="sm" className="mt-3" onClick={reload} pending={reloading}>
+                  Reload {word.many}
+                </Button>
+              )}
+            </Alert>
+          ) : !chosen ? (
+            <Alert tone="info" className={where ? 'mt-3' : undefined}>
+              {canEdit ? `Choose the ${word.one} new tickets go to.` : `An owner or admin chooses the ${word.one} new tickets go to.`}
+            </Alert>
+          ) : canEdit ? (
+            <Button variant="link" size="sm" className="mt-1 block" onClick={reload} pending={reloading}>
+              {reloading ? `Reloading ${word.many}` : `Missing a ${word.one}? Reload`}
+            </Button>
+          ) : null}
+        </>
+      }
+      meta={`${on} of ${TICKET_CAPABILITIES.length} on`}
+      actions={
+        canEdit ? (
+          <>
+            <Button variant="secondary" size="sm" className={ROW_BUTTON} onClick={onPermissions}>
+              Permissions
+            </Button>
+            <Button variant="destructive" size="sm" className={ROW_BUTTON} onClick={onDisconnect}>
+              Disconnect
+            </Button>
+          </>
+        ) : (
+          <Button variant="link" size="sm" onClick={onPermissions}>
+            View permissions
+          </Button>
+        )
+      }
+    />
+  );
+}
+
+/** With Linear and Jira both connected: where a ticket goes when nobody says which. */
+function TicketsRow({ chosen, canEdit, onChanged }: { chosen?: TrackerId; canEdit: boolean; onChanged: () => void }) {
+  const guard = useSessionGuard();
+  const [saving, setSaving] = React.useState(false);
+  const pick = async (tracker: TrackerId) => {
+    setSaving(true);
+    try {
+      await api.setTicketTracker(tracker);
+      showToast(`Tickets go to ${TRACKERS[tracker]} unless someone names the other.`);
+      onChanged();
+    } catch (error) {
+      if (!guard(error)) showToast(errorText(error, "Couldn't save that."), 'error');
+    } finally {
+      setSaving(false);
+      focusIfLost('ticket-tracker');
+    }
+  };
+  const current = chosen ?? 'linear';
+  return (
+    <SetupRow
+      id="setup-tickets"
+      label="Tickets"
+      state="Linear and Jira"
+      purpose={
+        canEdit ? (
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <label htmlFor="ticket-tracker">When nobody says which, tickets go to</label>
+            <Select
+              id="ticket-tracker"
+              value={current}
+              disabled={saving}
+              onChange={(e) => pick(e.target.value as TrackerId)}
+              wrapperClassName="w-full max-w-[160px]"
+            >
+              <option value="linear">Linear</option>
+              <option value="jira">Jira</option>
+            </Select>
+          </span>
+        ) : (
+          `When nobody says which, tickets go to ${TRACKERS[current]}.`
+        )
+      }
+      meta="Saying “in Jira” or “in Linear”, or a ticket key like ENG 12, picks one."
     />
   );
 }

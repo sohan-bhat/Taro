@@ -3,6 +3,7 @@
 // hashes) that never cross this boundary.
 
 import type { LlmProviderId, SttProviderId } from './providers';
+import type { TrackerId } from './constants';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member';
 
@@ -88,6 +89,31 @@ export interface GithubStatus {
   connectedAt?: string;
 }
 
+// A Linear team or a Jira project new tickets can go to.
+export interface TrackerSpace {
+  id: string;
+  // The prefix on its tickets: ENG in ENG-123
+  key: string;
+  name: string;
+}
+
+// Linear, installed as the Taro app, or Jira, through the Taro app for Jira. Shared by workspace.
+export interface TrackerStatus {
+  connected: boolean;
+  // False when the server can't connect it (Linear's app credentials or Jira's install link aren't set)
+  configured: boolean;
+  // The Linear workspace or the Jira site
+  siteName?: string;
+  siteUrl?: string;
+  // Teams or projects Taro can file in, and the one new tickets go to
+  spaces?: TrackerSpace[];
+  defaultSpace?: string;
+  enabledActions?: string[];
+  // Linear stopped honoring Taro's access, or the Jira key was replaced or the app uninstalled
+  needsReconnect?: boolean;
+  connectedAt?: string;
+}
+
 // A GitHub account the person can connect, offered when they have more than one.
 export interface GithubAccountChoice {
   installationId: string;
@@ -120,6 +146,10 @@ export interface WorkspaceOverview {
   providers: ProviderSettings;
   slack: SlackStatus;
   github: GithubStatus;
+  linear: TrackerStatus;
+  jira: TrackerStatus;
+  // With both connected: where a ticket goes when nobody says which
+  ticketTracker?: TrackerId;
   // Set when the server can connect Google Calendars: the signed-in person's own connection
   googleCalendar?: GoogleCalendarStatus;
   ready: {
@@ -182,6 +212,8 @@ export interface IntentParams {
   assignees?: string[]; // GitHub logins to assign
   reviewers?: string[]; // GitHub logins to request review from
   branch?: string; // new branch name for a pull request
+  ticket?: string; // a Linear or Jira ticket key, like ENG-123, or just its number
+  tracker?: TrackerId; // Linear or Jira, when they named one; the executor stores the one it used
   reason?: string; // for 'unknown': why Taro can't do it / what it can do instead
   original?: string;
 }
@@ -199,6 +231,12 @@ export type IntentAction =
   | 'merge_pull_request'
   | 'request_github_review'
   | 'create_pull_request'
+  | 'create_ticket'
+  | 'comment_ticket'
+  | 'close_ticket'
+  | 'reopen_ticket'
+  | 'assign_ticket'
+  | 'label_ticket'
   | 'unknown';
 
 export interface ParsedIntent {
@@ -248,6 +286,9 @@ export interface ServerMeta {
   // True once the server has Google's client ID and secret
   googleSignIn: boolean;
   githubApp: boolean;
+  // Linear's app credentials, and the Jira app's install link; unset means off
+  linear?: boolean;
+  jira?: boolean;
   serverStt: boolean;
   // Calendar invitations, Connect Google Calendar, and the Google Meet button; unset means off.
   calendarInvites?: boolean;

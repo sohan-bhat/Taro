@@ -1,7 +1,17 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { COPY } from '@taro/shared';
-import { ActionLogModel } from '../db/models';
+import {
+  ActionLogModel,
+  CompanyModel,
+  GithubConnectionModel,
+  JiraConnectionModel,
+  LinearConnectionModel,
+  SlackConnectionModel,
+} from '../db/models';
+import { encryptSecret } from '../lib/crypto';
+import { LinearService } from './trackers/linear';
+import type { TicketResult } from './trackers';
 import type { ActionLogDoc } from '../db/models/ActionLog';
 import { executeCommand } from './executor';
 import { GithubService, type GithubResult } from './github';
@@ -18,8 +28,35 @@ function fakeWorkspace(
     github?: Partial<Record<keyof GithubService, unknown>>;
     unreachable?: boolean;
     saveFails?: boolean;
+    // A connected Linear with these teams (the first takes new tickets), and what its calls answer
+    linear?: { teams: string[]; enabledActions?: string[]; answer: (call: string, args: unknown[]) => TicketResult };
   } = {}
 ) {
+  const calls: Array<{ call: string; args: unknown[] }> = [];
+  // What the executor reads to tell the model what's connected
+  t.mock.method(SlackConnectionModel, 'exists', (async () => (opts.slack ? { _id: 's1' } : null)) as never);
+  t.mock.method(GithubConnectionModel, 'findOne', (async () => (opts.github ? { repo: 'acme/web' } : null)) as never);
+  t.mock.method(JiraConnectionModel, 'findOne', (async () => null) as never);
+  t.mock.method(CompanyModel, 'findById', (async () => ({})) as never);
+  const linear = opts.linear;
+  t.mock.method(LinearConnectionModel, 'findOne', (async () =>
+    linear
+      ? {
+          companyId: 'c1',
+          accessTokenEnc: encryptSecret('lin_test', 'linear-access:c1'),
+          teams: linear.teams.map((key) => ({ id: `team-${key}`, key, name: key })),
+          defaultTeamId: `team-${linear.teams[0]}`,
+          enabledActions: linear.enabledActions,
+        }
+      : null) as never);
+  if (linear) {
+    for (const call of ['createTicket', 'comment', 'close', 'reopen', 'assign', 'addLabels'] as const) {
+      t.mock.method(LinearService.prototype, call, (async (...args: unknown[]) => {
+        calls.push({ call, args });
+        return linear.answer(call, args);
+      }) as never);
+    }
+  }
   const posts: Array<{ channel: string; text: string }> = [];
   const saved: Array<Partial<ActionLogDoc>> = [];
   const slack = opts.slack;
@@ -42,7 +79,7 @@ function fakeWorkspace(
     saved.push(doc);
     return doc;
   }) as never);
-  return { posts, saved };
+  return { posts, saved, calls };
 }
 
 // Answers the model's chat completion with whatever intent was last given.
@@ -214,4 +251,103 @@ test('an unexpected error still ends in a sentence, and a failed save never hide
     outcome: 'failed',
     summary: 'Something went wrong while doing “post the build is green to engineering.”',
   });
+});
+
+test('a ticket is filed in Linear when it is the tracker connected', async (t) => {
+  const { calls, saved } = fakeWorkspace(t, {
+    linear: { teams: ['ENG', 'DES'], answer: () => ({ success: true, key: 'ENG-88', url: 'https://linear.app/acme/issue/ENG-88' }) },
+  });
+  const model = fakeModel(t);
+  model({ action: 'create_ticket', confidence: 0.9, title: 'Invite emails land in spam', body: '## Summary\nInvites go to spam.' });
+  const result = await executeCommand('m1', 'c1', 'file a ticket about invites going to spam', 'live', undefined, GROQ);
+
+  assert.equal(result.outcome, 'done');
+  assert.equal(result.summary, 'Filed <https://linear.app/acme/issue/ENG-88|ENG-88> in Linear.');
+  assert.equal(calls[0].call, 'createTicket');
+  assert.equal(calls[0].args[0], 'Invite emails land in spam');
+  assert.match(String(calls[0].args[1]), /Invites go to spam\.\n\n_Filed by Taro during a meeting\._$/);
+  assert.equal(saved[0].intent?.params.tracker, 'linear');
+  assert.equal(saved[0].result, 'Filed ENG-88 in Linear: https://linear.app/acme/issue/ENG-88');
+});
+
+test('a bare ticket number takes the default team, and turned off actions are refused', async (t) => {
+  const { calls } = fakeWorkspace(t, {
+    linear: {
+      teams: ['ENG'],
+      enabledActions: ['create_ticket', 'comment_ticket', 'close_ticket'],
+      answer: (_call, args) => ({ success: true, key: String(args[0]), url: `https://linear.app/acme/issue/${args[0]}` }),
+    },
+  });
+  const model = fakeModel(t);
+  model({ action: 'close_ticket', confidence: 0.9, ticket: '42' });
+  const closed = await executeCommand('m1', 'c1', 'close ticket 42', 'live', undefined, GROQ);
+  assert.equal(closed.summary, 'Closed <https://linear.app/acme/issue/ENG-42|ENG-42> in Linear.');
+  assert.deepEqual(calls[0], { call: 'close', args: ['ENG-42'] });
+
+  model({ action: 'assign_ticket', confidence: 0.9, ticket: 'ENG-42', assignees: ['priya'] });
+  const assigned = await executeCommand('m1', 'c1', 'assign eng 42 to priya', 'live', undefined, GROQ);
+  assert.deepEqual(assigned, { status: 'clarification_needed', outcome: 'turned_off', summary: 'Assigning tickets is turned off for this workspace.' });
+});
+
+test('tracker answers become plain sentences', async (t) => {
+  fakeWorkspace(t, {
+    linear: {
+      teams: ['ENG'],
+      enabledActions: ['assign_ticket', 'comment_ticket'],
+      answer: (call) =>
+        call === 'assign'
+          ? { success: false, error: 'No one in Linear matched jordan', missingPeople: ['jordan'] }
+          : { success: false, error: 'Entity not found', status: 200, notFound: true },
+    },
+  });
+  const model = fakeModel(t);
+  model({ action: 'assign_ticket', confidence: 0.9, ticket: 'ENG-4', assignees: ['jordan'] });
+  assert.equal((await executeCommand('m1', 'c1', 'assign eng 4 to jordan', 'live', undefined, GROQ)).summary, "Couldn't find jordan in Linear. Say their name the way it appears there.");
+  model({ action: 'comment_ticket', confidence: 0.9, ticket: 'ENG-404', body: 'Shipped.' });
+  assert.equal((await executeCommand('m1', 'c1', 'comment on eng 404 shipped', 'live', undefined, GROQ)).summary, "Couldn't find ENG-404 in Linear.");
+});
+
+test('tickets fall back to GitHub issues, and issues to tickets, when only one is connected', async (t) => {
+  const created: string[] = [];
+  const { calls, saved } = fakeWorkspace(t, {
+    github: {
+      createIssue: async (title: string) => {
+        created.push(title);
+        return { success: true, url: 'https://github.com/acme/web/issues/5', number: 5 };
+      },
+    },
+  });
+  const model = fakeModel(t);
+  model({ action: 'create_ticket', confidence: 0.9, title: 'Fix the export' });
+  const result = await executeCommand('m1', 'c1', 'file a ticket to fix the export', 'live', undefined, GROQ);
+  assert.equal(result.outcome, 'done');
+  assert.deepEqual(created, ['Fix the export']);
+  assert.equal(saved[0].intent?.action, 'create_github_issue');
+  assert.equal(calls.length, 0);
+});
+
+test('an issue goes to Linear when GitHub is not connected', async (t) => {
+  const { calls, saved } = fakeWorkspace(t, {
+    linear: { teams: ['ENG'], answer: () => ({ success: true, key: 'ENG-9', url: 'https://linear.app/acme/issue/ENG-9' }) },
+  });
+  const model = fakeModel(t);
+  model({ action: 'create_github_issue', confidence: 0.9, title: 'Fix the export' });
+  const result = await executeCommand('m1', 'c1', 'open an issue to fix the export', 'live', undefined, GROQ);
+  assert.equal(result.summary, 'Filed <https://linear.app/acme/issue/ENG-9|ENG-9> in Linear.');
+  assert.equal(calls[0].call, 'createTicket');
+  assert.equal(saved[0].intent?.action, 'create_ticket');
+});
+
+test('asking for a tracker that is not connected says so', async (t) => {
+  fakeWorkspace(t, { linear: { teams: ['ENG'], answer: () => ({ success: true, key: 'ENG-1', url: 'u' }) } });
+  const model = fakeModel(t);
+  model({ action: 'create_ticket', confidence: 0.9, tracker: 'jira', title: 'Rotate the password' });
+  const result = await executeCommand('m1', 'c1', 'make a jira ticket to rotate the password', 'live', undefined, GROQ);
+  assert.deepEqual(result, { status: 'failed', outcome: 'failed', summary: "Jira isn't connected. An owner or admin can connect it in Setup." });
+});
+
+test('no tracker and no GitHub means asking an owner to connect one', async (t) => {
+  fakeWorkspace(t);
+  const result = await executeCommand('m1', 'c1', 'close ticket ENG 4', 'live', undefined, null);
+  assert.equal(result.summary, COPY.noTracker);
 });
