@@ -49,7 +49,8 @@ export default function PrivacyPage() {
         <p>
           Taro works through services your workspace chooses and pays for directly: MeetingBaas for the meeting bot, your AI
           provider, and your transcription provider. For a meeting from your calendar, the meeting bot gets its link and
-          start time so it can join. Slack and GitHub receive what Taro posts there. Taro itself runs on hosting and database
+          start time so it can join. Slack and GitHub receive what Taro posts there. If your workspace adds webhooks, Taro
+          sends meeting details, requests, and transcripts to the URLs it adds. Taro itself runs on hosting and database
           services. Each of these handles data under its own privacy policy.
         </p>
       </Section>

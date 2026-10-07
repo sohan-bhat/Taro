@@ -50,6 +50,8 @@ Ding in the call, reply in the Slack thread, recap when the call ends
 
 Taro reads the conversation, so "file an issue about that" becomes a written issue about what was discussed. Each workspace decides which GitHub actions are allowed; merging is off by default.
 
+To send meetings, requests, and transcripts to your own tools, add a webhook in Setup. See [docs/WEBHOOKS.md](docs/WEBHOOKS.md) for the events and how to check the signature.
+
 ## Project structure
 
 ```
@@ -57,7 +59,7 @@ apps/web          Next.js: landing page, sign-in (Google, Slack), dashboard, dem
 apps/extension    Chrome and Edge extension: an Invite Taro button inside Google Meet
 packages/api      Express API: auth, provider keys, Slack listener, realtime audio, actions
 packages/shared   Types, constants, and the provider catalog both sides use
-docs/             Slack app manifest and the deployment guide
+docs/             Slack app manifest, the deployment guide, and the webhooks reference
 ```
 
 ## Local development

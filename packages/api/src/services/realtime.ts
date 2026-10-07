@@ -24,6 +24,7 @@ import { SlackService } from './slack';
 import { loadProviders } from './workspaceProviders';
 import type { LlmConfig } from './llm';
 import { debugLog } from './debugLog';
+import { emitMeetingEnded, emitMeetingStarted } from './webhooks/dispatcher';
 
 // Rolling window of finalized speech kept per meeting for wake-word scans
 const MAX_ROLLING_CHARS = 1000;
@@ -162,10 +163,15 @@ class RealtimeSession {
     this.bytes += chunk.length;
     if (!this.markedActive) {
       this.markedActive = true;
+      const companyId = this.companyId;
       MeetingModel.updateOne(
         { _id: this.meetingId, status: { $nin: ['ended', 'error'] } },
         { status: 'active', startedAt: new Date() }
-      ).catch(() => {});
+      )
+        .then((result) => {
+          if (result.matchedCount > 0 && companyId) emitMeetingStarted(this.meetingId, companyId);
+        })
+        .catch(() => {});
     }
     // Liveness for the dashboard ("audio is reaching Taro right now"), throttled
     const now = Date.now();
@@ -351,16 +357,18 @@ class RealtimeSessionManager {
         { lastAudioAt: { $exists: false }, createdAt: { $lt: new Date(now - NEVER_ADMITTED_MS) } },
       ],
     })
-      .select('_id')
+      .select('_id companyId')
       .limit(500)
       .lean();
-    const ids = stale.map((m) => String(m._id)).filter((id) => !this.sessions.has(id));
+    const mine = stale.filter((m) => !this.sessions.has(String(m._id)));
+    const ids = mine.map((m) => String(m._id));
     if (ids.length === 0) return;
     await MeetingModel.updateMany(
       { _id: { $in: ids }, status: { $in: ['pending', 'joining', 'active'] } },
       { status: 'ended', endedAt: new Date(now) }
     );
     log.info(`[Realtime] Closed out ${ids.length} meeting(s) that stopped sending audio`);
+    for (const m of mine) emitMeetingEnded(String(m._id), m.companyId);
   }
 
   closeAll() {

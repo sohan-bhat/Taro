@@ -28,6 +28,7 @@ export interface MeetingDoc {
   joinStage?: 'starting' | 'lobby';
   lobbyAt?: Date; // when it started asking to be let in
   commandsProcessedAt?: Date; // claimed atomically so the end-of-call sweep runs once
+  webhookEvents?: string[]; // meeting.started and meeting.ended, claimed so each is sent once
   startedAt?: Date;
   endedAt?: Date;
   createdAt: Date;
@@ -63,6 +64,7 @@ const meetingSchema = new Schema<MeetingDoc>(
     joinStage: { type: String, enum: ['starting', 'lobby'] },
     lobbyAt: { type: Date },
     commandsProcessedAt: { type: Date },
+    webhookEvents: { type: [String], default: undefined },
     startedAt: { type: Date },
     endedAt: { type: Date },
   },

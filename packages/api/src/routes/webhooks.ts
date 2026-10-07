@@ -25,6 +25,7 @@ import { executeCommand } from '../services/executor';
 import { recapLine, recapLines } from '../services/outcomes';
 import { extractCommands } from '../services/transcript';
 import { loadProviders } from '../services/workspaceProviders';
+import { emitMeetingEnded } from '../services/webhooks/dispatcher';
 
 export const webhooksRouter: RouterType = Router();
 
@@ -117,6 +118,7 @@ async function processEvent(meetingId: string, payload: CallbackPayload): Promis
         }
       }
       await postToThread(claimed.companyId, claimed.slackChannelId, claimed.slackThreadTs, COPY.recap(lines));
+      emitMeetingEnded(meetingId, claimed.companyId, lines);
       return;
     }
 
@@ -145,6 +147,8 @@ async function processEvent(meetingId: string, payload: CallbackPayload): Promis
         meeting.slackThreadTs,
         meeting.startedAt ? COPY.couldntStay(why) : COPY.slackCouldntJoin(why)
       );
+      // A bot that was in the call ended it; one that never got in never started it
+      if (meeting.startedAt) emitMeetingEnded(meetingId, meeting.companyId);
       return;
     }
 

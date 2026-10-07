@@ -21,6 +21,8 @@ import { log, errorMessage } from '../lib/logger';
 import { SlackService, normalizeChannel } from './slack';
 import { GithubService, type GithubResult } from './github';
 import { parseIntent } from './intent';
+import { emitWebhookEvent } from './webhooks/dispatcher';
+import { requestCompletedData } from './webhooks/events';
 import type { LlmConfig } from './llm';
 import {
   cleanParams,
@@ -82,6 +84,13 @@ export async function executeCommand(
     // The thread still hears how it went, even if the dashboard won't.
     log.error(`[Executor:${mode}] Could not save the action log:`, errorMessage(error));
   }
+
+  // Queued, not sent: a slow receiver never holds up the meeting
+  void emitWebhookEvent(
+    companyId,
+    'request.completed',
+    requestCompletedData(meetingId, { command, intent, outcome: settled.outcome, summary: settled.summary, result: settled.result, createdAt: new Date() })
+  );
 
   return { status: settled.status, outcome: settled.outcome, summary: settled.summary };
 }

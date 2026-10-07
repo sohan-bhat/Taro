@@ -16,6 +16,8 @@ import type {
   SttProviderId,
   UpcomingMeeting,
   User,
+  WebhookDelivery,
+  WebhookEndpoint,
   Workspace,
   WorkspaceOverview,
   WorkspaceRole,
@@ -169,6 +171,22 @@ export const api = {
     upcoming: () => request<{ upcoming: UpcomingMeeting[] }>('/api/calendar/upcoming'),
     act: (id: string, action: 'skip' | 'restore' | 'approve' | 'decline') =>
       request<{ upcoming: UpcomingMeeting[] }>(`/api/calendar/upcoming/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+  },
+
+  // Outgoing webhooks, owners and admins only. A signing secret comes back in full only from create and rotate.
+  webhooks: {
+    list: () => request<{ endpoints: WebhookEndpoint[] }>('/api/integrations/webhooks'),
+    create: (endpoint: { url: string; description?: string; events: string[] }) =>
+      request<{ endpoint: WebhookEndpoint; secret: string }>('/api/integrations/webhooks', { method: 'POST', body: endpoint }),
+    update: (id: string, changes: { url?: string; description?: string; events?: string[]; enabled?: boolean }) =>
+      request<{ endpoint: WebhookEndpoint }>(`/api/integrations/webhooks/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
+    remove: (id: string) => request<{ deleted: boolean }>(`/api/integrations/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    rotate: (id: string) =>
+      request<{ endpoint: WebhookEndpoint; secret: string }>(`/api/integrations/webhooks/${encodeURIComponent(id)}/rotate`, { method: 'POST' }),
+    test: (id: string) =>
+      request<{ delivery: WebhookDelivery }>(`/api/integrations/webhooks/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+    deliveries: (id: string) =>
+      request<{ deliveries: WebhookDelivery[] }>(`/api/integrations/webhooks/${encodeURIComponent(id)}/deliveries`),
   },
 };
 

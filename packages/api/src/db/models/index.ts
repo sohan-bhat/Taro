@@ -11,3 +11,5 @@ export { CalendarSeriesModel } from './CalendarSeries';
 export { CalendarOccurrenceModel } from './CalendarOccurrence';
 export { GoogleCalendarConnectionModel } from './GoogleCalendarConnection';
 export { GoogleCalendarGrantModel } from './GoogleCalendarGrant';
+export { WebhookEndpointModel } from './WebhookEndpoint';
+export { WebhookDeliveryModel } from './WebhookDelivery';
