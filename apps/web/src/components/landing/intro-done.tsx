@@ -25,7 +25,7 @@ export function IntroDone({ ms }: { ms: number }) {
     };
     // Timed from the headline's first line, which started with the sequence. A page that's already
     // scrolled, or that asks for less motion, has nothing to wait for.
-    const first = document.querySelector('.intro .in-rise')?.getAnimations()[0];
+    const first = document.querySelector('.intro .in-focus')?.getAnimations()[0];
     const started = typeof first?.startTime === 'number' ? first.startTime : performance.now();
     const left = started + ms - performance.now();
     if (left <= 0 || window.scrollY > 0 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

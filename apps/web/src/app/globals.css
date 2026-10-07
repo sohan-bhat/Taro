@@ -70,6 +70,9 @@
 
   /* A headline line of the landing hero, set as its own block. */
   .in-mask { display: block; }
+  /* Line one's words, and line two as one box the reveal block can cover exactly */
+  .in-focus { display: inline-block; }
+  .in-swipe { position: relative; display: inline-block; vertical-align: top; }
 }
 
 /* A tap focuses the words, so touch works like hover. No JavaScript. */
@@ -89,7 +92,13 @@
  * scroll, key, click, or tap. Only opacity and transform move, so it all stays in the accessibility tree.
  */
 @media screen and (prefers-reduced-motion: no-preference) {
-  .intro .in-rise { animation: in-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) both; }
+  .intro .in-focus { animation: in-focus 560ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) both; }
+  .intro .in-swipe { animation: in-under 800ms linear var(--d) both; }
+  .intro .in-swipe::after {
+    content: ''; position: absolute; inset: 0.1em -0.03em -0.05em; pointer-events: none;
+    background: var(--ink); transform: scaleX(0); transform-origin: left center;
+    animation: block-swipe 800ms var(--d) both;
+  }
   .intro .in-fade { animation: in-fade 300ms ease-out var(--d) both; }
   .intro .spoken .word { animation: in-word 140ms ease-out var(--cue) both; }
   .intro .spoken .heard { animation: heard-sweep 300ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--wake) both; }
@@ -98,11 +107,23 @@
   .intro-late { animation: in-up 500ms cubic-bezier(0.22, 1, 0.36, 1) var(--rest) both; }
 
   /* The intro is over, or something in it has focus: whatever is still on its way in is simply there. */
-  html[data-intro='done'] .intro *, html[data-intro='done'] .intro-late,
-  .intro :focus-within, .intro-late:focus-within { animation: none !important; }
+  html[data-intro='done'] .intro *, html[data-intro='done'] .intro .in-swipe::after, html[data-intro='done'] .intro-late,
+  .intro :focus-within, .intro :focus-within::after, .intro-late:focus-within { animation: none !important; }
 }
-/* Never a ghost: the headline starts invisible and settles into place with a short, calm rise. */
-@keyframes in-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+/* Line one's words drift into focus, as if found again: out of focus and a touch low, then sharp. */
+@keyframes in-focus {
+  from { opacity: 0; filter: blur(10px); transform: translateY(0.12em); }
+  to { opacity: 1; filter: none; transform: none; }
+}
+/* The block reveal: a solid block grows across line two from the left, holds a beat, then leaves to
+   the right. The words underneath switch on while it covers them, so they're simply there after. */
+@keyframes block-swipe {
+  0% { transform: scaleX(0); transform-origin: left center; animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1); }
+  40% { transform: scaleX(1); transform-origin: left center; }
+  50% { transform: scaleX(1); transform-origin: right center; animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1); }
+  100% { transform: scaleX(0); transform-origin: right center; }
+}
+@keyframes in-under { 0%, 44% { opacity: 0; } 45%, 100% { opacity: 1; } }
 @keyframes in-fade { from { opacity: 0; } to { opacity: 1; } }
 /* A word is invisible until it's said, then there in 140ms. */
 @keyframes in-word { from { opacity: 0; top: 4px; } to { opacity: 1; top: 0; } }

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import * as React from 'react';
 import { TranscriptRow } from '@/components/exchange';
 import { PrimaryCta } from '@/components/sign-in';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { HERO } from './content';
 import { DingButton } from './ding-button';
 import { C, LINE } from './grid';
-import { KeepCompounds, keepLastWordsTogether, ms, NAME_BEFORE, speech, Spoken } from './talk';
+import { keepLastWordsTogether, ms, NAME_BEFORE, speech, Spoken } from './talk';
 
 // 36px on phones to 66px at 1440 (31px below 360px, so each sentence still takes two lines). The
 // headline spans the container: at 64px its second line is wider than the line track, so it aligns
@@ -18,27 +19,35 @@ const H1 =
 const REQUEST = 'said text-[clamp(1.875rem,1.3028rem+2.4413vw,3.5rem)] font-530 leading-[1.08] tracking-[-0.012em] text-ink';
 const ANSWER = 'text-[clamp(1.5rem,1.1479rem+1.5023vw,2.5rem)] font-750 leading-[1.12] tracking-[-0.03em] text-ink';
 
-const SAID = speech(HERO.request, 950);
+// Each word of line one starts this long after the one before it
+const FOCUS_STAGGER = 60;
+
+// The headline's block swipe runs 800ms, so everything after it waits this much longer than it once did
+const AFTER_HEADLINE = 400;
+
+const SAID = speech(HERO.request, 950 + AFTER_HEADLINE);
 
 /**
  * The first screen plays as one sequence, in ms from first paint (globals.css has each part's
- * motion). Only the wordmark is there at the start: the problem rises in first, Sam speaks, Taro
- * answers, and then the rest fades up in a quick stagger. Done in about three seconds.
+ * motion). Only the wordmark is there at the start: the problem comes into focus, a block swipes
+ * across the answer to reveal it, Sam speaks, Taro answers, and then the rest fades up in a quick
+ * stagger. Done in about three and a half seconds.
  */
 export const INTRO = {
   problem: 60,
-  answer: 210,
-  context: 750,
+  // The block starts to cover line two as line one's last word comes into focus
+  answer: 560,
+  context: 750 + AFTER_HEADLINE,
   request: SAID.words[0].at,
-  reply: 2350,
-  ding: 2600,
+  reply: 2350 + AFTER_HEADLINE,
+  ding: 2600 + AFTER_HEADLINE,
   // The lede and the buttons arrive as one block
-  lede: 2660,
-  buttons: 2660,
+  lede: 2660 + AFTER_HEADLINE,
+  buttons: 2660 + AFTER_HEADLINE,
   // The nav's links and sign-in, and everything below the hero
-  rest: 2780,
+  rest: 2780 + AFTER_HEADLINE,
   // When the last fade-up (320ms) is done
-  end: 3100,
+  end: 3100 + AFTER_HEADLINE,
 };
 
 export function Hero() {
@@ -46,16 +55,22 @@ export function Hero() {
     // Plays from first paint; intro-done.tsx ends it at once on any scroll, key, click, or tap
     <section aria-labelledby="hero-title" className="intro pt-9 md:pt-14 wide:pt-[72px]">
       <div className={C}>
-        {/* Line one first, then line two, each settling in once */}
-        <h1 id="hero-title" className={H1}>
-          <span className="in-mask">
-            <span className="in-rise block text-ash" style={ms({ d: INTRO.problem })}>
-              <KeepCompounds text={HERO.title[0]} />
-            </span>
+        {/* Line one comes into focus word by word, then a block swipes across line two to reveal it.
+            The words are split for the motion only, so the heading is named as two plain sentences. */}
+        <h1 id="hero-title" className={H1} aria-label={HERO.title.join(' ')}>
+          <span className="in-mask text-ash">
+            {HERO.title[0].split(' ').map((word, i, all) => (
+              <React.Fragment key={i}>
+                <span className="in-focus" style={ms({ d: INTRO.problem + i * FOCUS_STAGGER })}>
+                  {word}
+                </span>
+                {i < all.length - 1 ? ' ' : null}
+              </React.Fragment>
+            ))}
           </span>{' '}
           <span className="in-mask">
             {/* Balanced, so a tablet reads "Taro does them / before you hang up." and not "... before you / hang up." */}
-            <span className="in-rise block text-balance text-ink" style={ms({ d: INTRO.answer })}>
+            <span className="in-swipe text-balance text-ink" style={ms({ d: INTRO.answer })}>
               {HERO.title[1]}
             </span>
           </span>
