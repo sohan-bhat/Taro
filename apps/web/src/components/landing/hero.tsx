@@ -22,7 +22,7 @@ const ANSWER = 'text-[clamp(1.5rem,1.1479rem+1.5023vw,2.5rem)] font-750 leading-
 // Each word of line one starts this long after the one before it
 const FOCUS_STAGGER = 60;
 
-// The headline's block swipe runs 800ms, so everything after it waits this much longer than it once did
+// The headline's block swipe runs 900ms, so everything after it waits this much longer than it once did
 const AFTER_HEADLINE = 400;
 
 const SAID = speech(HERO.request, 950 + AFTER_HEADLINE);
@@ -71,7 +71,7 @@ export function Hero() {
           <span className="in-mask">
             {/* Balanced, so a tablet reads "Taro does them / before you hang up." and not "... before you / hang up." */}
             <span className="in-swipe text-balance text-ink" style={ms({ d: INTRO.answer })}>
-              {HERO.title[1]}
+              <span className="in-under">{HERO.title[1]}</span>
             </span>
           </span>
         </h1>

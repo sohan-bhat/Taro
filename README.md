@@ -2,9 +2,9 @@
 
 Meeting follow-ups get lost. Taro does them before you hang up.
 
-[![Watch the Taro demo](docs/taro-demo-poster.jpg)](docs/taro-demo.mp4)
+[![Watch the Taro demo](docs/taro-demo-poster.jpg)](https://trytaro.vercel.app/taro-demo.mp4)
 
-[Watch the 45 second demo](docs/taro-demo.mp4)
+[Watch the 45 second demo](https://trytaro.vercel.app/taro-demo.mp4)
 
 Taro joins your Google Meet, Zoom, and Microsoft Teams calls as a guest. When someone says "Hey Taro" and asks for something, Taro does it right away in Slack, GitHub, Linear, or Jira, then plays a short chime in the call so everyone knows it's done. When the call ends, it posts a recap of everything it did.
 
@@ -63,7 +63,7 @@ apps/extension    Chrome and Edge extension: the Invite Taro button inside Googl
 apps/jira         The Taro app for Jira, deployed to Atlassian with Forge
 packages/api      Express API: auth, provider keys, Slack listener, realtime audio, actions
 packages/shared   Types, constants, and the copy both sides use
-docs/             Deployment guide, webhooks reference, Slack app manifest, demo video
+docs/             Deployment guide, webhooks reference, Slack app manifest, demo poster
 ```
 
 ## Local development

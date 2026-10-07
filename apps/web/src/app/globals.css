@@ -73,6 +73,7 @@
   /* Line one's words, and line two as one box the reveal block can cover exactly */
   .in-focus { display: inline-block; }
   .in-swipe { position: relative; display: inline-block; vertical-align: top; }
+  .in-under { display: block; }
 }
 
 /* A tap focuses the words, so touch works like hover. No JavaScript. */
@@ -93,11 +94,12 @@
  */
 @media screen and (prefers-reduced-motion: no-preference) {
   .intro .in-focus { animation: in-focus 560ms cubic-bezier(0.22, 1, 0.36, 1) var(--d) both; }
-  .intro .in-swipe { animation: in-under 800ms linear var(--d) both; }
+  /* The words sit in their own box, so uncovering them never clips the block */
+  .intro .in-under { animation: in-under 900ms linear var(--d) both; }
   .intro .in-swipe::after {
-    content: ''; position: absolute; inset: 0.1em -0.03em -0.05em; pointer-events: none;
+    content: ''; position: absolute; inset: 0.04em -0.03em -0.02em; pointer-events: none;
     background: var(--ink); transform: scaleX(0); transform-origin: left center;
-    animation: block-swipe 800ms var(--d) both;
+    animation: block-swipe 900ms linear var(--d) both;
   }
   .intro .in-fade { animation: in-fade 300ms ease-out var(--d) both; }
   .intro .spoken .word { animation: in-word 140ms ease-out var(--cue) both; }
@@ -115,15 +117,19 @@
   from { opacity: 0; filter: blur(10px); transform: translateY(0.12em); }
   to { opacity: 1; filter: none; transform: none; }
 }
-/* The block reveal: a solid block grows across line two from the left, holds a beat, then leaves to
-   the right. The words underneath switch on while it covers them, so they're simply there after. */
+/* The block reveal: a solid block glides across line two from the left, rests a moment, then glides
+   off to the right. The words are uncovered exactly along its trailing edge, on the same curve, so
+   they come in with the block instead of switching on. */
 @keyframes block-swipe {
-  0% { transform: scaleX(0); transform-origin: left center; animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1); }
-  40% { transform: scaleX(1); transform-origin: left center; }
-  50% { transform: scaleX(1); transform-origin: right center; animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1); }
+  0% { transform: scaleX(0); transform-origin: left center; animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  42% { transform: scaleX(1); transform-origin: left center; }
+  52% { transform: scaleX(1); transform-origin: right center; animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
   100% { transform: scaleX(0); transform-origin: right center; }
 }
-@keyframes in-under { 0%, 44% { opacity: 0; } 45%, 100% { opacity: 1; } }
+@keyframes in-under {
+  0%, 52% { clip-path: polygon(-5% -50%, 0% -50%, 0% 150%, -5% 150%); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  100% { clip-path: polygon(-5% -50%, 100% -50%, 100% 150%, -5% 150%); }
+}
 @keyframes in-fade { from { opacity: 0; } to { opacity: 1; } }
 /* A word is invisible until it's said, then there in 140ms. */
 @keyframes in-word { from { opacity: 0; top: 4px; } to { opacity: 1; top: 0; } }
