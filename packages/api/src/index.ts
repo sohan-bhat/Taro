@@ -23,8 +23,10 @@ import { extensionRouter, sessionsRouter } from './routes/extension';
 import { inboundRouter } from './routes/inbound';
 import { calendarRouter } from './routes/calendar';
 import { googleCalendarRouter } from './routes/googleCalendar';
+import { outgoingWebhooksRouter } from './routes/outgoingWebhooks';
 import { calendarTick } from './services/calendar/scheduler';
 import { googleCalendarTick } from './services/calendar/googleSync';
+import { webhookTick } from './services/webhooks/dispatcher';
 import { calendarInvitesConfigured } from './lib/inviteAddress';
 import { slackListener } from './services/slackListener';
 import { realtimeSessions, type Direction } from './services/realtime';
@@ -87,6 +89,7 @@ app.use('/api/extension', extensionRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/google-calendar', googleCalendarRouter);
+app.use('/api/integrations/webhooks', outgoingWebhooksRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
@@ -158,6 +161,12 @@ setInterval(() => {
   calendarTick().catch((error) => log.warn('[Calendar] Tick failed:', errorMessage(error)));
   if (google) googleCalendarTick().catch((error) => log.warn('[Calendar] Google Calendar pass failed:', errorMessage(error)));
 }, 30 * 1000).unref();
+
+// Outgoing webhooks: retries that are due. New events are sent the moment they're queued.
+setInterval(() => {
+  if (mongoose.connection.readyState !== 1) return;
+  webhookTick().catch((error) => log.warn('[Webhooks] Tick failed:', errorMessage(error)));
+}, 5 * 1000).unref();
 
 async function start() {
   try {

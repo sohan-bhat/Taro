@@ -40,6 +40,7 @@ import { DisconnectTrackerDialog, JiraKeyDialog, TicketPermissionsDialog } from 
 import { KeyDialogs, type KeySlot } from './key-dialogs';
 import { ROW_BUTTON } from './styles';
 import { ConfirmDialog, RemoveSlackDialog } from './workspace-dialogs';
+import { WebhooksRow } from './webhook-dialogs';
 
 // ---------------------------------------------------------------------------------------------
 // Pieces
@@ -459,6 +460,7 @@ export function SetupView({
         )}
         {meta?.meetExtension && <MeetButtonRow canEdit={canEdit} />}
         {meta?.calendarInvites && <CalendarRow canEdit={canEdit} />}
+        {canEdit && claimed && <WebhooksRow />}
       </SetupCard>
 
       <KeyDialogs

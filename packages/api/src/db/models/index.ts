@@ -13,3 +13,5 @@ export { GoogleCalendarConnectionModel } from './GoogleCalendarConnection';
 export { GoogleCalendarGrantModel } from './GoogleCalendarGrant';
 export { LinearConnectionModel, LinearGrantModel } from './LinearConnection';
 export { JiraConnectionModel } from './JiraConnection';
+export { WebhookEndpointModel } from './WebhookEndpoint';
+export { WebhookDeliveryModel } from './WebhookDelivery';

@@ -70,6 +70,10 @@ export function DemoSetupView({ name, setup }: { name: string; setup: DemoSetup 
             purpose="Lets Taro file issues and open pull requests as its own bot, never as you."
           />
         )}
+        <SetupRow
+          label="Webhooks"
+          purpose="Sends meetings, requests, and transcripts to your own tools, like Zapier or n8n, as signed JSON. Endpoints aren't part of the snapshot."
+        />
       </SetupCard>
 
       <PermissionsDialog
