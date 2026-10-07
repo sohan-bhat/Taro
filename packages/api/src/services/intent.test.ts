@@ -118,3 +118,27 @@ test('the model hears what is connected, and ticket fields are kept', async () =
   assert.equal(buildIntent({ action: 'create_ticket', confidence: 1, tracker: 'asana' }, 'c', 'groq').params.tracker, undefined);
   assert.match(SYSTEM_PROMPT, /create_ticket/);
 });
+
+test('further actions ride in "then": at most two, each checked, and none nested', () => {
+  const intent = buildIntent(
+    {
+      action: 'merge_pull_request',
+      confidence: 0.9,
+      issueNumber: 57,
+      then: [
+        { action: 'create_pull_request', confidence: 0.8, title: 'Retry failed exports — now', then: [{ action: 'close_github_issue' }] },
+        { action: 'delete_repo', confidence: 1 },
+        { action: 'unknown', confidence: 0.1 },
+        { action: 'post_message', confidence: 0.9, channel: 'engineering', message: 'Merged.' },
+        { action: 'close_github_issue', confidence: 0.9, issueNumber: 3 },
+      ],
+    },
+    'c',
+    'groq'
+  );
+  assert.equal(intent.action, 'merge_pull_request');
+  assert.deepEqual(intent.then?.map((i) => i.action), ['create_pull_request', 'post_message']);
+  assert.equal(intent.then?.[0].params.title, 'Retry failed exports, now');
+  assert.equal(intent.then?.[0].then, undefined);
+  assert.equal(buildIntent({ action: 'close_github_issue', confidence: 1, issueNumber: 3, then: 'x' }, 'c', 'groq').then, undefined);
+});

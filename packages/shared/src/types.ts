@@ -245,6 +245,8 @@ export interface ParsedIntent {
   params: IntentParams;
   // Which provider produced this; 'fallback_regex' means the AI call failed.
   source?: LlmProviderId | 'fallback_regex';
+  // Further actions asked for in the same breath ("merge it and open a pull request"), in the order said
+  then?: ParsedIntent[];
 }
 
 // How a request ended, as Taro reported it. Older logs only have `status`.

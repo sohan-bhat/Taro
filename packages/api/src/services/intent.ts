@@ -177,6 +177,12 @@ TICKETS (Linear and Jira):
 - Ticket keys are a team or project prefix and a number, like ENG-123 or OPS-7. People say them as "eng one twenty three", "E N G 123", or just "ticket 123". Write "ticket" as PREFIX-NUMBER in capitals when a prefix was said ("ENG-123"), else just the number ("123").
 - Set "tracker" only when they say Linear or Jira (often heard as "gira", "jeera", or "lenear"). Never guess it.
 - The CONNECTED line says what this workspace has. When Linear or Jira is connected, "ticket", "bug", "task", and a plain "issue" mean the ticket actions, unless they say GitHub, the repo, or a pull request. When neither is connected, a plain "issue" or "bug" means the GitHub actions. A number with a known ticket prefix is always a ticket.
+
+MORE THAN ONE ACTION:
+- One command can ask for up to three separate things, like "merge pull request 57 and open a pull request for the export fix" or "close ENG 42 and tell engineering it shipped". Put the first action in the top level fields as usual, and each further action, in the order it was said, as its own object in "then" with the same fields (action, confidence, and that action's details). Resolve "it" and "that" for every action from the transcript, the same way as for one action.
+- Each action must stand on its own. Never write a later action that needs the result of an earlier one, like the number of a pull request Taro is about to open; leave that part out.
+- One action with several details (a checklist with many items, two labels, two assignees) is still one action. Leave "then" out when only one thing was asked.
+
 - "unknown": use ONLY when you genuinely cannot map the request to an action above. Whenever you return "unknown" you MUST set "reason" to a helpful, specific sentence: say what you understood the user wanted, and either what is missing (e.g. "which channel should I post to?") or why you cannot do it and the closest thing you can. Never return a bare unknown with no reason. Prefer to actually pick an action and fill in details from the transcript rather than giving up.
 
 WRITING CONTENT (produce final, publishable content, never placeholders or raw transcript):
@@ -257,12 +263,15 @@ Output: {"action":"assign_ticket","confidence":0.9,"ticket":"OPS-7","assignees":
 Input: "comment on des 12 that the mockups are approved"
 Output: {"action":"comment_ticket","confidence":0.9,"ticket":"DES-12","body":"The mockups are approved."}
 
+Input (transcript mentions: "pull request 57 fixes the export timeout and it's approved. we still need the retry for failed exports") COMMAND: "hey taro merge it and open a pull request for the retry"
+Output: {"action":"merge_pull_request","confidence":0.9,"issueNumber":57,"then":[{"action":"create_pull_request","confidence":0.88,"title":"Retry failed exports","body":"## Summary\nExports that fail are not retried, so a single timeout means the customer has to start over. This adds a retry for failed exports.\n\n## Changes\n- [ ] Retry an export when it fails\n- [ ] Stop after a few attempts and report the failure"}]}
+
 Input: "what's the weather like"
 Output: {"action":"unknown","confidence":0.2,"reason":"I can't check the weather. I can post in Slack, make a checklist, file and update tickets, or work on GitHub issues and pull requests."}`;
 
 // One schema for every provider with structured output (Claude, Gemini). The
 // OpenAI-compatible providers run in JSON mode, so buildIntent re-validates.
-const INTENT_SCHEMA: Record<string, unknown> = {
+const ACTION_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
   required: ['action', 'confidence'],
@@ -285,6 +294,14 @@ const INTENT_SCHEMA: Record<string, unknown> = {
   },
 };
 
+const INTENT_SCHEMA: Record<string, unknown> = {
+  ...ACTION_SCHEMA,
+  properties: { ...(ACTION_SCHEMA.properties as object), then: { type: 'array', items: ACTION_SCHEMA } },
+};
+
+// The first action plus up to two more
+const MAX_FOLLOWING = 2;
+
 interface RawParsed {
   action?: unknown;
   confidence?: unknown;
@@ -301,6 +318,7 @@ interface RawParsed {
   ticket?: unknown;
   tracker?: unknown;
   reason?: unknown;
+  then?: unknown;
 }
 
 const VALID_ACTIONS = new Set<string>(Object.values(INTENTS));
@@ -330,7 +348,7 @@ function proseList(v: unknown, maxItems: number, maxLen: number): string[] | und
 }
 
 // Model output is untrusted input: check the shape and clamp every field before it reaches a connector.
-export function buildIntent(raw: unknown, command: string, source: LlmProviderId): ParsedIntent {
+export function buildIntent(raw: unknown, command: string, source: LlmProviderId, nested = false): ParsedIntent {
   const parsed = (raw && typeof raw === 'object' ? raw : {}) as RawParsed;
   if (typeof parsed.action !== 'string' || !VALID_ACTIONS.has(parsed.action)) {
     throw new LlmError(`The model returned an unexpected action: ${JSON.stringify(raw).slice(0, 160)}`, 'bad_response');
@@ -361,7 +379,24 @@ export function buildIntent(raw: unknown, command: string, source: LlmProviderId
       ...(parsed.action === 'unknown' ? { original: command } : {}),
     },
     source,
+    ...(nested ? {} : following(parsed.then, command, source)),
   };
+}
+
+// The further actions. One the model got wrong, or couldn't place, is dropped; the rest still run.
+function following(raw: unknown, command: string, source: LlmProviderId): Pick<ParsedIntent, 'then'> {
+  if (!Array.isArray(raw)) return {};
+  const then: ParsedIntent[] = [];
+  for (const item of raw) {
+    if (then.length === MAX_FOLLOWING) break;
+    try {
+      const intent = buildIntent(item, command, source, true);
+      if (intent.action !== 'unknown') then.push(intent);
+    } catch {
+      // An action outside the list
+    }
+  }
+  return then.length > 0 ? { then } : {};
 }
 
 function buildUserPrompt(command: string, context?: string, tools?: string): string {

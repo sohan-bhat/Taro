@@ -29,8 +29,9 @@ Most meetings end with a few promises: "I'll file a ticket for that," "someone s
 | GitHub, more | Comment, label, assign, request a review, close, or merge by number |
 | Linear or Jira | "Hey Taro, file a ticket about the invite emails going to spam" |
 | Linear or Jira, more | "Close ENG 42," "assign OPS 7 to Priya," "comment on DES 12 that it's approved" |
+| A few at once | "Hey Taro, merge 57 and open a pull request for the retry" |
 
-Each workspace chooses which actions Taro may take. Filing and commenting are on from the start; actions that change existing work, like merging or closing, stay off until an owner or admin turns them on.
+One request can ask for up to three things; Taro does them in order and reports each one. Each workspace chooses which actions Taro may take. Filing and commenting are on from the start; actions that change existing work, like merging or closing, stay off until an owner or admin turns them on.
 
 To send meetings, requests, and transcripts to your own tools, add a webhook in Setup. [docs/WEBHOOKS.md](docs/WEBHOOKS.md) lists the events and shows how to check the signature.
 

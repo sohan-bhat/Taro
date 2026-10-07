@@ -1,6 +1,6 @@
 /**
- * Runs one spoken request: works out what was asked, does it in Slack,
- * GitHub, Linear, or Jira, and logs how it went. Shared by the realtime pipeline (mid-meeting)
+ * Runs one spoken request: works out what was asked (up to three actions), does it in Slack,
+ * GitHub, Linear, or Jira, and logs how each went. Shared by the realtime pipeline (mid-meeting)
  * and the end-of-call sweep. Every sentence it returns or stores comes from
  * the copy deck, through ./outcomes.
  */
@@ -60,19 +60,53 @@ export async function executeCommand(
   meetingContext: string | undefined,
   llm: LlmConfig | null
 ): Promise<ExecutionResult> {
-  let intent: ParsedIntent = { action: INTENTS.UNKNOWN, confidence: 0, params: {} };
-  let settled: Settled;
+  let steps: ParsedIntent[];
+  let trackers: Trackers = {};
+  let unexpected: string | undefined;
   try {
-    const { trackers, tools } = await connectedTools(companyId);
-    const parsed = await parseIntent(command, meetingContext, llm, tools);
-    intent = { ...parsed, params: cleanParams(parsed.params) };
-    log.debug(`[Executor:${mode}] Parsed intent:`, JSON.stringify(intent));
-    settled = await perform(companyId, command, intent, trackers);
+    const connected = await connectedTools(companyId);
+    trackers = connected.trackers;
+    const { then = [], ...first } = await parseIntent(command, meetingContext, llm, connected.tools);
+    steps = [first, ...then].map((parsed) => ({ ...parsed, params: cleanParams(parsed.params) }));
+    log.debug(`[Executor:${mode}] Parsed intent:`, JSON.stringify(steps));
   } catch (error) {
-    log.error(`[Executor:${mode}] Command execution error:`, error);
-    settled = failed(COPY.unexpected(quoted(command)), errorMessage(error));
+    log.error(`[Executor:${mode}] Command parsing error:`, error);
+    steps = [{ action: INTENTS.UNKNOWN, confidence: 0, params: {} }];
+    unexpected = errorMessage(error);
   }
 
+  // One request can ask for a few things; each is done, logged, and reported on its own, in order
+  const results: Settled[] = [];
+  for (const intent of steps) {
+    let settled: Settled;
+    try {
+      if (unexpected) throw new Error(unexpected);
+      settled = await perform(companyId, command, intent, trackers);
+    } catch (error) {
+      log.error(`[Executor:${mode}] Command execution error:`, error);
+      settled = failed(COPY.unexpected(quoted(command)), errorMessage(error));
+    }
+    results.push(settled);
+    await record(meetingId, companyId, command, mode, intent, settled);
+  }
+
+  // Success only when everything asked for was done; the chime means all of it
+  const missed = results.find((r) => r.status !== 'success');
+  return {
+    status: missed?.status ?? 'success',
+    outcome: missed?.outcome ?? 'done',
+    summary: results.map((r) => r.summary).join(' '),
+  };
+}
+
+async function record(
+  meetingId: string,
+  companyId: string,
+  command: string,
+  mode: 'live' | 'post_meeting',
+  intent: ParsedIntent,
+  settled: Settled
+) {
   try {
     await ActionLogModel.create({
       meetingId,
@@ -98,8 +132,6 @@ export async function executeCommand(
     'request.completed',
     requestCompletedData(meetingId, { command, intent, outcome: settled.outcome, summary: settled.summary, result: settled.result, createdAt: new Date() })
   );
-
-  return { status: settled.status, outcome: settled.outcome, summary: settled.summary };
 }
 
 /** What the workspace has connected: the trackers to act in, and one line telling the model. */

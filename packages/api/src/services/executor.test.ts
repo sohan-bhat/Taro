@@ -351,3 +351,58 @@ test('no tracker and no GitHub means asking an owner to connect one', async (t) 
   const result = await executeCommand('m1', 'c1', 'close ticket ENG 4', 'live', undefined, null);
   assert.equal(result.summary, COPY.noTracker);
 });
+
+test('two things asked at once are both done in order, each logged, and the thread hears both', async (t) => {
+  fakeModel(t)({
+    action: 'merge_pull_request',
+    confidence: 0.9,
+    issueNumber: 57,
+    then: [{ action: 'create_pull_request', confidence: 0.88, title: 'Retry failed exports', body: '## Summary\nRetry exports that fail.' }],
+  });
+  const order: string[] = [];
+  const { saved } = fakeWorkspace(t, {
+    github: {
+      enabledActions: ['merge_pull_request', 'create_pull_request'],
+      mergePullRequest: async (n: number): Promise<GithubResult> => {
+        order.push(`merge ${n}`);
+        return { success: true, url: `https://github.com/acme/web/pull/${n}`, number: n };
+      },
+      openPullRequest: async (title: string): Promise<GithubResult> => {
+        order.push(`open ${title}`);
+        return { success: true, url: 'https://github.com/acme/web/pull/58', number: 58, branch: 'taro/retry-failed-exports' };
+      },
+    },
+  });
+  const result = await executeCommand('m1', 'c1', 'merge it and open a pull request for the retry', 'live', 'context', GROQ);
+
+  assert.deepEqual(order, ['merge 57', 'open Retry failed exports']);
+  assert.equal(result.status, 'success');
+  assert.equal(
+    result.summary,
+    'Merged pull request <https://github.com/acme/web/pull/57|#57> in acme/web. Opened pull request <https://github.com/acme/web/pull/58|#58> in acme/web.'
+  );
+  assert.deepEqual(saved.map((s) => s.intent?.action), ['merge_pull_request', 'create_pull_request']);
+  assert.equal(saved[0].intent?.then, undefined);
+  assert.equal(saved[1].branch, 'taro/retry-failed-exports');
+});
+
+test('when one of several actions is turned off, the rest still run and the request is not called done', async (t) => {
+  fakeModel(t)({
+    action: 'merge_pull_request',
+    confidence: 0.9,
+    issueNumber: 57,
+    then: [{ action: 'close_github_issue', confidence: 0.9, issueNumber: 12 }],
+  });
+  const { saved } = fakeWorkspace(t, {
+    github: {
+      enabledActions: ['close_github_issue'],
+      closeIssue: async (n: number): Promise<GithubResult> => ({ success: true, url: `https://github.com/acme/web/issues/${n}`, number: n }),
+    },
+  });
+  const result = await executeCommand('m1', 'c1', 'merge 57 and close issue 12', 'live', 'context', GROQ);
+
+  assert.equal(result.status, 'clarification_needed');
+  assert.equal(result.outcome, 'turned_off');
+  assert.equal(result.summary, 'Merging is turned off for this workspace. Closed issue <https://github.com/acme/web/issues/12|#12> in acme/web.');
+  assert.deepEqual(saved.map((s) => s.outcome), ['turned_off', 'done']);
+});
