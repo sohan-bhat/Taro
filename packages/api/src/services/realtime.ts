@@ -17,7 +17,7 @@ import { MeetingModel } from '../db/models';
 import { safeEqual, sha256 } from '../lib/crypto';
 import { log, errorMessage } from '../lib/logger';
 import { createSttBackend, type SttBackend } from './stt';
-import { makeDingPcm } from './audio';
+import { CHIME_PCM } from './chime';
 import { extractCommands } from './transcript';
 import { executeCommand } from './executor';
 import { SlackService } from './slack';
@@ -39,7 +39,6 @@ const COMMAND_DEBOUNCE_MS = 2_800;
 const STALE_AUDIO_MS = 10 * 60 * 1000;
 const NEVER_ADMITTED_MS = 45 * 60 * 1000;
 
-const DING_PCM = makeDingPcm();
 
 export type Direction = 'in' | 'out' | 'shared';
 
@@ -263,7 +262,7 @@ class RealtimeSession {
     }
     for (const [, a] of targets) {
       try {
-        a.socket.send(DING_PCM);
+        a.socket.send(CHIME_PCM);
       } catch (error) {
         log.warn('[Realtime] Failed to send ding:', errorMessage(error));
       }
