@@ -1,78 +1,81 @@
 # Taro
 
-**Say it in the meeting. Done before you hang up.**
+Meeting follow-ups get lost. Taro does them before you hang up.
 
-Taro sits in your Google Meet, Zoom, and Microsoft Teams calls and listens for "Hey Taro." Ask it to post in Slack, file a GitHub issue, or open a pull request, and it happens while everyone keeps talking, confirmed with a ding in the call.
+[![Watch the Taro demo](docs/taro-demo-poster.jpg)](docs/taro-demo.mp4)
 
-Taro is the port between your meetings and your tools. Every workspace plugs in its own accounts:
+[Watch the 45 second demo](docs/taro-demo.mp4)
 
-| Slot | Provider | Used for |
-|---|---|---|
-| Meeting bot | [MeetingBaas](https://meetingbaas.com) | Joins the call and streams its audio to Taro |
-| AI model | Anthropic, OpenAI, Google, Groq, OpenRouter, or any OpenAI-compatible API | Works out what people asked for and writes the result |
-| Transcription | Groq Whisper or OpenAI (or a server the operator hosts) | Turns speech into text as people talk |
-| Tools | Slack, GitHub | Where the work lands |
+Taro joins your Google Meet, Zoom, and Microsoft Teams calls as a guest. When someone says "Hey Taro" and asks for something, Taro does it right away in Slack, GitHub, Linear, or Jira, then plays a short chime in the call so everyone knows it's done. When the call ends, it posts a recap of everything it did.
 
-Keys are checked with the provider, encrypted at rest, and never shown again. Taro never resells usage; each workspace pays its own providers.
+## Why it exists
 
-## How a meeting goes
+Most meetings end with a few promises: "I'll file a ticket for that," "someone should tell engineering," "let's open a PR." Some of them never happen. Taro closes that gap. The person who asks doesn't have to remember, and nobody has to take notes to catch it.
 
-```
-A meeting on someone's connected Google Calendar,
-or a link posted in Slack (or pasted in the dashboard)
-        │
-        ▼
-Taro sends a bot with the workspace's MeetingBaas key
-        │  live audio over a per-meeting secret WebSocket
-        ▼
-Transcription (workspace key) ──▶ "Hey Taro, file an issue about that"
-        │
-        ▼
-AI model (workspace key) reads the request and the conversation,
-returns a structured action with the content written out
-        │
-        ▼
-Slack message, todo list, GitHub issue, comment, or pull request
-        │
-        ▼
-Ding in the call, reply in the Slack thread, recap when the call ends
-```
+## How it works
+
+1. Taro joins the call. It can come from a meeting on someone's connected Google Calendar, a meeting link posted in Slack, a link pasted in the dashboard, or the Invite Taro button inside Google Meet.
+2. Someone asks. "Hey Taro, file an issue about that."
+3. Taro does it. It reads the recent conversation, so "that" becomes a written issue about what was actually discussed. It confirms with a chime in the call and a reply in Slack.
 
 ## What you can say
 
-| Request | Example |
+| Where | Example |
 |---|---|
-| Post a message | "Hey Taro, tell engineering the deploy is done" |
-| Todo list | "Hey Taro, make a todo list in projects for the launch, the docs, and QA" |
+| Slack | "Hey Taro, tell engineering the deploy is done" |
+| Slack checklist | "Hey Taro, make a todo list in projects for the launch, the docs, and QA" |
 | GitHub issue | "Hey Taro, file an issue about the export timing out" |
-| Pull request | "Hey Taro, open a pull request to fix the reports page" |
-| Comment, label, assign, review, close, merge | "Hey Taro, comment on issue 12 that we'll pick it up next sprint" |
+| GitHub pull request | "Hey Taro, open a pull request to fix the reports page" |
+| GitHub, more | Comment, label, assign, request a review, close, or merge by number |
+| Linear or Jira | "Hey Taro, file a ticket about the invite emails going to spam" |
+| Linear or Jira, more | "Close ENG 42," "assign OPS 7 to Priya," "comment on DES 12 that it's approved" |
 
-Taro reads the conversation, so "file an issue about that" becomes a written issue about what was discussed. Each workspace decides which GitHub actions are allowed; merging is off by default.
+Each workspace chooses which actions Taro may take. Filing and commenting are on from the start; actions that change existing work, like merging or closing, stay off until an owner or admin turns them on.
 
-To send meetings, requests, and transcripts to your own tools, add a webhook in Setup. See [docs/WEBHOOKS.md](docs/WEBHOOKS.md) for the events and how to check the signature.
+To send meetings, requests, and transcripts to your own tools, add a webhook in Setup. [docs/WEBHOOKS.md](docs/WEBHOOKS.md) lists the events and shows how to check the signature.
+
+## What you need
+
+Taro runs on your own accounts. Each workspace adds its keys once, and pays its providers directly.
+
+| Piece | Options | What it does |
+|---|---|---|
+| Meeting bot | [MeetingBaas](https://meetingbaas.com) | Joins the call and streams its audio to Taro |
+| AI model | Anthropic, OpenAI, Google, Groq, OpenRouter, or any OpenAI compatible API | Works out what people asked for and writes the result |
+| Transcription | Groq Whisper, OpenAI, or a server the operator hosts | Turns speech into text as people talk |
+| Tools (optional) | Slack, GitHub, Linear, Jira, webhooks | Where the work lands |
+
+## Security
+
+- Taro acts as its own bot in every tool, never through a person's account.
+- Provider keys are checked with the provider, encrypted at rest, and never shown again.
+- Each meeting's audio stream and callbacks carry their own secret.
+- Meeting audio is never stored.
+
+The full list is in the security notes of [docs/DEPLOY.md](docs/DEPLOY.md#security-notes).
 
 ## Project structure
 
 ```
-apps/web          Next.js: landing page, sign-in (Google, Slack), dashboard, demo
-apps/extension    Chrome and Edge extension: an Invite Taro button inside Google Meet
+apps/web          Next.js: landing page, sign in (Google, Slack), dashboard, demo
+apps/extension    Chrome and Edge extension: the Invite Taro button inside Google Meet
+apps/jira         The Taro app for Jira, deployed to Atlassian with Forge
 packages/api      Express API: auth, provider keys, Slack listener, realtime audio, actions
-packages/shared   Types, constants, and the provider catalog both sides use
-docs/             Slack app manifest, the deployment guide, and the webhooks reference
+packages/shared   Types, constants, and the copy both sides use
+docs/             Deployment guide, webhooks reference, Slack app manifest, demo video
 ```
 
 ## Local development
 
-Requirements: Node 22 or newer, pnpm 9, a MongoDB database, a Slack app, and a public https URL for the API (Slack and MeetingBaas call it). A static [ngrok](https://ngrok.com) domain works well for that.
+You need Node 22 or newer, pnpm 9, a MongoDB database, a Slack app or a Google sign in client, and a public https URL for the API, since Slack and MeetingBaas call it. A static [ngrok](https://ngrok.com) domain works well.
 
 ```bash
 pnpm install
-cp .env.example .env          # fill in MONGODB_URI, ENCRYPTION_KEY, API_URL, Slack values
+cp .env.example .env          # fill in MONGODB_URI, ENCRYPTION_KEY, API_URL, and a sign in method
 ```
 
-1. Start a tunnel to the API: `ngrok http 4000 --domain=<your-domain>`, and set `API_URL` to that https URL.
-2. Create the Slack app from `docs/slack-app-manifest.yaml` with that domain (see `docs/DEPLOY.md`, section 3).
+1. Start a tunnel to the API with `ngrok http 4000 --domain=<your-domain>`, and set `API_URL` to that https URL.
+2. Create the Slack app from `docs/slack-app-manifest.yaml` with that domain (section 3 of `docs/DEPLOY.md`).
 3. Run both apps:
 
 ```bash
@@ -80,35 +83,44 @@ pnpm --filter @taro/api dev   # http://localhost:4000
 pnpm --filter @taro/web dev   # http://localhost:3000
 ```
 
-4. Open http://localhost:3000, sign in, and follow **Setup** in the dashboard. Slack sign-in works with just the Slack app; Google sign-in needs its own client ID (`docs/DEPLOY.md`, section 3).
+4. Open http://localhost:3000, sign in, and follow Setup in the dashboard.
 
-The dashboard talks to `http://localhost:4000` by default; set `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` to change it.
+The dashboard calls `http://localhost:4000` by default. Set `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` to change it.
 
 ### Tests
 
 ```bash
-pnpm --filter @taro/api test        # wake word, intent fallback, VAD, encryption, URL and origin checks
+pnpm --filter @taro/api test
 pnpm --filter @taro/api typecheck
+pnpm --filter @taro/web test
 pnpm --filter @taro/web exec tsc --noEmit
 ```
 
 ### Local transcription (optional)
 
-Workspaces normally use Groq or OpenAI for transcription. For fully offline development the API can run the sherpa-onnx model in process (`LOCAL_ASR=1`, model files in `packages/api/models`) or talk to the faster-whisper server in `packages/api/stt-server` (`STT_WS_URL`).
+Workspaces normally use Groq or OpenAI for transcription. For offline development, the API can run the sherpa-onnx model in process (`LOCAL_ASR=1`, with model files in `packages/api/models`) or use the faster-whisper server in `packages/api/stt-server` (`STT_WS_URL`).
 
 ## Deploying
 
-See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full guide: MongoDB, Slack and Google sign-in, Connect Google Calendar, the GitHub app, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
+[docs/DEPLOY.md](docs/DEPLOY.md) covers everything: MongoDB, Slack and Google sign in, Google Calendar, the GitHub app, Linear, Jira, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
 
 ## Troubleshooting
 
-**Taro doesn't join when a link is posted.** It only sees public channels it's a member of; Taro joins every public channel when it's added to Slack, and `/invite @taro` covers channels created later. Check the API log for `Listening for meeting links via Socket Mode`, and that the workspace's setup is complete (Taro replies in the thread with what's missing).
+### Taro doesn't join when a link is posted in Slack
 
-**Taro joined but nothing happens when I talk.** Admit it from the lobby. In the dashboard, open the meeting: **Hearing now** shows what transcription is producing. If it stays empty, check the transcription key.
+Taro only sees public channels it belongs to. It joins every public channel when it's added to Slack, and `/invite @taro` covers channels made later. Check the API log for `Listening for meeting links via Socket Mode`, and make sure Setup is complete. Taro replies in the thread with anything that's missing.
 
-**A command came back with "Needs you".** The meeting's command list shows Taro's reason, including provider errors such as a rejected key or an exhausted quota.
+### Taro joined but nothing happens when people talk
 
-**GitHub actions fail.** Pick a default repository on the GitHub card, and check **Permissions**: anything turned off is refused on purpose.
+Admit it from the lobby first. Then open the meeting in the dashboard: Hearing now shows what transcription is producing. If it stays empty, check the transcription key.
+
+### A request came back as Needs you
+
+The meeting's request list shows Taro's reason, including provider errors such as a rejected key or a used up quota.
+
+### GitHub, Linear, or Jira actions fail
+
+Make sure a default repository, team, or project is chosen in Setup, and check that tool's permissions. Anything turned off is refused on purpose.
 
 ## License
 
