@@ -4,7 +4,7 @@ Meeting follow-ups get lost. Taro does them before you hang up.
 
 [![Watch the Taro demo](docs/taro-demo-poster.jpg)](https://trytaro.vercel.app/taro-demo.mp4)
 
-[Watch the 45 second demo](https://trytaro.vercel.app/taro-demo.mp4)
+[Watch the 46 second demo](https://trytaro.vercel.app/taro-demo.mp4)
 
 Taro joins your Google Meet, Zoom, and Microsoft Teams calls as a guest. When someone says "Hey Taro" and asks for something, Taro does it right away in Slack, GitHub, Linear, or Jira, then plays a short chime in the call so everyone knows it's done. When the call ends, it posts a recap of everything it did.
 
