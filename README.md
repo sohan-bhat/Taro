@@ -58,6 +58,8 @@ Taro runs on your own accounts. Each workspace adds its keys once, and pays its 
 | Transcription | Groq Whisper, OpenAI, or a server the operator hosts | Turns speech into text as people talk |
 | Tools (optional) | Slack, GitHub, Linear, Jira, webhooks | Where the work lands |
 
+Only the meeting bot key is required to start. If the server has a shared Groq key, a workspace without its own AI model or transcription runs on it for 10 free meetings a month, then adds its own keys to keep going.
+
 ## Security
 
 - Taro acts as its own bot in every tool, never through a person's account.

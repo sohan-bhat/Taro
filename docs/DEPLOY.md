@@ -181,6 +181,7 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `INVITE_ADDRESS`, `INBOUND_SECRET` | for calendar invitations | Section 9 |
 | `TRUST_PROXY_HOPS` | no | Proxies in front of the API. Default 1, right for Render, Railway, and Fly; 0 when clients connect directly |
 | `MAX_ACTIVE_MEETINGS_PER_WORKSPACE` | no | Default 5 |
+| `SHARED_GROQ_API_KEY`, `SHARED_KEY_MEETINGS_PER_MONTH` | no | A free Groq key that workspaces without their own AI model or transcription use, for this many meetings a month each (default 10). You pay nothing on Groq's free tier, but its rate limits are shared by every workspace using it |
 | `BOT_NAME`, `BOT_IMAGE_URL` | no | Defaults: `Taro`, and the logo served by the API |
 | `LOG_LEVEL` | no | `info` in production by default; meeting content only appears at `debug` |
 
