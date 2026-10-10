@@ -173,6 +173,8 @@ export const COPY = {
 
   // API messages the dashboard shows
   notReady: (missing: readonly string[]) => `Taro isn't set up yet. Add ${andList(missing)} in Setup.`,
+  freeMeetingsUsed: (n: number) =>
+    `This workspace has used its ${n} free meetings this month. Add your own AI model and transcription keys in Setup to keep going.`,
   meetingBaasKeyRejected: `MeetingBaas rejected the API key. Update it in Setup.`,
   meetingBaasNoCredit: `Your MeetingBaas account is out of credit.`,
   meetingBaasRateLimited: `MeetingBaas is rate limiting this key. Try again in a moment.`,

@@ -119,6 +119,11 @@ export const env = {
   // Optional transcription the operator hosts for every workspace (no per-workspace key):
   // a faster-whisper server, or the in-process sherpa-onnx model when LOCAL_ASR=1.
   sttWsUrl: optional('STT_WS_URL'),
+
+  // A Groq key the operator shares with workspaces that haven't added their own AI model or
+  // transcription, for a number of meetings a month. Optional: without it every workspace brings its own.
+  sharedGroqKey: optional('SHARED_GROQ_API_KEY'),
+  sharedMeetingsPerMonth: Number(optional('SHARED_KEY_MEETINGS_PER_MONTH', '10')),
   localAsr: optional('LOCAL_ASR') === '1',
 
   // Must be a public https URL MeetingBaas can fetch; defaults to the logo served by this API.

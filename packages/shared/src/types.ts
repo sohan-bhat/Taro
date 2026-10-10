@@ -54,12 +54,16 @@ export interface MeetingBotSettings extends KeyStatus {
 }
 
 export interface LlmSettings extends KeyStatus {
+  // Not set up by the workspace, so it runs on the server's shared Groq key
+  shared?: boolean;
   provider?: LlmProviderId;
   model?: string;
   baseUrl?: string;
 }
 
 export interface SttSettings extends KeyStatus {
+  // Not set up by the workspace, so it runs on the server's shared Groq key
+  shared?: boolean;
   provider?: SttProviderId;
   model?: string;
   // True when transcription runs on the AI model's key (same provider)
@@ -70,6 +74,8 @@ export interface ProviderSettings {
   meetingBot: MeetingBotSettings;
   llm: LlmSettings;
   stt: SttSettings;
+  // When the server shares a Groq key: how many meetings a month it covers, and how many this workspace used
+  free?: { meetingsPerMonth: number; usedThisMonth: number };
 }
 
 export interface SlackStatus {

@@ -70,6 +70,7 @@ const SAMPLES: SampleArgs = {
   mergeHint: null,
   unexpected: ['close issue nine'],
   notReady: [['a MeetingBaas key', 'an AI model', 'transcription']],
+  freeMeetingsUsed: [10],
   meetingBaasKeyRejected: null,
   meetingBaasNoCredit: null,
   meetingBaasRateLimited: null,

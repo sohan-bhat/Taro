@@ -265,6 +265,13 @@ export function SetupView({
   const llm = getLlmProvider(providers.llm.provider);
   const llmModel = llm?.models.find((m) => m.id === providers.llm.model)?.label;
   const stt = getSttProvider(providers.stt.provider);
+  // Not set up by the workspace, so running on the server's shared Groq key
+  const llmShared = !providers.llm.configured && !!providers.llm.shared;
+  const sttShared = !providers.stt.configured && !!providers.stt.shared;
+  const free = providers.free;
+  const freeMeta = free
+    ? `${Math.min(free.usedThisMonth, free.meetingsPerMonth)} of ${free.meetingsPerMonth} free meetings used this month. Add your own key for no limit.`
+    : null;
 
   const requiredFooter = canEdit ? null : claimed ? 'Owners and admins can change these.' : 'The owner adds the keys once Taro is in Slack.';
 
@@ -341,7 +348,9 @@ export function SetupView({
         <SetupRow
           label="AI model"
           state={
-            done('llm') ? (
+            llmShared ? (
+              'Free Groq key from Taro'
+            ) : done('llm') ? (
               <>
                 {llm?.name ?? 'Custom'}, {llmModel ?? <Mono>{providers.llm.model}</Mono>}
               </>
@@ -352,7 +361,9 @@ export function SetupView({
           stateTone={done('llm') ? 'ink' : 'taro'}
           purpose="Works out what people asked for and writes the issue, message, or pull request."
           meta={
-            done('llm') ? (
+            llmShared ? (
+              freeMeta
+            ) : done('llm') ? (
               <>
                 {providers.llm.baseUrl && (
                   <>
@@ -364,25 +375,27 @@ export function SetupView({
               </>
             ) : null
           }
-          actions={keyAction('llm', done('llm'), 'Change model', 'Choose model')}
+          actions={keyAction('llm', done('llm'), llmShared ? 'Use your own key' : 'Change model', 'Choose model')}
           next={next === 'llm'}
         />
 
         <SetupRow
           label="Transcription"
-          state={done('stt') ? stt?.name ?? 'Set up' : 'Not set up'}
+          state={sttShared ? 'Free Groq key from Taro' : done('stt') ? stt?.name ?? 'Set up' : 'Not set up'}
           stateTone={done('stt') ? 'ink' : 'taro'}
           purpose="Turns speech into text as people talk."
           meta={
-            !done('stt')
-              ? null
-              : providers.stt.provider === 'server'
-                ? 'Hosted by this server'
-                : providers.stt.usesLlmKey
-                  ? 'Uses your AI model key'
-                  : keyMeta(providers.stt.keyHint, providers.stt.validatedAt)
+            sttShared
+              ? freeMeta
+              : !done('stt')
+                ? null
+                : providers.stt.provider === 'server'
+                  ? 'Hosted by this server'
+                  : providers.stt.usesLlmKey
+                    ? 'Uses your AI model key'
+                    : keyMeta(providers.stt.keyHint, providers.stt.validatedAt)
           }
-          actions={keyAction('stt', done('stt'), 'Change', 'Set up')}
+          actions={keyAction('stt', done('stt'), sttShared ? 'Use your own key' : 'Change', 'Set up')}
           next={next === 'stt'}
         />
       </SetupCard>

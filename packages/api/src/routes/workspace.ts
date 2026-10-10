@@ -16,13 +16,13 @@ import {
   SlackConnectionModel,
   UserModel,
 } from '../db/models';
-import { githubAppConfigured, googleCalendarConfigured } from '../config/env';
+import { env, githubAppConfigured, googleCalendarConfigured } from '../config/env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { requireAdmin, requireAuth, requireOwner, type AuthedRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError } from '../lib/errors';
 import { publicUser, publicWorkspace } from '../lib/views';
 import { log, errorMessage } from '../lib/logger';
-import { providerReadiness, providerSettings } from '../services/workspaceProviders';
+import { providerReadiness, providerSettings, sharedMeetingsThisMonth } from '../services/workspaceProviders';
 import { readSlackToken } from '../services/slack';
 import { forgetWorkspace } from '../services/calendar/invitations';
 import { calendarStatus, forgetCalendars } from '../services/calendar/googleConnect';
@@ -51,7 +51,12 @@ workspaceRouter.get(
     const overview: WorkspaceOverview = {
       workspace: publicWorkspace(company),
       me: publicUser(me),
-      providers: providerSettings(company),
+      providers: {
+        ...providerSettings(company),
+        ...(env.sharedGroqKey
+          ? { free: { meetingsPerMonth: env.sharedMeetingsPerMonth, usedThisMonth: await sharedMeetingsThisMonth(req.companyId!) } }
+          : {}),
+      },
       slack: {
         connected: !!slack,
         teamName: slack?.teamName,

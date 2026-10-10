@@ -7,9 +7,10 @@
 import type { ProviderSettings } from '@taro/shared';
 import { getLlmProvider, getSttProvider, LLM_PROVIDERS } from '@taro/shared';
 import { CompanyModel, type CompanyDoc } from '../db/models/Company';
+import { MeetingModel } from '../db/models/Meeting';
 import { decryptSecret } from '../lib/crypto';
 import { log, errorMessage } from '../lib/logger';
-import { serverSttAvailable } from '../config/env';
+import { env, serverSttAvailable } from '../config/env';
 import type { LlmConfig } from './llm';
 import type { SttRuntimeConfig } from './stt';
 
@@ -36,7 +37,12 @@ export interface WorkspaceProviders {
   meetingBaasKey: string | null;
   llm: LlmConfig | null;
   stt: SttRuntimeConfig | null;
+  // Set when the AI model or transcription runs on the operator's shared Groq key
+  shared: boolean;
 }
+
+const SHARED_LLM = getLlmProvider('groq')!;
+const SHARED_STT = getSttProvider('groq')!;
 
 export function resolveProviders(company: CompanyLike): WorkspaceProviders {
   const p = company.providers ?? {};
@@ -68,7 +74,28 @@ export function resolveProviders(company: CompanyLike): WorkspaceProviders {
     stt = { provider: 'server' };
   }
 
-  return { meetingBaasKey, llm, stt };
+  // Whatever the workspace hasn't set up runs on the operator's shared Groq key, if there is one
+  let shared = false;
+  const sharedKey = env.sharedGroqKey;
+  if (sharedKey && !llm) {
+    llm = { provider: 'groq', apiKey: sharedKey, model: SHARED_LLM.defaultModel };
+    shared = true;
+  }
+  if (sharedKey && !stt) {
+    stt = { provider: 'groq', apiKey: sharedKey, model: SHARED_STT.defaultModel };
+    shared = true;
+  }
+
+  return { meetingBaasKey, llm, stt, shared };
+}
+
+function monthStart(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/** Meetings this workspace has run on the shared key since the first of the month (UTC). */
+export function sharedMeetingsThisMonth(companyId: string, now = new Date()): Promise<number> {
+  return MeetingModel.countDocuments({ companyId, sharedKey: true, createdAt: { $gte: monthStart(now) } });
 }
 
 export async function loadProviders(companyId: string): Promise<WorkspaceProviders | null> {
@@ -82,6 +109,14 @@ export function providerSettings(company: CompanyLike): ProviderSettings {
   const llmInfo = getLlmProvider(p.llm?.provider);
   const sttUsesLlm = !!(p.stt?.useLlmKey && llmInfo?.sttProvider && llmInfo.sttProvider === p.stt.provider);
 
+  const sharedKey = !!env.sharedGroqKey;
+  const sttOwn =
+    p.stt?.provider === 'server'
+      ? serverSttAvailable()
+      : sttUsesLlm
+        ? !!p.llm?.keyEnc
+        : !!p.stt?.keyEnc || (!p.stt && serverSttAvailable());
+
   return {
     meetingBot: {
       provider: 'meetingbaas',
@@ -91,6 +126,7 @@ export function providerSettings(company: CompanyLike): ProviderSettings {
     },
     llm: {
       configured: !!p.llm?.keyEnc,
+      ...(sharedKey && !p.llm?.keyEnc ? { shared: true } : {}),
       provider: llmInfo?.id,
       model: p.llm?.model,
       baseUrl: p.llm?.baseUrl,
@@ -98,12 +134,8 @@ export function providerSettings(company: CompanyLike): ProviderSettings {
       validatedAt: p.llm?.validatedAt?.toISOString(),
     },
     stt: {
-      configured:
-        p.stt?.provider === 'server'
-          ? serverSttAvailable()
-          : sttUsesLlm
-            ? !!p.llm?.keyEnc
-            : !!p.stt?.keyEnc || (!p.stt && serverSttAvailable()),
+      configured: sttOwn,
+      ...(sharedKey && !sttOwn ? { shared: true } : {}),
       provider: (p.stt?.provider as ProviderSettings['stt']['provider']) ?? (serverSttAvailable() ? 'server' : undefined),
       model: p.stt?.model,
       usesLlmKey: sttUsesLlm,
@@ -115,7 +147,7 @@ export function providerSettings(company: CompanyLike): ProviderSettings {
 
 export function providerReadiness(company: CompanyLike) {
   const s = providerSettings(company);
-  return { meetingBot: s.meetingBot.configured, llm: s.llm.configured, stt: s.stt.configured };
+  return { meetingBot: s.meetingBot.configured, llm: s.llm.configured || !!s.llm.shared, stt: s.stt.configured || !!s.stt.shared };
 }
 
 // Re-exported for routes that validate a provider id from a request body

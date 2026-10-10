@@ -15,7 +15,7 @@ import { log } from '../lib/logger';
 import type { MeetingLink } from '../lib/meetingUrl';
 import { watchJoin } from './joinWatcher';
 import { MeetingBaasClient, MeetingBaasError } from './meetingbaas';
-import { resolveProviders } from './workspaceProviders';
+import { resolveProviders, sharedMeetingsThisMonth } from './workspaceProviders';
 
 // A meeting with no terminal event this long after creation is treated as abandoned.
 const STALE_MS = 3 * 60 * 60 * 1000;
@@ -107,6 +107,9 @@ export async function launchMeeting(opts: {
       status: { $in: ACTIVE },
       createdAt: { $gt: new Date(Date.now() - STALE_MS) },
     });
+    if (providers.shared && (await sharedMeetingsThisMonth(opts.companyId)) >= env.sharedMeetingsPerMonth) {
+      throw new LaunchError(COPY.freeMeetingsUsed(env.sharedMeetingsPerMonth), 'limit');
+    }
     if (activeCount >= env.maxActiveMeetingsPerWorkspace) {
       throw new LaunchError(
         `Taro is already in ${activeCount} meetings for this workspace, which is the limit. Try again when one ends.`,
@@ -130,6 +133,7 @@ export async function launchMeeting(opts: {
       startedByName: opts.startedByName,
       startedByUserId: opts.startedByUserId,
       startedBySlackUserId: opts.startedBySlackUserId,
+      ...(providers.shared ? { sharedKey: true } : {}),
     });
     return { created };
   });

@@ -18,6 +18,7 @@ export interface MeetingDoc {
   startedByName?: string;
   startedByUserId?: string; // Taro user, when the person has signed in to Taro
   startedBySlackUserId?: string; // Slack user, for launches from Slack
+  sharedKey?: boolean; // ran on the operator's shared Groq key, so it counts toward the monthly free meetings
   errorMessage?: string;
   errorCode?: string; // MeetingBaas error_code from bot.failed
   archivedAt?: Date; // cleared from the main history, kept forever
@@ -55,6 +56,7 @@ const meetingSchema = new Schema<MeetingDoc>(
     startedByName: { type: String },
     startedByUserId: { type: String },
     startedBySlackUserId: { type: String },
+    sharedKey: { type: Boolean },
     errorMessage: { type: String },
     errorCode: { type: String },
     archivedAt: { type: Date },
