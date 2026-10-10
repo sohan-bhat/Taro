@@ -18,6 +18,18 @@ Most meetings end with a few promises: "I'll file a ticket for that," "someone s
 2. Someone asks. "Hey Taro, file an issue about that."
 3. Taro does it. It reads the recent conversation, so "that" becomes a written issue about what was actually discussed. It confirms with a chime in the call and a reply in Slack.
 
+## Invite Taro from Google Meet
+
+The Taro extension puts an Invite Taro button in Google Meet's bottom bar. One click sends Taro into the call you're in, and the same button shows when it's in the lobby, listening, or gone.
+
+| Browser | Download |
+|---|---|
+| Chrome, Edge, Brave, Opera, Arc, Vivaldi | [taro-extension-chromium.zip](https://github.com/sohan-bhat/Taro/releases/latest/download/taro-extension-chromium.zip) |
+| Firefox 128 or newer | [taro-extension-firefox.zip](https://github.com/sohan-bhat/Taro/releases/latest/download/taro-extension-firefox.zip) |
+| Safari | Not supported yet |
+
+Install steps are under [Deploying](#extension).
+
 ## What you can say
 
 | Where | Example |
@@ -59,7 +71,7 @@ The full list is in the security notes of [docs/DEPLOY.md](docs/DEPLOY.md#securi
 
 ```
 apps/web          Next.js: landing page, sign in (Google, Slack), dashboard, demo
-apps/extension    Chrome and Edge extension: the Invite Taro button inside Google Meet
+apps/extension    Browser extension (Chromium and Firefox): the Invite Taro button inside Google Meet
 apps/jira         The Taro app for Jira, deployed to Atlassian with Forge
 packages/api      Express API: auth, provider keys, Slack listener, realtime audio, actions
 packages/shared   Types, constants, and the copy both sides use
@@ -104,6 +116,32 @@ Workspaces normally use Groq or OpenAI for transcription. For offline developmen
 ## Deploying
 
 [docs/DEPLOY.md](docs/DEPLOY.md) covers everything: MongoDB, Slack and Google sign in, Google Calendar, the GitHub app, Linear, Jira, the API on Render, Railway, Fly.io, or Docker, and the dashboard on Vercel.
+
+### Extension
+
+Download the build for your browser:
+
+- Chrome, Edge, Brave, Opera, Arc, and Vivaldi: [taro-extension-chromium.zip](https://github.com/sohan-bhat/Taro/releases/latest/download/taro-extension-chromium.zip)
+- Firefox 128 or newer: [taro-extension-firefox.zip](https://github.com/sohan-bhat/Taro/releases/latest/download/taro-extension-firefox.zip)
+- Safari: not supported yet
+
+Chrome, Edge, and other Chromium browsers:
+
+1. Unzip the file.
+2. Open `chrome://extensions` (in Edge, `edge://extensions`), and turn on Developer mode.
+3. Click Load unpacked and choose the unzipped folder.
+4. Join a Google Meet call and click Connect Taro in the bottom bar to link it to your workspace.
+
+Firefox:
+
+1. Unzip the file.
+2. Open `about:debugging`, choose This Firefox, then Load Temporary Add-on.
+3. Pick `manifest.json` in the unzipped folder.
+4. Join a Google Meet call and click Connect Taro.
+
+Firefox keeps a temporary add-on only until it restarts. To keep it installed, submit the zip to [addons.mozilla.org](https://addons.mozilla.org/developers/) for signing, which is free.
+
+The downloads connect to the hosted Taro at trytaro.vercel.app. To point them at your own deployment, follow section 7 of [docs/DEPLOY.md](docs/DEPLOY.md#7-the-invite-taro-button-in-google-meet-optional). Rebuild them with `pnpm --filter @taro/extension package`.
 
 ## Troubleshooting
 

@@ -6,6 +6,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "zip": "mkdir -p dist && rm -f dist/taro-for-meet.zip && zip -qr dist/taro-for-meet.zip manifest.json managed_schema.json src fonts icons"
+    "package": "node scripts/build.mjs"
   }
 }

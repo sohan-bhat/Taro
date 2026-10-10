@@ -41,8 +41,14 @@ export function extensionOrigins(): string[] {
   return env.extensionIds.map((id) => `chrome-extension://${id}`);
 }
 
+// Firefox gives each install of an extension its own random origin, so it can't be listed ahead of time.
+// The API takes bearer tokens, not cookies, so any Firefox extension page may call it once the Meet
+// button is turned on (EXTENSION_IDS is set); without a token it still gets nothing.
+const FIREFOX_EXTENSION_ORIGIN = /^moz-extension:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export function isAllowedCorsOrigin(value: string | undefined): boolean {
   if (!value) return false;
+  if (env.extensionIds.length > 0 && FIREFOX_EXTENSION_ORIGIN.test(value)) return true;
   return isAllowedOrigin(value) || extensionOrigins().includes(value);
 }
 

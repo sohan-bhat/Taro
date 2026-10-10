@@ -26,6 +26,16 @@ test('the browser extension may call the API but is never a sign-in return targe
   assert.ok(isAllowedCorsOrigin('https://app.taro.test'));
 });
 
+test('the Firefox build may call the API from its per-install origin', () => {
+  const ext = 'moz-extension://0f3c2a6e-9b1d-4c7a-8e2f-5d6b7a8c9e01';
+  assert.ok(isAllowedCorsOrigin(ext));
+  assert.ok(!isAllowedOrigin(ext));
+  assert.equal(resolveReturnTo(ext), 'https://app.taro.test');
+  assert.ok(!isAllowedCorsOrigin('moz-extension://not-a-uuid'));
+  assert.ok(!isAllowedCorsOrigin(`${ext}.evil.example`));
+  assert.ok(!isAllowedCorsOrigin('https://0f3c2a6e-9b1d-4c7a-8e2f-5d6b7a8c9e01'));
+});
+
 test('any local port is a dashboard origin outside production', () => {
   assert.ok(isAllowedOrigin('http://localhost:3100'));
   assert.ok(isAllowedOrigin('http://127.0.0.1:5173'));

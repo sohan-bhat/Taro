@@ -23,12 +23,13 @@ const TRUSTED_IDS = (process.env.NEXT_PUBLIC_TARO_EXTENSION_IDS ?? '')
 const REPLY_TIMEOUT_MS = 10_000;
 
 const INVALID = "This link isn't valid. Start again from the Taro button in Google Meet.";
-const UNSUPPORTED = 'This page only works when you open it from the Taro button in Google Meet, in Chrome or Edge.';
+const UNSUPPORTED = 'This page only works when you open it from the Taro button in Google Meet.';
 const NO_ANSWER =
   "The Taro extension didn't answer. Check that it's turned on, then start again from the Taro button in Google Meet.";
 const NOT_ACCEPTED = "The Taro extension didn't accept this connection. Start again from the Taro button in Google Meet.";
 
-// Just the part of the chrome.runtime API that Chrome and Edge give pages an installed extension trusts.
+// Just the part of the chrome.runtime API that Chromium browsers give pages an installed extension trusts.
+// In Firefox the extension's bridge script on this page provides the same call.
 type Reply = { ok?: unknown; error?: unknown } | undefined;
 type Runtime = {
   sendMessage: (extensionId: string, message: object, callback: (reply: Reply) => void) => void;
@@ -289,6 +290,7 @@ function tokenError(error: unknown): string {
 
 // Edge, Opera, and Vivaldi also say Chrome, so they're checked first.
 const BROWSERS: [RegExp, string][] = [
+  [/Firefox\//, 'Firefox'],
   [/Edg\//, 'Edge'],
   [/OPR\//, 'Opera'],
   [/Vivaldi\//, 'Vivaldi'],

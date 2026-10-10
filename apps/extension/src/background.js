@@ -2,7 +2,7 @@
 // The extension's only network client. The content script on Meet and the
 // popup ask it to act; it holds the Taro token (which page scripts can never
 // read) and talks to the Taro API on the person's behalf.
-import { DEFAULT_APP_URL } from './config.js';
+import { CONNECT_ID_FALLBACK, DEFAULT_APP_URL } from './config.js';
 import { meetingCodeFromPath, originOf } from './lib/meet.js';
 
 const CONNECT_TTL_MS = 15 * 60 * 1000;
@@ -153,7 +153,7 @@ async function openConnect() {
   const nonce = crypto.randomUUID();
   await chrome.storage.local.set({ pendingConnect: { nonce, origin: appUrl, createdAt: Date.now() } });
   const url = new URL('/extension/connect', appUrl);
-  url.searchParams.set('id', chrome.runtime.id);
+  url.searchParams.set('id', /^[a-p]{32}$/.test(chrome.runtime.id) ? chrome.runtime.id : CONNECT_ID_FALLBACK);
   url.searchParams.set('n', nonce);
   await chrome.tabs.create({ url: url.toString() });
 }
@@ -169,8 +169,14 @@ async function openInTaro(code) {
 // The content script on Meet and the popup.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
+  // Firefox: the dashboard's connect page, through src/firefox-bridge.js. It is checked like a message from the page itself.
+  if (message?.type === 'taro.external' && sender.tab && typeof sender.url === 'string') {
+    fromDashboard(message.message, originOf(sender.url)).then(sendResponse, () => sendResponse({ ok: false, error: 'Taro could not save the connection.' }));
+    return true;
+  }
   const fromMeet = typeof sender.url === 'string' && sender.url.startsWith('https://meet.google.com/');
-  const fromExtension = typeof sender.url === 'string' && sender.url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+  // chrome-extension:// in Chromium, moz-extension:// with a per-install ID in Firefox
+  const fromExtension = typeof sender.url === 'string' && sender.url.startsWith(chrome.runtime.getURL(''));
   if (!fromMeet && !fromExtension) return false;
 
   // A content script may only act on the meeting it is running in.
@@ -218,29 +224,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // browser". Chrome only lets the origins in externally_connectable send this;
 // the nonce makes sure it answers a connect this browser actually started.
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  (async () => {
-    const { pendingConnect } = await chrome.storage.local.get('pendingConnect');
-    const fresh = pendingConnect && Date.now() - pendingConnect.createdAt < CONNECT_TTL_MS;
-    const expected = fresh && message?.nonce === pendingConnect.nonce && sender.origin === pendingConnect.origin;
-    const expired = { ok: false, error: 'That connection request expired. Start again from the Taro button in Google Meet.' };
-    // The connect page checks first, so it never asks Taro for a token this browser would refuse.
-    if (message?.type === 'taro.hello') return expected ? { ok: true } : expired;
-    if (message?.type !== 'taro.connect') return { ok: false, error: 'Unknown request.' };
-    if (!expected) return expired;
-    const apiUrl = originOf(message.apiUrl);
-    if (typeof message.token !== 'string' || !message.token || !apiUrl) return { ok: false, error: 'Taro sent an incomplete connection.' };
-    await chrome.storage.local.set({
-      auth: {
-        token: message.token,
-        apiUrl,
-        workspace: typeof message.workspace === 'string' ? message.workspace.slice(0, 80) : undefined,
-        user: typeof message.user === 'string' ? message.user.slice(0, 80) : undefined,
-        connectedAt: Date.now(),
-      },
-      expired: false,
-      pendingConnect: null,
-    });
-    return { ok: true };
-  })().then(sendResponse, () => sendResponse({ ok: false, error: 'Taro could not save the connection.' }));
+  fromDashboard(message, sender.origin).then(sendResponse, () => sendResponse({ ok: false, error: 'Taro could not save the connection.' }));
   return true;
 });
+
+/** @param {any} message @param {string | null | undefined} origin */
+async function fromDashboard(message, origin) {
+  const { pendingConnect } = await chrome.storage.local.get('pendingConnect');
+  const fresh = pendingConnect && Date.now() - pendingConnect.createdAt < CONNECT_TTL_MS;
+  const expected = fresh && message?.nonce === pendingConnect.nonce && !!origin && origin === pendingConnect.origin;
+  const expired = { ok: false, error: 'That connection request expired. Start again from the Taro button in Google Meet.' };
+  // The connect page checks first, so it never asks Taro for a token this browser would refuse.
+  if (message?.type === 'taro.hello') return expected ? { ok: true } : expired;
+  if (message?.type !== 'taro.connect') return { ok: false, error: 'Unknown request.' };
+  if (!expected) return expired;
+  const apiUrl = originOf(message.apiUrl);
+  if (typeof message.token !== 'string' || !message.token || !apiUrl) return { ok: false, error: 'Taro sent an incomplete connection.' };
+  await chrome.storage.local.set({
+    auth: {
+      token: message.token,
+      apiUrl,
+      workspace: typeof message.workspace === 'string' ? message.workspace.slice(0, 80) : undefined,
+      user: typeof message.user === 'string' ? message.user.slice(0, 80) : undefined,
+      connectedAt: Date.now(),
+    },
+    expired: false,
+    pendingConnect: null,
+  });
+  return { ok: true };
+}

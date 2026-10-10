@@ -177,7 +177,7 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 | `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | for Linear | Section 4 |
 | `JIRA_APP_INSTALL_URL` | for Jira | Section 4 |
 | `WEB_ORIGINS` | no | Extra trusted dashboard origins, comma separated |
-| `EXTENSION_IDS` | for the Meet button | Chrome and Edge extension IDs allowed to call the API (section 7) |
+| `EXTENSION_IDS` | for the Meet button | Chromium extension IDs allowed to call the API (section 7). Once it's set, the Firefox build may call it too |
 | `INVITE_ADDRESS`, `INBOUND_SECRET` | for calendar invitations | Section 9 |
 | `TRUST_PROXY_HOPS` | no | Proxies in front of the API. Default 1, right for Render, Railway, and Fly; 0 when clients connect directly |
 | `MAX_ACTIVE_MEETINGS_PER_WORKSPACE` | no | Default 5 |
@@ -199,10 +199,10 @@ Put it behind a reverse proxy that terminates TLS and passes WebSocket upgrades 
 
 ## 7. The Invite Taro button in Google Meet (optional)
 
-`apps/extension` is a Chrome and Edge extension that adds an **Invite Taro** button to Google Meet's bottom bar. Its README covers trying it unpacked, publishing it to the Chrome Web Store and Edge Add-ons, and how a Google Workspace admin force-installs it for a whole company.
+`apps/extension` is a browser extension for Chromium browsers (Chrome, Edge, Brave, Opera, Arc, Vivaldi) and Firefox that adds an **Invite Taro** button to Google Meet's bottom bar. Ready to load builds of both are on the [latest release](https://github.com/sohan-bhat/Taro/releases/latest), and `pnpm --filter @taro/extension package` rebuilds them. Its README covers trying it unpacked, publishing it to the Chrome Web Store, Edge Add-ons, and addons.mozilla.org, and how a Google Workspace admin force-installs it for a whole company.
 
 1. Publish it (or load it unpacked while testing) and note its extension ID.
-2. On the API, set `EXTENSION_IDS` to that ID (comma separate several builds).
+2. On the API, set `EXTENSION_IDS` to that ID (comma separate several builds). Firefox gives every install its own random origin, so it has no ID to list; the API accepts any Firefox extension origin once `EXTENSION_IDS` is set.
 3. On the dashboard, set `NEXT_PUBLIC_TARO_EXTENSION_IDS` to the same list, and `NEXT_PUBLIC_TARO_EXTENSION_URL` to the store listing so the dashboard can link to it. They're compiled into the site, so redeploy after changing them. On Vercel they go in the project settings; with Docker they're build arguments, and `docker-compose.yml` fills in the IDs from `EXTENSION_IDS`.
 
 The extension gets a limited connection: it can send Taro to a meeting, check on it, and make Taro leave, and nothing else.

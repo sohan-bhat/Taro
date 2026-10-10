@@ -1,8 +1,8 @@
 # Taro for Google Meet
 
-A Chrome and Edge extension that puts a purple Taro button at the left end of the bottom bar in every Google Meet call. One click sends the workspace's Taro bot into the meeting. A Google Workspace admin can install and pin it for the whole company from the Admin console, so nobody has to paste a link again.
+A browser extension for Chrome, Edge, Brave, Opera, Arc, Vivaldi, and Firefox that puts a purple Taro button at the left end of the bottom bar in every Google Meet call. One click sends the workspace's Taro bot into the meeting. A Google Workspace admin can install and pin it for the whole company from the Admin console, so nobody has to paste a link again.
 
-It needs no build step: the folder loads as is.
+It needs no build step: the folder loads as is in Chromium browsers. `pnpm --filter @taro/extension package` writes the two downloadable builds to `dist/`: `taro-extension-chromium.zip` (this folder as is) and `taro-extension-firefox.zip` (the same code with a Firefox manifest). Safari isn't supported yet.
 
 ## How it works
 
@@ -36,6 +36,16 @@ The server says whether a joining bot is still starting up or already asking to 
 3. `src/config.js` points the extension at `https://trytaro.vercel.app`. To use a local dashboard instead, change it in the popup's **Settings** (for example `http://localhost:3100`); any `localhost` port can connect.
 4. Join any Google Meet call. The button appears at the left end of the bottom bar.
 
+### Firefox
+
+Run `pnpm --filter @taro/extension package`, open `about:debugging`, choose **This Firefox**, then **Load Temporary Add-on**, and pick `dist/firefox/manifest.json`. It stays until Firefox restarts. Firefox 128 or newer.
+
+The Firefox build differs from the Chromium one in three ways, all made by `scripts/manifests.mjs`:
+
+* Its background script runs as a Manifest V3 background script, since Firefox has no extension service workers, and its ID is `taro@trytaro.vercel.app`.
+* Firefox doesn't let web pages message an extension (`externally_connectable`), so on the dashboard's connect page `src/firefox-bridge.js` gives the page the same `chrome.runtime.sendMessage` call it uses in Chrome. The background worker checks the page's address and the nonce the same way. The dashboard only opens links for extension IDs it trusts, so the Firefox build introduces itself with the Chromium build's ID (`CONNECT_ID_FALLBACK` in `src/config.js`).
+* Each Firefox install calls the API from its own random `moz-extension://` origin. The API accepts those whenever `EXTENSION_IDS` is set.
+
 Tests for the pure logic: `node --test test/*.test.mjs`.
 
 ## Publish
@@ -45,6 +55,7 @@ Tests for the pure logic: `node --test test/*.test.mjs`.
 3. Zip the folder's contents and upload them in the [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole). Registration is a one-time fee. Name it in the "Taro for Google Meet" pattern, describe the single purpose (inviting Taro into the current Meet call), justify `storage`, `activeTab`, and the Meet page access, and link a privacy policy. Say plainly that the extension reads only the meeting code from the page.
 4. Once published, add the store ID to the API's `EXTENSION_IDS` and the dashboard's `NEXT_PUBLIC_TARO_EXTENSION_IDS`, and set `NEXT_PUBLIC_TARO_EXTENSION_URL` to the store listing so the dashboard can link to it.
 5. For Microsoft Edge, submit the same zip in [Partner Center](https://partner.microsoft.com/dashboard/microsoftedge/overview) and add that ID too.
+6. For Firefox, set `CONNECT_ID_FALLBACK` in `src/config.js` to an ID the dashboard trusts, run `pnpm --filter @taro/extension package`, and submit `dist/taro-extension-firefox.zip` at [addons.mozilla.org](https://addons.mozilla.org/developers/). Signing is free, and a signed build stays installed after a restart. If your dashboard isn't `trytaro.vercel.app`, add it to `externally_connectable.matches` first: the Firefox build runs its bridge on the same addresses.
 
 ## Roll it out to a whole company
 
